@@ -75,7 +75,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.2.0</small></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.2.1</small></header>
 <main>
   <section id="searchView" role="tabpanel" aria-labelledby="tab-search">
     <label for="searchBox" class="sr-only">Search songs or artists</label>
@@ -117,7 +117,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v1.2.0. Plays through YouTube's official embedded player. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
+      <p class="hint">Lynxos Music v1.2.1. Plays through YouTube's official embedded player. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
     </div>
   </section>
 </main>
@@ -353,10 +353,16 @@ function ensurePlayer(v){
   state.player = new YT.Player("ytplayer", {
     height: "100%", width: "100%", videoId: v.videoId,
     playerVars: { rel: 0, modestbranding: 1, origin: "https://lynxosmusic.app" },
-    events: { onStateChange: onPlayerState, onError: onPlayerError }
+    events: { onReady: onPlayerReady, onStateChange: onPlayerState, onError: onPlayerError }
   });
   state.loggedVideo = null;
   updateNowPlaying(v);
+}
+/* The player element is visually hidden, and YouTube will not autoplay into
+   a hidden player — it cues the video and sits there. So we explicitly start
+   playback the moment the player is ready, and again if it ever lands CUED. */
+function onPlayerReady(e){
+  try { e.target.playVideo(); } catch(x){}
 }
 function loadIntoPlayer(v){
   try { state.player.loadVideoById(v.videoId); } catch(e){ return; }
@@ -383,6 +389,8 @@ function onPlayerState(e){
     startProgress();
   } else if(e.data === YT.PlayerState.PAUSED){
     stopProgress();
+  } else if(e.data === YT.PlayerState.CUED){
+    try { state.player.playVideo(); } catch(x){}
   } else if(e.data === YT.PlayerState.ENDED){
     stopProgress();
     if(state.repeat === 2 && state.player){
@@ -751,15 +759,34 @@ function startRadio(artist){
   var v = currentVideo();
   var q = artist || (v ? cleanArtistName(v.channel) : "");
   if(!q){ say("Couldn't figure out the artist for this song."); return; }
-  say("Starting " + q + " radio. Searching for songs.");
-  ytSearch(q).then(function(videos){
-    if(!videos.length){ say("No songs found for " + q + "."); return; }
-    shuffleList(videos);
-    playVideo(videos[0], videos, 0);
-    say(q + " radio started. " + videos.length + " songs, shuffled.");
-  }).catch(function(){
-    say("Radio search failed. Check your connection.");
-  });
+  say("Building a " + q + " radio station with similar artists.");
+  fetch("https://ws.audioscrobbler.com/2.0/?method=artist.getSimilar&artist=" + encodeURIComponent(q) + "&api_key=" + LASTFM_KEY + "&format=json&limit=5")
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      var arts = (d && d.similarartists && d.similarartists.artist) || [];
+      var names = arts.map(function(a){ return a.name; })
+        .filter(function(n){ return n && n.toLowerCase() !== q.toLowerCase(); })
+        .slice(0, 4);
+      var queries = [q].concat(names);
+      if(names.length) say("Radio: " + q + ", plus " + names.join(", ") + ". Gathering songs.");
+      else say("Gathering " + q + " songs.");
+      return Promise.all(queries.map(function(name){
+        return ytSearch(name).catch(function(){ return []; });
+      }));
+    })
+    .then(function(lists){
+      var all = [], seen = {};
+      lists.forEach(function(list){
+        list.forEach(function(sv){
+          if(!seen[sv.videoId]){ seen[sv.videoId] = true; all.push(sv); }
+        });
+      });
+      if(!all.length){ say("Couldn't find any songs for this radio."); return; }
+      shuffleList(all);
+      playVideo(all[0], all, 0);
+      say("Radio started. " + all.length + " songs, shuffled.");
+    })
+    .catch(function(){ say("Radio failed. Check your connection."); });
 }
 $("fpRadioBtn").addEventListener("click", function(){ startRadio(""); });
 /* ================= similar artists (Last.fm) ================= */
