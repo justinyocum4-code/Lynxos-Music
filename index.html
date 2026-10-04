@@ -231,7 +231,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.7.7</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.7.8</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <div class="homeBlock">
@@ -302,7 +302,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v1.7.7. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
+      <p class="hint">Lynxos Music v1.7.8. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
     </div>
   </section>
 </main>
@@ -879,7 +879,7 @@ function refillRadioNow(){
     if(state.radio !== r){ r.refilling = false; return; }
     var fresh = [];
     videos.forEach(function(sv){
-      if(!r.seenIds[sv.videoId]){ r.seenIds[sv.videoId] = true; fresh.push(sv); }
+      if(!r.seenIds[sv.videoId] && genrePure(r.seedName, sv.ownerChannel)){ r.seenIds[sv.videoId] = true; fresh.push(sv); }
     });
     fresh.forEach(function(sv){ state.queue.push(sv); });
     r.refilling = false;
@@ -1316,6 +1316,7 @@ function fetchYouTubeRadio(videoId){
         videoId: (it.contentDetails || {}).videoId,
         title: sn.title || "",
         channel: sn.channelTitle || "",
+        ownerChannel: sn.videoOwnerChannelTitle || sn.channelTitle || "",
         thumb: th.medium ? th.medium.url : (th.default ? th.default.url : ""),
         art: th.high ? th.high.url : (th.medium ? th.medium.url : "")
       };
@@ -1324,20 +1325,63 @@ function fetchYouTubeRadio(videoId){
     return filterLongVideos(videos, 25);
   });
 }
-/* Verified genre station seeds: each genre pulls recommendations from several
-   different artists in parallel, then merges and shuffles them — so Metal
-   isn't just AC/DC and Rock isn't just Queen. These bypass YouTube's
-   (rate-limited) search entirely; the radio playlist endpoint stays reliable.
-   Every ID below was verified live (its recommendation playlist returns). */
-var GENRE_SEEDS = {
-  "metal": ["v2AC41dglnM", "CD-E-LDc384", "CSvFpBOe8eY"],
-  "rock": ["fJ9rUzIMcZQ", "pAgnJDJN4VA", "A_MjCqQoLLA"],
-  "grunge": ["hTWKbfoikeg", "__biilMpnmw", "eVTXPUF4Oz4"],
-  "pop": ["JGwWNGJdvx8", "kJQP7kiw5Fk", "hT_nvWreIhg"],
-  "alternative": ["XFkzRNyygfk", "YlUKcNNmywk", "hTWKbfoikeg"],
-  "punk": ["7iNbnineUCI", "CSvFpBOe8eY", "eVTXPUF4Oz4"],
-  "hip-hop": ["RgKAFK5djSk", "euCqAq6BRa4"]
+/* Verified seed videoIds per genre: each pulls its RD recommendation
+   playlist (reliable endpoint, no search). Multiple seeds per genre for
+   variety — merged, deduped, filtered to core artists, shuffled. */
+/* Core artists per genre from Last.fm tag.getTopArtists (verified 2026-10-04).
+   Genre radio keeps ONLY videos from these artists — guarantees the correct
+   genre plays, no matter how much YouTube's recommendations bleed. */
+var GENRE_ARTISTS = {
+  "metal": ["Slipknot", "System of a Down", "Deftones", "Korn", "Metallica", "Rammstein", "Disturbed", "BABYMETAL", "Rob Zombie", "Avenged Sevenfold", "Bullet for My Valentine", "Iron Maiden", "Kittie", "Slayer", "Pantera"],
+  "rock": ["Radiohead", "Paramore", "Linkin Park", "My Chemical Romance", "Coldplay", "Red Hot Chili Peppers", "The Cranberries", "Weezer", "The Beatles", "Fleetwood Mac", "Foo Fighters", "Panic! at the Disco", "Queen", "Maroon 5", "Harry Styles"],
+  "grunge": ["Nirvana", "Alice in Chains", "Pearl Jam", "Soundgarden", "Hole", "The Smashing Pumpkins", "Superheaven", "Stone Temple Pilots", "Temple of the Dog", "Foo Fighters", "Bush", "Kurt Cobain", "Local H", "Silverchair", "Dinosaur Jr."],
+  "pop": ["Ariana Grande", "Sabrina Carpenter", "Olivia Rodrigo", "ADÉLA", "Michael Jackson", "Lady Gaga", "Katy Perry", "Britney Spears", "Rihanna", "Madonna", "Miley Cyrus", "Dua Lipa", "Bruno Mars", "Justin Bieber", "KATSEYE"],
+  "alternative": ["Gorillaz", "Radiohead", "Deftones", "Twenty One Pilots", "My Chemical Romance", "Coldplay", "Panic! at the Disco", "The Cranberries", "bôa", "Pixies", "Paramore", "sombr", "Weezer", "Linkin Park", "Beck"],
+  "punk": ["The Clash", "The Offspring", "Ramones", "Green Day", "Misfits", "Dead Kennedys", "Fugazi", "Descendents", "Iggy Pop", "Bad Religion", "blink-182", "Joyce Manor", "Sex Pistols", "AFI", "Mindless Self Indulgence"],
+  "hip-hop": ["Kanye West", "Kendrick Lamar", "Tyler, The Creator", "Drake", "A$AP Rocky", "Childish Gambino", "Mac Miller", "J. Cole", "Travi$ Scott", "Future", "Eminem", "Black Eyed Peas", "Kid Cudi", "OutKast", "Post Malone"],
+  "electronic": ["The Weeknd", "Daft Punk", "Gorillaz", "Calvin Harris", "PinkPantheress", "Twenty One Pilots", "Crystal Castles", "MGMT", "Depeche Mode", "Empire of the Sun", "Charli xcx", "Clean Bandit", "LCD Soundsystem", "The Living Tombstone", "Grimes"],
+  "country": ["Taylor Swift", "Dolly Parton", "Kacey Musgraves", "Johnny Cash", "Luke Combs", "Luke Bryan", "Jon Pardi", "Rascal Flatts", "Lady Antebellum", "Zach Bryan", "George Strait", "Chris Stapleton", "Glen Campbell", "Toby Keith", "Ella Langley"],
+  "jazz": ["Steve Lacy", "Frank Sinatra", "Laufey", "Sade", "Miles Davis", "Amy Winehouse", "Leon Thomas", "Chet Baker", "Ezra Collective", "Nina Simone", "John Coltrane", "Michael Bublé", "Stan Getz", "Ella Fitzgerald", "Nat King Cole"],
+  "classical": ["Wolfgang Amadeus Mozart", "Ludwig van Beethoven", "Pyotr Ilyich Tchaikovsky", "Johann Sebastian Bach", "Frédéric Chopin", "Claude Debussy", "Camille Saint-Saëns", "Antonio Vivaldi", "Hector Berlioz", "Erik Satie", "Johannes Brahms", "Sergei Rachmaninoff", "Franz Liszt", "Franz Schubert", "Dmitri Shostakovich"],
+  "r&b": ["The Weeknd", "Rihanna", "Frank Ocean", "Ariana Grande", "Beyoncé", "Daniel Caesar", "Brent Faiyaz", "SZA", "Doja Cat", "Tinashe", "PARTYNEXTDOOR", "Miguel", "Bruno Mars", "Joji", "Kali Uchis"],
 };
+
+var GENRE_SEEDS = {
+  "metal": ["6fVE8kSM43I", "L-iepu3EtyE", "jRGrNDV2mKc", "CD-E-LDc384", "09LTT0xwdfw", "AkFqg5wAuFk"],
+  "rock": ["XFkzRNyygfk", "eVTXPUF4Oz4", "we5_bia7ON8", "YlUKcNNmywk", "6Ejga4kJUts", "vAoOJLpYKJ0", "A_MjCqQoLLA", "a_4-VUVIw1A"],
+  "grunge": ["hTWKbfoikeg", "__biilMpnmw", "ySzrJ4GRF7s", "8-r-V0uK4u0", "OQUccWqG9f8", "a_4-VUVIw1A", "5WPbqYoz9HA", "8KHwuOtcALQ"],
+  "pop": ["Zi_XLOBDo_Y", "TUVcZfQe-Kw", "LjhCEhWiKXk", "8ELbX5CMomE"],
+  "alternative": ["XFkzRNyygfk", "we5_bia7ON8", "6Ejga4kJUts", "vAoOJLpYKJ0", "eVTXPUF4Oz4"],
+  "punk": ["7iNbnineUCI", "Ajxn0PKbv7I", "K7l5ZeVVoCA"],
+  "hip-hop": ["xFYQQPAOz7Y"],
+  "electronic": ["gCYcHz2k5x0", "a5uQMwRMHcs", "J9NQFACZYEU", "papuvlVeZg8", "Rl1nsQkuM5c"],
+  "country": ["8AHCfZTRGiI", "Ixrje2rXLMA"],
+  "jazz": ["ZEcqHA7dbwM"],
+  "classical": ["fOk8Tm815lE", "TlzjdaI5wzw"],
+  "r&b": ["bnVUHWCynig", "CvBfHwUxHIk"],
+};
+/* Genre purity via allowlist: a video is kept only if its owner's channel
+   fuzzy-matches one of the genre's core artists from Last.fm. This guarantees
+   Metal plays metal, not YouTube's leaky "related videos" bleed. */
+function normArtist(s){
+  s = String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  if(s.indexOf("the") === 0) s = s.slice(3);
+  ["vevo","official","topic","music","records"].forEach(function(w){
+    if(s.endsWith(w)) s = s.slice(0, -w.length);
+  });
+  return s;
+}
+function genrePure(genre, ownerChannel){
+  var artists = GENRE_ARTISTS[String(genre || "").toLowerCase()];
+  if(!artists || !artists.length) return true;
+  var c = normArtist(ownerChannel);
+  if(!c) return false;
+  for(var i = 0; i < artists.length; i++){
+    var a = normArtist(artists[i]);
+    if(a && (c.indexOf(a) !== -1 || a.indexOf(c) !== -1)) return true;
+  }
+  return false;
+}
 function startRadio(artist){
   var v = currentVideo();
   var seedName = artist || "";
@@ -1354,7 +1398,7 @@ function startRadio(artist){
           var seen = {}, all = [];
           results.forEach(function(videos){
             (videos || []).forEach(function(sv){
-              if(sv.videoId && !seen[sv.videoId]){ seen[sv.videoId] = true; all.push(sv); }
+              if(sv.videoId && !seen[sv.videoId] && genrePure(seedName, sv.ownerChannel)){ seen[sv.videoId] = true; all.push(sv); }
             });
           });
           if(!all.length) throw new Error("no videos");
@@ -1410,7 +1454,7 @@ function startRadio(artist){
     state.radio = { seedId: res.seed.id || null, seedIds: res.seed.seedIds || null, seedName: res.seed.name, active: true, refilling: false, seenIds: seenIds };
     addRecentRadioArtists([res.seed.name]);
     say("Radio started with " + all.length + " songs. It keeps widening as you listen.");
-  }).catch(function(){ say("Radio failed. Check your connection and try again."); });
+  }).catch(function(){ say("Radio failed. YouTube may be busy right now — try again in a moment."); });
 }
 function maybeRefillRadio(){
   var r = state.radio;
@@ -1429,7 +1473,7 @@ function maybeRefillRadio(){
     if(state.radio !== r) return;
     var fresh = [];
     videos.forEach(function(sv){
-      if(!r.seenIds[sv.videoId]){ r.seenIds[sv.videoId] = true; fresh.push(sv); }
+      if(!r.seenIds[sv.videoId] && genrePure(r.seedName, sv.ownerChannel)){ r.seenIds[sv.videoId] = true; fresh.push(sv); }
     });
     fresh.forEach(function(sv){ state.queue.push(sv); });
     r.refilling = false;
