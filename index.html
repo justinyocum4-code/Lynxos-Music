@@ -6,118 +6,160 @@
 <title>Lynxos Music</title>
 <script src="https://www.youtube.com/iframe_api"></script>
 <style>
-  :root { --gold: #d4af37; --gold-dim: #9a7b1e; --bg: #0a0a0a; --card: #161616; --text: #f5f5f5; --muted: #a0a0a0; }
+  :root { --gold: #d4af37; --gold-dim: #9a7b1e; --bg: #0a0a0a; --surface: #1a1a1a; --surface2: #242424; --text: #ffffff; --muted: #aaaaaa; }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text); font-family: sans-serif; font-size: 18px; padding-bottom: 90px; }
-  header { background: #000; border-bottom: 2px solid var(--gold); padding: 14px 16px; position: sticky; top: 0; z-index: 10; }
-  header h1 { margin: 0; color: var(--gold); font-size: 24px; }
-  header h1 small { color: var(--muted); font-size: 14px; }
-  nav.tabs { display: flex; position: fixed; bottom: 0; left: 0; right: 0; background: #000; border-top: 2px solid var(--gold); z-index: 10; }
-  nav.tabs button { flex: 1; background: none; border: none; color: var(--muted); font-size: 13px; padding: 12px 2px; cursor: pointer; }
-  nav.tabs button[aria-selected="true"] { color: var(--gold); font-weight: bold; }
-  main { padding: 12px 14px; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: sans-serif; font-size: 17px; padding-bottom: 150px; }
+  header.topbar { display: flex; align-items: center; gap: 10px; padding: 12px 16px; position: sticky; top: 0; z-index: 20; background: var(--bg); border-bottom: 1px solid #2a2a2a; }
+  header.topbar .logo { color: var(--gold); font-size: 22px; font-weight: bold; }
+  header.topbar small { color: var(--muted); font-size: 12px; }
+  main { padding: 10px 12px; }
   section[hidden] { display: none; }
-  .btn { background: var(--gold); color: #000; border: none; border-radius: 8px; padding: 12px 18px; font-size: 17px; font-weight: bold; cursor: pointer; margin: 6px 4px 6px 0; }
-  .btn.secondary { background: #222; color: var(--gold); border: 1px solid var(--gold); }
-  .btn.small { padding: 8px 12px; font-size: 15px; }
-  input[type="text"], input[type="search"] { width: 100%; padding: 12px; font-size: 17px; border-radius: 8px; border: 1px solid var(--gold-dim); background: #111; color: var(--text); margin: 6px 0; }
-  label { display: block; margin-top: 10px; color: var(--muted); }
-  .card { background: var(--card); border: 1px solid #2a2a2a; border-radius: 10px; padding: 12px; margin: 10px 0; }
-  .card h3 { margin: 0 0 6px 0; color: var(--gold); font-size: 18px; }
-  .track { display: flex; gap: 10px; align-items: center; background: var(--card); border-radius: 8px; padding: 8px; margin: 8px 0; }
-  .track img { width: 72px; height: 54px; object-fit: cover; border-radius: 4px; background: #222; }
-  .track .info { flex: 1; min-width: 0; }
-  .track .title { font-weight: bold; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .track .channel { color: var(--muted); font-size: 14px; }
-  .track .actions { display: flex; flex-direction: column; gap: 4px; }
-  .iconbtn { background: #222; color: var(--gold); border: 1px solid var(--gold-dim); border-radius: 6px; font-size: 16px; padding: 6px 10px; cursor: pointer; }
-  .nowplaying { text-align: center; }
-  .nowplaying h2 { color: var(--gold); margin: 8px 0; font-size: 20px; }
-  .nowplaying .channel { color: var(--muted); margin-bottom: 10px; }
-  #ytplayer { width: 100%; aspect-ratio: 16/9; background: #000; border-radius: 10px; overflow: hidden; }
-  .controls { display: flex; justify-content: center; gap: 8px; margin: 12px 0; flex-wrap: wrap; }
-  .controls .btn { font-size: 20px; padding: 14px 20px; }
-  .empty { color: var(--muted); text-align: center; padding: 24px 10px; }
+  .btn { background: var(--gold); color: #000; border: none; border-radius: 20px; padding: 10px 20px; font-size: 16px; font-weight: bold; cursor: pointer; margin: 6px 4px 6px 0; }
+  .btn.secondary { background: var(--surface2); color: var(--gold); border: 1px solid var(--gold-dim); }
+  .btn.small { padding: 7px 14px; font-size: 14px; }
+  input[type="text"], input[type="search"] { width: 100%; padding: 12px 16px; font-size: 16px; border-radius: 24px; border: 1px solid #3a3a3a; background: var(--surface); color: var(--text); margin: 6px 0; }
+  input[type="range"] { width: 100%; accent-color: var(--gold); height: 32px; }
+  label { display: block; margin-top: 10px; color: var(--muted); font-size: 15px; }
+  .hint { color: var(--muted); font-size: 14px; margin: 8px 0; }
+  .empty { color: var(--muted); text-align: center; padding: 28px 10px; }
   .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  /* song rows, YouTube Music style */
+  .track { display: flex; gap: 12px; align-items: center; padding: 8px 4px; border-bottom: 1px solid #1e1e1e; }
+  .track img { width: 56px; height: 56px; object-fit: cover; border-radius: 4px; background: var(--surface2); flex-shrink: 0; }
+  .track .info { flex: 1; min-width: 0; }
+  .track .title { font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .track .channel { color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .track .actions { display: flex; gap: 2px; flex-shrink: 0; }
+  .iconbtn { background: none; border: none; color: var(--text); font-size: 20px; padding: 10px; cursor: pointer; }
+  .iconbtn.gold { color: var(--gold); }
+  /* bottom nav */
+  nav.tabs { display: flex; position: fixed; bottom: 0; left: 0; right: 0; background: #111; border-top: 1px solid #2a2a2a; z-index: 30; }
+  nav.tabs button { flex: 1; background: none; border: none; color: var(--muted); font-size: 12px; padding: 10px 2px 12px; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  nav.tabs button .ticon { font-size: 20px; }
+  nav.tabs button[aria-selected="true"] { color: var(--gold); }
+  /* mini player */
+  #miniPlayer { position: fixed; left: 0; right: 0; bottom: 62px; z-index: 25; display: flex; align-items: center; gap: 10px; background: var(--surface2); border-top: 1px solid #2a2a2a; padding: 6px 8px; }
+  #miniPlayer[hidden] { display: none; }
+  #miniPlayer img { width: 48px; height: 48px; border-radius: 4px; object-fit: cover; background: #333; }
+  #miniPlayer .mpinfo { flex: 1; min-width: 0; background: none; border: none; color: var(--text); text-align: left; padding: 6px 0; cursor: pointer; }
+  #miniPlayer .mptitle { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #miniPlayer .mpartist { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* full player overlay */
+  #fullPlayer { position: fixed; inset: 0; z-index: 40; background: var(--bg); overflow-y: auto; padding: 10px 16px 30px; }
+  #fullPlayer[hidden] { display: none; }
+  #fpCollapseBtn { background: none; border: none; color: var(--text); font-size: 26px; padding: 8px; cursor: pointer; }
+  .fp-top { display: flex; align-items: center; justify-content: space-between; }
+  .fp-top span { color: var(--muted); font-size: 13px; letter-spacing: 1px; }
+  #fpArt { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; background: var(--surface); margin: 8px 0 12px; }
+  #fpTitle { font-size: 20px; font-weight: bold; margin: 0; }
+  #fpArtist { color: var(--muted); font-size: 15px; margin: 4px 0 8px; }
+  .fp-like-row { display: flex; justify-content: flex-end; gap: 4px; margin-bottom: 4px; }
+  .times { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; margin-top: -6px; }
+  .fp-controls { display: flex; align-items: center; justify-content: space-between; margin: 6px 0 4px; }
+  .fp-controls .iconbtn { font-size: 26px; }
+  #fpPlayBtn { font-size: 44px; color: var(--text); }
+  .fp-controls .iconbtn.active { color: var(--gold); }
+  #ytplayer { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .fp-section-title { color: var(--muted); font-size: 13px; letter-spacing: 1px; margin: 18px 0 6px; text-transform: uppercase; }
+  /* library segments */
+  .segbar { display: flex; gap: 8px; margin: 8px 0 4px; }
+  .segbar button { flex: 1; background: var(--surface); border: 1px solid #3a3a3a; color: var(--muted); border-radius: 20px; padding: 10px; font-size: 15px; cursor: pointer; }
+  .segbar button[aria-selected="true"] { background: var(--gold); color: #000; font-weight: bold; border-color: var(--gold); }
+  .card { background: var(--surface); border-radius: 10px; padding: 12px; margin: 10px 0; }
+  .card h3 { margin: 0 0 6px 0; color: var(--gold); font-size: 17px; }
   .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-  .hint { color: var(--muted); font-size: 15px; margin: 8px 0; }
-  .queue-item { padding: 8px; border-bottom: 1px solid #2a2a2a; }
+  .queue-item { padding: 10px 4px; border-bottom: 1px solid #1e1e1e; font-size: 15px; }
   .queue-item.current { color: var(--gold); font-weight: bold; }
 </style>
 </head>
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
-<header><h1>🎵 Lynxos Music <small>v1.0.1</small></h1></header>
-<nav class="tabs" role="tablist" aria-label="Main sections">
-  <button role="tab" id="tab-search" aria-selected="true" aria-controls="searchView">Search</button>
-  <button role="tab" id="tab-player" aria-selected="false" aria-controls="playerView">Now Playing</button>
-  <button role="tab" id="tab-playlists" aria-selected="false" aria-controls="playlistsView">Playlists</button>
-  <button role="tab" id="tab-history" aria-selected="false" aria-controls="historyView">History</button>
-  <button role="tab" id="tab-liked" aria-selected="false" aria-controls="likedView">Liked</button>
-  <button role="tab" id="tab-settings" aria-selected="false" aria-controls="settingsView">Settings</button>
-</nav>
+<div id="ytplayer" aria-hidden="true"></div>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.1.0</small></header>
 <main>
   <section id="searchView" role="tabpanel" aria-labelledby="tab-search">
-    <h2 style="color:var(--gold)">Search music</h2>
-    <label for="searchBox">Song, artist, or album</label>
-    <input type="search" id="searchBox" placeholder="e.g. Metallica Enter Sandman" autocomplete="off">
+    <label for="searchBox" class="sr-only">Search songs or artists</label>
+    <input type="search" id="searchBox" placeholder="Search songs, artists" autocomplete="off">
     <button class="btn" id="searchBtn">Search</button>
     <div id="searchResults"></div>
   </section>
-  <section id="playerView" role="tabpanel" aria-labelledby="tab-player" hidden>
-    <div class="nowplaying">
-      <h2 id="npTitle">Nothing playing</h2>
-      <div class="channel" id="npChannel"></div>
-      <div id="ytplayer"></div>
-      <div class="controls">
-        <button class="btn" id="prevBtn" aria-label="Previous track">⏮</button>
-        <button class="btn" id="playPauseBtn" aria-label="Play or pause">⏯</button>
-        <button class="btn" id="nextBtn" aria-label="Next track">⏭</button>
-      </div>
-      <div class="controls">
-        <button class="btn secondary small" id="likeBtn" aria-label="Like this song">🤍 Like</button>
-        <button class="btn secondary small" id="addToPlaylistBtn">＋ Playlist</button>
-        <button class="btn secondary small" id="ytMusicBtn">▶ YouTube Music</button>
-      </div>
-      <h3 style="color:var(--gold);text-align:left">Up next</h3>
-      <div id="queueList" style="text-align:left"></div>
+  <section id="libraryView" role="tabpanel" aria-labelledby="tab-library" hidden>
+    <div class="segbar" role="tablist" aria-label="Library sections">
+      <button role="tab" id="libTab-playlists" aria-selected="true">Playlists</button>
+      <button role="tab" id="libTab-liked" aria-selected="false">Liked</button>
+      <button role="tab" id="libTab-history" aria-selected="false">History</button>
     </div>
-  </section>
-  <section id="playlistsView" role="tabpanel" aria-labelledby="tab-playlists" hidden>
-    <h2 style="color:var(--gold)">Playlists</h2>
-    <div class="row">
-      <input type="text" id="newPlaylistName" placeholder="New playlist name" maxlength="60" style="flex:1">
-      <button class="btn" id="createPlaylistBtn">Create</button>
+    <div id="libPlaylists" role="tabpanel" aria-labelledby="libTab-playlists">
+      <div class="row">
+        <input type="text" id="newPlaylistName" placeholder="New playlist name" maxlength="60" style="flex:1">
+        <button class="btn" id="createPlaylistBtn">Create</button>
+      </div>
+      <div id="playlistList"></div>
+      <div id="playlistDetail"></div>
     </div>
-    <div id="playlistList"></div>
-    <div id="playlistDetail"></div>
-  </section>
-  <section id="historyView" role="tabpanel" aria-labelledby="tab-history" hidden>
-    <h2 style="color:var(--gold)">Listening history</h2>
-    <button class="btn secondary small" id="clearHistoryBtn">Clear history</button>
-    <div id="historyList"></div>
-  </section>
-  <section id="likedView" role="tabpanel" aria-labelledby="tab-liked" hidden>
-    <h2 style="color:var(--gold)">Liked songs</h2>
-    <div id="likedList"></div>
+    <div id="libLiked" role="tabpanel" aria-labelledby="libTab-liked" hidden>
+      <div id="likedList"></div>
+    </div>
+    <div id="libHistory" role="tabpanel" aria-labelledby="libTab-history" hidden>
+      <button class="btn secondary small" id="clearHistoryBtn">Clear history</button>
+      <div id="historyList"></div>
+    </div>
   </section>
   <section id="settingsView" role="tabpanel" aria-labelledby="tab-settings" hidden>
-    <h2 style="color:var(--gold)">Settings</h2>
     <div class="card">
       <h3>YouTube API key</h3>
-      <p class="hint">A YouTube API key is already built in, so search works out of the box. Only paste a key below if you ever want to use your own.</p>
-      <label for="apiKeyInput">API key</label>
-      <input type="text" id="apiKeyInput" placeholder="Optional: your own YouTube API key" autocomplete="off">
+      <p class="hint">A key is already built in, so search works out of the box. Only paste a key below if you ever want to use your own.</p>
+      <label for="apiKeyInput">API key (optional)</label>
+      <input type="text" id="apiKeyInput" placeholder="Your own YouTube API key" autocomplete="off">
       <button class="btn" id="saveKeyBtn">Save key</button>
       <p class="hint" id="keyStatus"></p>
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v1.0.1. Plays through YouTube's official player. The YouTube Music button hands a song to your YouTube Music app, where it can play with the screen off.</p>
-      <p style="color:var(--muted)">Lynxos Music v1.0.1</p>
+      <p class="hint">Lynxos Music v1.1.0. Plays through YouTube's official embedded player. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
     </div>
   </section>
 </main>
+<div id="miniPlayer" hidden>
+  <img id="mpThumb" alt="">
+  <button class="mpinfo" id="mpExpandBtn" aria-label="Expand player">
+    <div class="mptitle" id="mpTitle">Nothing playing</div>
+    <div class="mpartist" id="mpArtist"></div>
+  </button>
+  <button class="iconbtn" id="mpPlayBtn" aria-label="Play or pause">▶</button>
+</div>
+<nav class="tabs" role="tablist" aria-label="Main sections">
+  <button role="tab" id="tab-search" aria-selected="true" aria-controls="searchView"><span class="ticon">🔍</span>Search</button>
+  <button role="tab" id="tab-library" aria-selected="false" aria-controls="libraryView"><span class="ticon">📚</span>Library</button>
+  <button role="tab" id="tab-settings" aria-selected="false" aria-controls="settingsView"><span class="ticon">⚙️</span>Settings</button>
+</nav>
+<div id="fullPlayer" hidden role="dialog" aria-label="Now playing">
+  <div class="fp-top">
+    <button id="fpCollapseBtn" aria-label="Collapse player">⌄</button>
+    <span>NOW PLAYING</span>
+    <span style="width:40px"></span>
+  </div>
+  <img id="fpArt" alt="Album art">
+  <div class="fp-like-row"><button class="iconbtn" id="fpLikeBtn" aria-label="Like this song">🤍</button></div>
+  <h2 id="fpTitle">Nothing playing</h2>
+  <div id="fpArtist"></div>
+  <label for="fpSeek" class="sr-only">Seek</label>
+  <input type="range" id="fpSeek" min="0" max="100" value="0" step="1">
+  <div class="times"><span id="fpCur">0:00</span><span id="fpDur">0:00</span></div>
+  <div class="fp-controls">
+    <button class="iconbtn" id="fpShuffleBtn" aria-label="Shuffle">🔀</button>
+    <button class="iconbtn" id="fpPrevBtn" aria-label="Previous track">⏮</button>
+    <button class="iconbtn" id="fpPlayBtn" aria-label="Play or pause">▶</button>
+    <button class="iconbtn" id="fpNextBtn" aria-label="Next track">⏭</button>
+    <button class="iconbtn" id="fpRepeatBtn" aria-label="Repeat mode">🔁</button>
+  </div>
+  <div class="row" style="margin-top:8px">
+    <button class="btn secondary small" id="fpAddToPlaylistBtn">＋ Playlist</button>
+    <button class="btn secondary small" id="fpYtMusicBtn">▶ YouTube Music</button>
+  </div>
+  <div class="fp-section-title">Up next</div>
+  <div id="fpQueueList"></div>
+</div>
 <script>
 "use strict";
 /* ================= helpers ================= */
@@ -126,14 +168,16 @@ function esc(s){ return String(s == null ? "" : s).replace(/&/g,"&amp;").replace
 function say(msg){ var el = $("status"); if(el){ el.textContent = ""; setTimeout(function(){ el.textContent = msg; }, 50); } }
 function getJSON(k, fb){ try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : fb; } catch(e){ return fb; } }
 function setJSON(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){} }
+function fmtTime(sec){ sec = Math.max(0, Math.floor(sec || 0)); var m = Math.floor(sec/60), s = sec%60; return m + ":" + (s < 10 ? "0" : "") + s; }
 /* ================= state ================= */
 var state = {
   queue: [], qi: -1, player: null, playerReady: false, pendingVideo: null,
-  lastResults: [], loggedVideo: null
+  lastResults: [], loggedVideo: null, shuffle: false, repeat: 0, seeking: false
 };
-function getKey(){ try { var k = (localStorage.getItem("lm_api_key") || "").trim(); return k || "AIzaSyBh9a-6YYjorfAHm_ax7PeHcfRktVLdBBQ"; } catch(e){ return "AIzaSyBh9a-6YYjorfAHm_ax7PeHcfRktVLdBBQ"; } }
+var BUILTIN_KEY = "AIzaSyBh9a-6YYjorfAHm_ax7PeHcfRktVLdBBQ";
+function getKey(){ try { var k = (localStorage.getItem("lm_api_key") || "").trim(); return k || BUILTIN_KEY; } catch(e){ return BUILTIN_KEY; } }
 /* ================= tabs ================= */
-var TABS = [["tab-search","searchView","Search"],["tab-player","playerView","Now Playing"],["tab-playlists","playlistsView","Playlists"],["tab-history","historyView","History"],["tab-liked","likedView","Liked"],["tab-settings","settingsView","Settings"]];
+var TABS = [["tab-search","searchView","Search"],["tab-library","libraryView","Library"],["tab-settings","settingsView","Settings"]];
 function showTab(name){
   TABS.forEach(function(t){
     var sel = (t[0] === "tab-" + name);
@@ -143,49 +187,59 @@ function showTab(name){
   var label = "";
   TABS.forEach(function(t){ if(t[0] === "tab-" + name) label = t[2]; });
   say(label + " tab.");
-  if(name === "playlists") renderPlaylists();
-  if(name === "history") renderHistory();
-  if(name === "liked") renderLiked();
+  if(name === "library") renderLibrary();
 }
 TABS.forEach(function(t){
   $(t[0]).addEventListener("click", function(){ showTab(t[0].replace("tab-","")); });
 });
+var LIBSEGS = ["playlists","liked","history"];
+function showLibSeg(name){
+  LIBSEGS.forEach(function(s){
+    $("libTab-" + s).setAttribute("aria-selected", s === name ? "true" : "false");
+    $("lib" + s.charAt(0).toUpperCase() + s.slice(1)).hidden = (s !== name);
+  });
+  renderLibrary();
+}
+LIBSEGS.forEach(function(s){
+  $("libTab-" + s).addEventListener("click", function(){ showLibSeg(s); });
+});
 </script>
 <script>
 "use strict";
-/* ================= search ================= */
+/* ================= search (embeddable only) ================= */
 function doSearch(){
   var q = $("searchBox").value.trim();
   if(!q){ say("Type something to search for first."); return; }
   var key = getKey();
-  if(!key){ say("Add your YouTube API key in Settings first."); showTab("settings"); return; }
   $("searchResults").innerHTML = '<div class="empty">Searching…</div>';
   say("Searching for " + q);
-  var url = "https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&videoCategoryId=10&maxResults=20&q=" + encodeURIComponent(q) + "&key=" + encodeURIComponent(key);
+  var url = "https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&videoCategoryId=10&videoEmbeddable=true&maxResults=20&q=" + encodeURIComponent(q) + "&key=" + encodeURIComponent(key);
   fetch(url).then(function(r){ return r.json(); }).then(function(data){
     if(data.error){ $("searchResults").innerHTML = '<div class="empty">Search failed: ' + esc(data.error.message || "API error") + '</div>'; say("Search failed."); return; }
     var items = data.items || [];
     state.lastResults = items.map(function(it){
+      var th = it.snippet.thumbnails || {};
       return { videoId: it.id.videoId, title: it.snippet.title, channel: it.snippet.channelTitle,
-        thumb: (it.snippet.thumbnails && it.snippet.thumbnails.default) ? it.snippet.thumbnails.default.url : "" };
+        thumb: th.medium ? th.medium.url : (th.default ? th.default.url : ""),
+        art: th.high ? th.high.url : (th.medium ? th.medium.url : "") };
     });
     renderResults();
-    say(items.length + " results.");
+    say(items.length + " results. All of these play inside the app.");
   }).catch(function(){
-    $("searchResults").innerHTML = '<div class="empty">Search failed. Check your connection and API key.</div>';
+    $("searchResults").innerHTML = '<div class="empty">Search failed. Check your connection.</div>';
     say("Search failed.");
   });
 }
-function trackCard(v, idx, ctx){
+function trackRow(v, idx){
   return '<div class="track"><img src="' + esc(v.thumb) + '" alt="">' +
     '<div class="info"><div class="title">' + esc(v.title) + '</div><div class="channel">' + esc(v.channel) + '</div></div>' +
-    '<div class="actions"><button class="iconbtn" data-play="' + idx + '" data-ctx="' + ctx + '" aria-label="Play ' + esc(v.title) + '">▶</button>' +
-    '<button class="iconbtn" data-like="' + idx + '" data-ctx="' + ctx + '" aria-label="Like ' + esc(v.title) + '">🤍</button></div></div>';
+    '<div class="actions"><button class="iconbtn gold" data-play="' + idx + '" aria-label="Play ' + esc(v.title) + '">▶</button>' +
+    '<button class="iconbtn" data-like="' + idx + '" aria-label="Like ' + esc(v.title) + '">' + (isLiked(v.videoId) ? "❤️" : "🤍") + '</button></div></div>';
 }
 function renderResults(){
   var box = $("searchResults");
   if(!state.lastResults.length){ box.innerHTML = '<div class="empty">No results.</div>'; return; }
-  box.innerHTML = state.lastResults.map(function(v, i){ return trackCard(v, i, "search"); }).join("");
+  box.innerHTML = state.lastResults.map(function(v, i){ return trackRow(v, i); }).join("");
   bindTrackButtons(box, state.lastResults);
 }
 function bindTrackButtons(root, list){
@@ -198,12 +252,21 @@ function bindTrackButtons(root, list){
   root.querySelectorAll("[data-like]").forEach(function(b){
     b.addEventListener("click", function(){
       var v = list[parseInt(b.getAttribute("data-like"), 10)];
-      if(v) toggleLike(v);
+      if(v){ toggleLike(v); refreshLikeIcons(root, list); }
     });
+  });
+}
+function refreshLikeIcons(root, list){
+  root.querySelectorAll("[data-like]").forEach(function(b){
+    var v = list[parseInt(b.getAttribute("data-like"), 10)];
+    if(v) b.textContent = isLiked(v.videoId) ? "❤️" : "🤍";
   });
 }
 $("searchBtn").addEventListener("click", doSearch);
 $("searchBox").addEventListener("keydown", function(e){ if(e.key === "Enter") doSearch(); });
+</script>
+<script>
+"use strict";
 /* ================= player ================= */
 function onYouTubeIframeAPIReady(){
   state.playerReady = true;
@@ -214,8 +277,8 @@ function ensurePlayer(v){
   if(!state.playerReady){ state.pendingVideo = v; return; }
   state.player = new YT.Player("ytplayer", {
     height: "100%", width: "100%", videoId: v.videoId,
-    playerVars: { rel: 0, modestbranding: 1 },
-    events: { onStateChange: onPlayerState, onError: function(){ say("That video wouldn't play."); } }
+    playerVars: { rel: 0, modestbranding: 1, origin: "https://lynxosmusic.app" },
+    events: { onStateChange: onPlayerState, onError: onPlayerError }
   });
   state.loggedVideo = null;
   updateNowPlaying(v);
@@ -225,44 +288,148 @@ function loadIntoPlayer(v){
   state.loggedVideo = null;
   updateNowPlaying(v);
 }
+function onPlayerError(e){
+  var code = e && e.data;
+  if(code === 101 || code === 150){
+    say("This song's owner blocks it from playing inside apps. Use the YouTube Music button to open it in your YouTube Music app instead.");
+  } else if(code === 100){
+    say("That video was not found. Trying the next one.");
+    playNext(true);
+  } else {
+    say("That video wouldn't play.");
+  }
+}
 function onPlayerState(e){
   var v = state.queue[state.qi];
   if(!v) return;
   if(e.data === YT.PlayerState.PLAYING){
     if(state.loggedVideo !== v.videoId){ state.loggedVideo = v.videoId; logHistory(v); }
     say("Playing: " + v.title);
+    startProgress();
+  } else if(e.data === YT.PlayerState.PAUSED){
+    stopProgress();
   } else if(e.data === YT.PlayerState.ENDED){
-    playNext();
+    stopProgress();
+    if(state.repeat === 2 && state.player){
+      try { state.player.seekTo(0); state.player.playVideo(); } catch(x){}
+    } else {
+      playNext();
+    }
   }
+  syncPlayIcons();
   renderQueue();
   updateLikeBtn();
 }
-function updateNowPlaying(v){
-  $("npTitle").textContent = v.title;
-  $("npChannel").textContent = v.channel;
-  document.title = v.title + " — Lynxos Music";
-  renderQueue();
-  updateLikeBtn();
-}
+function currentVideo(){ return state.queue[state.qi] || null; }
 function playVideo(v, list, idx){
   state.queue = (list || []).slice();
   state.qi = (typeof idx === "number" && idx >= 0) ? idx : state.queue.indexOf(v);
   if(state.qi < 0){ state.queue = [v]; state.qi = 0; }
   ensurePlayer(state.queue[state.qi]);
-  showTab("player");
+  $("miniPlayer").hidden = false;
 }
-function playNext(){
+function playNext(auto){
   if(!state.queue.length) return;
-  state.qi = (state.qi + 1) % state.queue.length;
+  if(state.shuffle && state.queue.length > 1){
+    var n; do { n = Math.floor(Math.random() * state.queue.length); } while(n === state.qi);
+    state.qi = n;
+  } else {
+    if(state.qi >= state.queue.length - 1){
+      if(state.repeat === 1){ state.qi = 0; }
+      else { if(!auto) say("End of queue."); return; }
+    } else { state.qi++; }
+  }
   ensurePlayer(state.queue[state.qi]);
 }
 function playPrev(){
   if(!state.queue.length) return;
+  try { if(state.player && state.player.getCurrentTime() > 3){ state.player.seekTo(0); return; } } catch(e){}
   state.qi = (state.qi - 1 + state.queue.length) % state.queue.length;
   ensurePlayer(state.queue[state.qi]);
 }
+function togglePlayPause(){
+  if(!state.player){ say("Nothing to play yet. Search for something first."); return; }
+  try {
+    var s = state.player.getPlayerState();
+    if(s === YT.PlayerState.PLAYING || s === YT.PlayerState.BUFFERING){ state.player.pauseVideo(); say("Paused."); }
+    else { state.player.playVideo(); say("Playing."); }
+  } catch(e){ say("Player isn't ready yet."); }
+  setTimeout(syncPlayIcons, 300);
+}
+function syncPlayIcons(){
+  var playing = false;
+  try { playing = state.player && state.player.getPlayerState() === YT.PlayerState.PLAYING; } catch(e){}
+  var icon = playing ? "⏸" : "▶";
+  $("mpPlayBtn").textContent = icon;
+  $("fpPlayBtn").textContent = icon;
+  $("fpShuffleBtn").classList.toggle("active", state.shuffle);
+  var r = ["🔁","🔁","🔂"][state.repeat];
+  $("fpRepeatBtn").textContent = r;
+  $("fpRepeatBtn").classList.toggle("active", state.repeat > 0);
+  $("fpRepeatBtn").setAttribute("aria-label", ["Repeat off","Repeat all","Repeat one"][state.repeat]);
+}
+function updateNowPlaying(v){
+  $("mpThumb").src = v.thumb || "";
+  $("mpTitle").textContent = v.title;
+  $("mpArtist").textContent = v.channel;
+  $("fpArt").src = v.art || v.thumb || "";
+  $("fpTitle").textContent = v.title;
+  $("fpArtist").textContent = v.channel;
+  document.title = v.title + " — Lynxos Music";
+  syncPlayIcons();
+  renderQueue();
+  updateLikeBtn();
+}
+/* progress bar */
+var progTimer = null;
+function startProgress(){
+  stopProgress();
+  progTimer = setInterval(function(){
+    if(state.seeking || !state.player) return;
+    try {
+      var d = state.player.getDuration() || 0, c = state.player.getCurrentTime() || 0;
+      if(d > 0){
+        $("fpSeek").max = Math.floor(d);
+        $("fpSeek").value = Math.floor(c);
+        $("fpCur").textContent = fmtTime(c);
+        $("fpDur").textContent = fmtTime(d);
+      }
+    } catch(e){}
+  }, 500);
+}
+function stopProgress(){ if(progTimer){ clearInterval(progTimer); progTimer = null; } }
+$("fpSeek").addEventListener("input", function(){ state.seeking = true; $("fpCur").textContent = fmtTime(parseInt($("fpSeek").value, 10)); });
+$("fpSeek").addEventListener("change", function(){
+  state.seeking = false;
+  try { if(state.player) state.player.seekTo(parseInt($("fpSeek").value, 10), true); } catch(e){}
+});
+/* player buttons */
+$("mpPlayBtn").addEventListener("click", togglePlayPause);
+$("fpPlayBtn").addEventListener("click", togglePlayPause);
+$("fpNextBtn").addEventListener("click", function(){ playNext(false); });
+$("fpPrevBtn").addEventListener("click", playPrev);
+$("mpExpandBtn").addEventListener("click", expandPlayer);
+$("fpCollapseBtn").addEventListener("click", collapsePlayer);
+$("fpShuffleBtn").addEventListener("click", function(){
+  state.shuffle = !state.shuffle;
+  say(state.shuffle ? "Shuffle on." : "Shuffle off.");
+  syncPlayIcons();
+});
+$("fpRepeatBtn").addEventListener("click", function(){
+  state.repeat = (state.repeat + 1) % 3;
+  say(["Repeat off.", "Repeat all.", "Repeat one."][state.repeat]);
+  syncPlayIcons();
+});
+function expandPlayer(){ $("fullPlayer").hidden = false; say("Now playing screen."); }
+function collapsePlayer(){ $("fullPlayer").hidden = true; say("Player collapsed."); }
+$("fpYtMusicBtn").addEventListener("click", function(){
+  var v = currentVideo();
+  if(!v){ say("Nothing playing to send."); return; }
+  say("Opening in YouTube Music.");
+  window.location.href = "https://music.youtube.com/watch?v=" + encodeURIComponent(v.videoId);
+});
 function renderQueue(){
-  var box = $("queueList");
+  var box = $("fpQueueList");
   if(!state.queue.length){ box.innerHTML = '<div class="empty">Queue is empty. Search for something to play.</div>'; return; }
   box.innerHTML = state.queue.map(function(v, i){
     return '<div class="queue-item' + (i === state.qi ? " current" : "") + '" data-qi="' + i + '">' + esc(v.title) + "</div>";
@@ -274,26 +441,14 @@ function renderQueue(){
     });
   });
 }
-$("playPauseBtn").addEventListener("click", function(){
-  if(!state.player){ say("Nothing to play yet. Search for something first."); return; }
-  try {
-    var s = state.player.getPlayerState();
-    if(s === YT.PlayerState.PLAYING || s === YT.PlayerState.BUFFERING){ state.player.pauseVideo(); say("Paused."); }
-    else { state.player.playVideo(); say("Playing."); }
-  } catch(e){ say("Player isn't ready yet."); }
-});
-$("nextBtn").addEventListener("click", playNext);
-$("prevBtn").addEventListener("click", playPrev);
-$("ytMusicBtn").addEventListener("click", function(){
-  var v = state.queue[state.qi];
-  if(!v){ say("Nothing playing to send."); return; }
-  say("Opening in YouTube Music.");
-  window.location.href = "https://music.youtube.com/watch?v=" + encodeURIComponent(v.videoId);
-});
 </script>
 <script>
 "use strict";
-/* ================= playlists ================= */
+/* ================= library ================= */
+function renderLibrary(){
+  renderPlaylists(); renderLiked(); renderHistory();
+}
+/* ---- playlists ---- */
 function getPlaylists(){ return getJSON("lm_playlists", {}); }
 function savePlaylists(p){ setJSON("lm_playlists", p); }
 function renderPlaylists(){
@@ -301,7 +456,7 @@ function renderPlaylists(){
   var names = Object.keys(pls);
   var box = $("playlistList");
   $("playlistDetail").innerHTML = "";
-  if(!names.length){ box.innerHTML = '<div class="empty">No playlists yet. Create one above, then add songs from Now Playing.</div>'; return; }
+  if(!names.length){ box.innerHTML = '<div class="empty">No playlists yet. Create one above.</div>'; return; }
   box.innerHTML = names.map(function(n){
     return '<div class="card"><h3>' + esc(n) + ' (' + pls[n].length + ')</h3>' +
       '<div class="row"><button class="btn small" data-openpl="' + esc(n) + '">Open</button>' +
@@ -329,7 +484,7 @@ function openPlaylist(name){
   var box = $("playlistDetail");
   if(!p.length){ box.innerHTML = '<div class="card"><h3>' + esc(name) + '</h3><div class="empty">Empty.</div></div>'; return; }
   box.innerHTML = '<div class="card"><h3>' + esc(name) + '</h3>' +
-    p.map(function(v, i){ return trackCard(v, i, "pl:" + name); }).join("") + "</div>";
+    p.map(function(v, i){ return trackRow(v, i); }).join("") + "</div>";
   bindTrackButtons(box, p);
   box.querySelectorAll(".track").forEach(function(el, i){
     var rm = document.createElement("button");
@@ -351,20 +506,19 @@ $("createPlaylistBtn").addEventListener("click", function(){
   $("newPlaylistName").value = "";
   say("Playlist " + n + " created."); renderPlaylists();
 });
-$("addToPlaylistBtn").addEventListener("click", function(){
-  var v = state.queue[state.qi];
+$("fpAddToPlaylistBtn").addEventListener("click", function(){
+  var v = currentVideo();
   if(!v){ say("Nothing playing to add."); return; }
   var p = getPlaylists();
   var names = Object.keys(p);
-  if(!names.length){ say("Create a playlist first, in the Playlists tab."); showTab("playlists"); return; }
-  var h = '<div class="card"><h3>Add to playlist</h3>';
-  names.forEach(function(n){
-    h += '<button class="btn small secondary" data-addpl="' + esc(n) + '">' + esc(n) + "</button> ";
-  });
-  h += "</div>";
+  if(!names.length){ say("Create a playlist first, in the Library tab."); showTab("library"); showLibSeg("playlists"); return; }
+  expandPlayer();
   var box = $("playlistDetail");
-  showTab("playlists");
-  box.innerHTML = h;
+  showTab("library"); showLibSeg("playlists");
+  collapsePlayer();
+  box.innerHTML = '<div class="card"><h3>Add to playlist</h3><div class="row">' +
+    names.map(function(n){ return '<button class="btn small secondary" data-addpl="' + esc(n) + '">' + esc(n) + "</button>"; }).join("") +
+    "</div></div>";
   box.querySelectorAll("[data-addpl]").forEach(function(b){
     b.addEventListener("click", function(){
       var n = b.getAttribute("data-addpl");
@@ -375,10 +529,10 @@ $("addToPlaylistBtn").addEventListener("click", function(){
     });
   });
 });
-/* ================= history ================= */
+/* ---- history ---- */
 function logHistory(v){
   var h = getJSON("lm_history", []);
-  h.unshift({ videoId: v.videoId, title: v.title, channel: v.channel, thumb: v.thumb, playedAt: new Date().toISOString() });
+  h.unshift({ videoId: v.videoId, title: v.title, channel: v.channel, thumb: v.thumb, art: v.art, playedAt: new Date().toISOString() });
   setJSON("lm_history", h.slice(0, 200));
 }
 function renderHistory(){
@@ -390,7 +544,7 @@ function renderHistory(){
     try { d = new Date(v.playedAt).toLocaleString(); } catch(e){}
     return '<div class="track"><img src="' + esc(v.thumb) + '" alt="">' +
       '<div class="info"><div class="title">' + esc(v.title) + '</div><div class="channel">' + esc(v.channel) + " · " + esc(d) + '</div></div>' +
-      '<div class="actions"><button class="iconbtn" data-hplay="' + i + '" aria-label="Play again">▶</button></div></div>';
+      '<div class="actions"><button class="iconbtn gold" data-hplay="' + i + '" aria-label="Play again">▶</button></div></div>';
   }).join("");
   box.querySelectorAll("[data-hplay]").forEach(function(b){
     b.addEventListener("click", function(){
@@ -403,7 +557,7 @@ $("clearHistoryBtn").addEventListener("click", function(){
   setJSON("lm_history", []);
   say("History cleared."); renderHistory();
 });
-/* ================= liked ================= */
+/* ---- liked ---- */
 function getLiked(){ return getJSON("lm_liked", []); }
 function isLiked(id){ return getLiked().some(function(v){ return v.videoId === id; }); }
 function toggleLike(v){
@@ -413,39 +567,41 @@ function toggleLike(v){
   else { l.unshift(v); say("Added to Liked."); }
   setJSON("lm_liked", l);
   updateLikeBtn();
-  if(!$("likedView").hidden) renderLiked();
+  if(!$("libLiked").hidden) renderLiked();
 }
 function updateLikeBtn(){
-  var v = state.queue[state.qi];
-  $("likeBtn").textContent = (v && isLiked(v.videoId)) ? "❤️ Liked" : "🤍 Like";
+  var v = currentVideo();
+  $("fpLikeBtn").textContent = (v && isLiked(v.videoId)) ? "❤️" : "🤍";
 }
 function renderLiked(){
   var l = getLiked();
   var box = $("likedList");
-  if(!l.length){ box.innerHTML = '<div class="empty">No liked songs yet. Tap 🤍 on anything playing.</div>'; return; }
-  box.innerHTML = l.map(function(v, i){ return trackCard(v, i, "liked"); }).join("");
+  if(!l.length){ box.innerHTML = '<div class="empty">No liked songs yet. Tap the heart on anything playing.</div>'; return; }
+  box.innerHTML = l.map(function(v, i){ return trackRow(v, i); }).join("");
   bindTrackButtons(box, l);
 }
-$("likeBtn").addEventListener("click", function(){
-  var v = state.queue[state.qi];
+$("fpLikeBtn").addEventListener("click", function(){
+  var v = currentVideo();
   if(!v){ say("Nothing playing to like."); return; }
   toggleLike(v);
 });
 /* ================= settings ================= */
 function refreshKeyStatus(){
-  $("keyStatus").textContent = getKey() ? "API key is saved." : "No API key saved yet.";
+  var custom = "";
+  try { custom = (localStorage.getItem("lm_api_key") || "").trim(); } catch(e){}
+  $("keyStatus").textContent = custom ? "Using your own saved key." : "Using the built-in key.";
 }
 $("saveKeyBtn").addEventListener("click", function(){
   var k = $("apiKeyInput").value.trim();
-  if(!k){ say("Paste a key first."); return; }
+  if(!k){ say("Paste a key first, or leave it empty to keep the built-in key."); return; }
   try { localStorage.setItem("lm_api_key", k); } catch(e){}
   $("apiKeyInput").value = "";
   refreshKeyStatus();
-  say("API key saved.");
+  say("Your key is saved.");
 });
 /* ================= init ================= */
 refreshKeyStatus();
-renderQueue();
+syncPlayIcons();
 say("Lynxos Music ready.");
 </script>
 </body>
