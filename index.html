@@ -47,6 +47,12 @@
   /* full player overlay */
   #fullPlayer { position: fixed; inset: 0; z-index: 40; background: var(--bg); overflow-y: auto; padding: 10px 16px 30px; }
   #fullPlayer[hidden] { display: none; }
+  #albumPanel { position: fixed; inset: 0; z-index: 45; background: var(--bg); overflow-y: auto; padding: 10px 16px 30px; text-align: center; }
+  #albumPanel[hidden] { display: none; }
+  #albumArt { width: 220px; height: 220px; object-fit: cover; border-radius: 12px; margin: 8px auto; display: block; border: 1px solid #333; }
+  #albumName { color: #fff; margin: 6px 0 2px; font-size: 22px; }
+  #albumArtist { color: var(--gold); font-size: 17px; margin-bottom: 10px; }
+  #albumTracks { text-align: left; margin-top: 12px; }
   #fpCollapseBtn { background: none; border: none; color: var(--text); font-size: 26px; padding: 8px; cursor: pointer; }
   .fp-top { display: flex; align-items: center; justify-content: space-between; }
   .fp-top span { color: var(--muted); font-size: 13px; letter-spacing: 1px; }
@@ -89,7 +95,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.3.1</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.4.0</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <div class="homeBlock">
@@ -150,7 +156,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v1.3.1. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
+      <p class="hint">Lynxos Music v1.4.0. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
     </div>
   </section>
 </main>
@@ -212,6 +218,17 @@
   <div class="fp-section-title">Up next</div>
   <div id="fpQueueList"></div>
 </div>
+<div id="albumPanel" hidden role="dialog" aria-label="Album">
+  <div style="text-align:left"><button class="backBtn" id="albumBackBtn" aria-label="Back">‹ Back</button></div>
+  <img id="albumArt" alt="Album cover">
+  <h2 id="albumName"></h2>
+  <div id="albumArtist"></div>
+  <div class="row" style="justify-content:center">
+    <button class="btn" id="albumPlayBtn">▶ Play</button>
+    <button class="btn secondary" id="albumShuffleBtn">🔀 Shuffle</button>
+  </div>
+  <div id="albumTracks"></div>
+</div>
 <script>
 "use strict";
 /* ================= helpers ================= */
@@ -252,6 +269,8 @@ window.lmHandleBack = function(){
   try {
     var ap = $("artistPanel");
     if(ap && !ap.hidden && !$("fullPlayer").hidden){ ap.hidden = true; say("Back to player."); return "handled"; }
+    var ab = $("albumPanel");
+    if(ab && !ab.hidden){ closeAlbumPanel(); return "handled"; }
     if(!$("fullPlayer").hidden){ collapsePlayer(); return "handled"; }
     var pd = $("playlistDetail");
     if(pd && pd.innerHTML.trim() !== ""){ pd.innerHTML = ""; say("Back to playlists."); return "handled"; }
@@ -510,27 +529,63 @@ function playVideo(v, list, idx){
   state.queue = (list || []).slice();
   state.qi = (typeof idx === "number" && idx >= 0) ? idx : state.queue.indexOf(v);
   if(state.qi < 0){ state.queue = [v]; state.qi = 0; }
-  ensurePlayer(state.queue[state.qi]);
-  $("miniPlayer").hidden = false;
+  playQueueIndex(state.qi);
+}
+/* Album tracks start life without a YouTube videoId (they come from the
+   album's real tracklist). Resolve to an actual playable video on demand,
+   so Next/Previous walk the album instead of random search results. */
+function resolveTrack(v){
+  if(v.videoId) return Promise.resolve(v);
+  var q = v.resolveQuery || ((v.channel || "") + " " + (v.title || ""));
+  return ytSearch(q).then(function(videos){
+    if(videos.length){
+      v.videoId = videos[0].videoId;
+      if(!v.thumb) v.thumb = videos[0].thumb;
+      if(!v.art) v.art = videos[0].art;
+      return v;
+    }
+    /* Fallback: retry without the "official audio" tail. */
+    if(v.resolveQuery && v.fallbackQuery && q !== v.fallbackQuery){
+      return ytSearch(v.fallbackQuery).then(function(vs2){
+        if(vs2.length){
+          v.videoId = vs2[0].videoId;
+          if(!v.thumb) v.thumb = vs2[0].thumb;
+          if(!v.art) v.art = vs2[0].art;
+        }
+        return v;
+      });
+    }
+    return v;
+  });
+}
+function playQueueIndex(i){
+  if(i < 0 || i >= state.queue.length) return;
+  state.qi = i;
+  var v = state.queue[i];
+  if(!v.videoId) say("Loading " + v.title + ".");
+  resolveTrack(v).then(function(rv){
+    if(state.queue[state.qi] !== v) return; /* user moved on meanwhile */
+    if(!rv.videoId){ say("Couldn't find " + v.title + " on YouTube. Trying the next one."); playNext(true); return; }
+    ensurePlayer(rv);
+    $("miniPlayer").hidden = false;
+  }).catch(function(){ say("Couldn't load that song."); });
 }
 function playNext(auto){
   if(!state.queue.length) return;
   if(state.shuffle && state.queue.length > 1){
     var n; do { n = Math.floor(Math.random() * state.queue.length); } while(n === state.qi);
-    state.qi = n;
+    playQueueIndex(n);
   } else {
     if(state.qi >= state.queue.length - 1){
-      if(state.repeat === 1){ state.qi = 0; }
+      if(state.repeat === 1){ playQueueIndex(0); }
       else { if(!auto) say("End of queue."); return; }
-    } else { state.qi++; }
+    } else { playQueueIndex(state.qi + 1); }
   }
-  ensurePlayer(state.queue[state.qi]);
 }
 function playPrev(){
   if(!state.queue.length) return;
   try { if(state.player && state.player.getCurrentTime() > 3){ state.player.seekTo(0); return; } } catch(e){}
-  state.qi = (state.qi - 1 + state.queue.length) % state.queue.length;
-  ensurePlayer(state.queue[state.qi]);
+  playQueueIndex((state.qi - 1 + state.queue.length) % state.queue.length);
 }
 function togglePlayPause(){
   if(!state.player){ say("Nothing to play yet. Search for something first."); return; }
@@ -629,8 +684,7 @@ function renderQueue(){
   box.innerHTML = h;
   box.querySelectorAll("[data-qi]").forEach(function(el){
     el.addEventListener("click", function(){
-      state.qi = parseInt(el.getAttribute("data-qi"), 10);
-      ensurePlayer(state.queue[state.qi]);
+      playQueueIndex(parseInt(el.getAttribute("data-qi"), 10));
     });
   });
   box.querySelectorAll("[data-rmq]").forEach(function(b){
@@ -1006,11 +1060,13 @@ function parseItunesFeed(feed){
   var out = entries.map(function(e){
     var imgs = e["im:image"] || [];
     var img = imgs.length ? imgs[imgs.length - 1].label : "";
+    var idAttr = (((e.id || {}).attributes) || {})["im:id"];
     return {
       name: ((e["im:name"] || {}).label) || "",
       artist: ((e["im:artist"] || {}).label) || "",
       art: img.replace(/\/\d+x\d+bb\.png$/, "/300x300bb.png"),
-      date: (((e["im:releaseDate"] || {}).label) || "").slice(0, 10)
+      date: (((e["im:releaseDate"] || {}).label) || "").slice(0, 10),
+      colId: idAttr || ""
     };
   }).filter(function(x){ return x.name && x.artist; });
   out.sort(function(a, b){ return a.date < b.date ? 1 : (a.date > b.date ? -1 : 0); });
@@ -1023,7 +1079,7 @@ function releaseCard(item, kind){
   d.innerHTML = (item.art ? '<img src="' + esc(item.art) + '" alt="">' : "") +
     '<div class="an">' + esc(item.name) + '</div><div class="aa">' + esc(item.artist) + '</div>' +
     (item.date ? '<div class="ad">' + esc(item.date) + "</div>" : "");
-  d.addEventListener("click", function(){ playItunes(item.artist, item.name); });
+  d.addEventListener("click", function(){ playItunes(item.artist, item.name, item.colId); });
   return d;
 }
 function renderReleases(c){
@@ -1035,7 +1091,8 @@ function renderReleases(c){
   if(!c.albums.length) aBox.innerHTML = "<p style='color:#999'>Nothing right now.</p>";
   if(!c.songs.length) sBox.innerHTML = "<p style='color:#999'>Nothing right now.</p>";
 }
-function playItunes(artist, name){
+function playItunes(artist, name, colId){
+  if(colId){ openAlbumPanel(artist, name, colId); return; }
   say("Finding " + name + " by " + artist + ".");
   ytSearch(artist + " " + name).then(function(videos){
     if(!videos.length){ say("Couldn't find that on YouTube."); return; }
@@ -1043,6 +1100,80 @@ function playItunes(artist, name){
     say("Playing " + name + " by " + artist + ".");
   }).catch(function(){ say("Search failed. Check your connection."); });
 }
+/* ================= album page ================= */
+var albumTracks = [];
+function fmtDur(ms){
+  var s = Math.round((ms || 0) / 1000), m = Math.floor(s / 60);
+  s = s % 60;
+  return m + ":" + (s < 10 ? "0" : "") + s;
+}
+function openAlbumPanel(artist, name, colId){
+  $("albumArt").src = "";
+  $("albumArt").alt = name + " cover";
+  $("albumName").textContent = name;
+  $("albumArtist").textContent = artist;
+  $("albumTracks").innerHTML = "<p style='color:#999'>Loading tracks…</p>";
+  $("albumPanel").hidden = false;
+  say("Loading the album " + name + ".");
+  fetch("https://itunes.apple.com/lookup?id=" + encodeURIComponent(colId) + "&entity=songs&limit=200")
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      var tracks = (d.results || []).filter(function(r){ return r.wrapperType === "track"; });
+      tracks.sort(function(a, b){ return (a.trackNumber || 0) - (b.trackNumber || 0); });
+      albumTracks = tracks.map(function(t){
+        var art = (t.artworkUrl100 || "").replace("100x100bb", "300x300bb");
+        return { videoId: "", title: t.trackName, channel: t.artistName,
+          thumb: art, art: art, dur: fmtDur(t.trackTimeMillis),
+          resolveQuery: t.artistName + " " + t.trackName + " official audio",
+          fallbackQuery: t.artistName + " " + t.trackName };
+      });
+      if(tracks.length && tracks[0].artworkUrl100)
+        $("albumArt").src = tracks[0].artworkUrl100.replace("100x100bb", "600x600bb");
+      renderAlbumTracks();
+      say(name + " loaded. " + albumTracks.length + " tracks. Tap Play to start.");
+    })
+    .catch(function(){
+      $("albumTracks").innerHTML = "<p style='color:#999'>Couldn't load tracks. Check your connection.</p>";
+      say("Couldn't load the album.");
+    });
+}
+function renderAlbumTracks(){
+  var box = $("albumTracks");
+  box.innerHTML = "";
+  albumTracks.forEach(function(t, i){
+    (function(tr, idx){
+      var b = document.createElement("button");
+      b.className = "track";
+      b.style.width = "100%";
+      b.setAttribute("aria-label", "Play track " + (idx + 1) + ": " + tr.title + (tr.dur ? ", " + tr.dur : ""));
+      b.innerHTML = '<div class="info"><div class="title">' + esc((idx + 1) + ". " + tr.title) + '</div>' +
+        '<div class="channel">' + esc(tr.channel) + (tr.dur ? " · " + esc(tr.dur) : "") + '</div></div>' +
+        '<div class="actions"><span class="iconbtn gold">▶</span></div>';
+      b.addEventListener("click", function(){
+        state.queue = albumTracks.slice();
+        playQueueIndex(idx);
+        say("Playing track " + (idx + 1) + ": " + tr.title + ".");
+      });
+      box.appendChild(b);
+    })(t, i);
+  });
+  if(!albumTracks.length) box.innerHTML = "<p style='color:#999'>No tracks found.</p>";
+}
+function closeAlbumPanel(){ $("albumPanel").hidden = true; say("Back."); }
+$("albumBackBtn").addEventListener("click", closeAlbumPanel);
+$("albumPlayBtn").addEventListener("click", function(){
+  if(!albumTracks.length){ say("Tracks are still loading."); return; }
+  state.queue = albumTracks.slice();
+  playQueueIndex(0);
+});
+$("albumShuffleBtn").addEventListener("click", function(){
+  if(!albumTracks.length){ say("Tracks are still loading."); return; }
+  var q = albumTracks.slice();
+  shuffleList(q);
+  state.queue = q;
+  playQueueIndex(0);
+  say("Shuffling the album.");
+});
 function renderRecentPlayed(){
   var box = $("recentPlayed");
   if(!box) return;
@@ -1100,7 +1231,7 @@ function renderArtistAlbums(artist, results){
     d.setAttribute("aria-label", "Play album " + r.collectionName + (yr ? ", " + yr : ""));
     d.innerHTML = (r.artworkUrl100 ? '<img src="' + esc(r.artworkUrl100.replace("100x100bb", "300x300bb")) + '" alt="">' : "") +
       '<div class="an">' + esc(r.collectionName) + '</div>' + (yr ? '<div class="ad">' + esc(yr) + "</div>" : "");
-    d.addEventListener("click", function(){ playItunes(artist, r.collectionName); });
+    d.addEventListener("click", function(){ playItunes(artist, r.collectionName, r.collectionId); });
     box.appendChild(d);
   });
   if(!list.length) box.innerHTML = "<p style='color:#999'>No albums found.</p>";
