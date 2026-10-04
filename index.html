@@ -47,7 +47,7 @@
 </head>
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
-<header><h1>🎵 Lynxos Music <small>v1.0</small></h1></header>
+<header><h1>🎵 Lynxos Music <small>v1.0.1</small></h1></header>
 <nav class="tabs" role="tablist" aria-label="Main sections">
   <button role="tab" id="tab-search" aria-selected="true" aria-controls="searchView">Search</button>
   <button role="tab" id="tab-player" aria-selected="false" aria-controls="playerView">Now Playing</button>
@@ -105,16 +105,16 @@
     <h2 style="color:var(--gold)">Settings</h2>
     <div class="card">
       <h3>YouTube API key</h3>
-      <p class="hint">Search needs a free YouTube Data API key from Google (no card). Paste it below — it's saved on your phone only.</p>
+      <p class="hint">A YouTube API key is already built in, so search works out of the box. Only paste a key below if you ever want to use your own.</p>
       <label for="apiKeyInput">API key</label>
-      <input type="text" id="apiKeyInput" placeholder="Paste your YouTube API key" autocomplete="off">
+      <input type="text" id="apiKeyInput" placeholder="Optional: your own YouTube API key" autocomplete="off">
       <button class="btn" id="saveKeyBtn">Save key</button>
       <p class="hint" id="keyStatus"></p>
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v1.0. Plays through YouTube's official player. The YouTube Music button hands a song to your YouTube Music app, where it can play with the screen off.</p>
-      <p style="color:var(--muted)">Lynxos Music v1.0</p>
+      <p class="hint">Lynxos Music v1.0.1. Plays through YouTube's official player. The YouTube Music button hands a song to your YouTube Music app, where it can play with the screen off.</p>
+      <p style="color:var(--muted)">Lynxos Music v1.0.1</p>
     </div>
   </section>
 </main>
@@ -131,7 +131,7 @@ var state = {
   queue: [], qi: -1, player: null, playerReady: false, pendingVideo: null,
   lastResults: [], loggedVideo: null
 };
-function getKey(){ try { return (localStorage.getItem("lm_api_key") || "").trim(); } catch(e){ return ""; } }
+function getKey(){ try { var k = (localStorage.getItem("lm_api_key") || "").trim(); return k || "AIzaSyBh9a-6YYjorfAHm_ax7PeHcfRktVLdBBQ"; } catch(e){ return "AIzaSyBh9a-6YYjorfAHm_ax7PeHcfRktVLdBBQ"; } }
 /* ================= tabs ================= */
 var TABS = [["tab-search","searchView","Search"],["tab-player","playerView","Now Playing"],["tab-playlists","playlistsView","Playlists"],["tab-history","historyView","History"],["tab-liked","likedView","Liked"],["tab-settings","settingsView","Settings"]];
 function showTab(name){
