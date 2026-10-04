@@ -75,7 +75,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.2.1</small></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.2.2</small></header>
 <main>
   <section id="searchView" role="tabpanel" aria-labelledby="tab-search">
     <label for="searchBox" class="sr-only">Search songs or artists</label>
@@ -117,7 +117,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v1.2.1. Plays through YouTube's official embedded player. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
+      <p class="hint">Lynxos Music v1.2.2. Plays through YouTube's official embedded player. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
     </div>
   </section>
 </main>
@@ -358,9 +358,11 @@ function ensurePlayer(v){
   state.loggedVideo = null;
   updateNowPlaying(v);
 }
-/* The player element is visually hidden, and YouTube will not autoplay into
-   a hidden player — it cues the video and sits there. So we explicitly start
-   playback the moment the player is ready, and again if it ever lands CUED. */
+/* The player element is visually hidden, so YouTube does not autoplay into it
+   on its own — the video cues and sits there. We kick playback once, when the
+   player fires onReady. IMPORTANT: never auto-retry playVideo() on the CUED
+   state — if autoplay is blocked the player drops straight back to CUED and
+   the retry becomes an endless storm that prevents ALL playback. */
 function onPlayerReady(e){
   try { e.target.playVideo(); } catch(x){}
 }
@@ -389,8 +391,6 @@ function onPlayerState(e){
     startProgress();
   } else if(e.data === YT.PlayerState.PAUSED){
     stopProgress();
-  } else if(e.data === YT.PlayerState.CUED){
-    try { state.player.playVideo(); } catch(x){}
   } else if(e.data === YT.PlayerState.ENDED){
     stopProgress();
     if(state.repeat === 2 && state.player){
