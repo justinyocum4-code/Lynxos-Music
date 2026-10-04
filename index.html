@@ -231,7 +231,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.7.9</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.7.10</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <div class="homeBlock">
@@ -302,7 +302,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v1.7.9. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
+      <p class="hint">Lynxos Music v1.7.10. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
     </div>
   </section>
 </main>
@@ -882,13 +882,7 @@ function refillRadioNow(){
       var a = normArtist(sv.ownerChannel || sv.channel || "");
       qCounts[a] = (qCounts[a] || 0) + 1;
     });
-    var fresh = [];
-    videos.forEach(function(sv){
-      var a = normArtist(sv.ownerChannel || sv.channel || "");
-      if(!r.seenIds[sv.videoId] && genrePure(r.seedName, sv.ownerChannel) && (qCounts[a] || 0) < 6){
-        r.seenIds[sv.videoId] = true; qCounts[a] = (qCounts[a] || 0) + 1; fresh.push(sv);
-      }
-    });
+    var fresh = filterRefillVideos(videos, r, qCounts);
     fresh.forEach(function(sv){ state.queue.push(sv); });
     r.refilling = false;
     renderQueue();
@@ -1391,6 +1385,23 @@ function capPerArtist(videos, maxPer){
   }
   return out;
 }
+/* Refill helper: filter by purity with fallback, respect per-artist cap. */
+function filterRefillVideos(videos, r, qCounts){
+  var fresh = [];
+  var pureCount = 0;
+  videos.forEach(function(sv){
+    if(genrePure(r.seedName, sv.ownerChannel)) pureCount++;
+  });
+  var usePure = pureCount > 0;
+  videos.forEach(function(sv){
+    var a = normArtist(sv.ownerChannel || sv.channel || "");
+    var okPure = usePure ? genrePure(r.seedName, sv.ownerChannel) : true;
+    if(!r.seenIds[sv.videoId] && okPure && (qCounts[a] || 0) < 6){
+      r.seenIds[sv.videoId] = true; qCounts[a] = (qCounts[a] || 0) + 1; fresh.push(sv);
+    }
+  });
+  return fresh;
+}
 function genrePure(genre, ownerChannel){
   var artists = GENRE_ARTISTS[String(genre || "").toLowerCase()];
   if(!artists || !artists.length) return true;
@@ -1418,13 +1429,18 @@ function startRadio(artist){
           var seen = {}, all = [];
           results.forEach(function(videos){
             (videos || []).forEach(function(sv){
-              if(sv.videoId && !seen[sv.videoId] && genrePure(seedName, sv.ownerChannel)){ seen[sv.videoId] = true; all.push(sv); }
+              if(sv.videoId && !seen[sv.videoId]){ seen[sv.videoId] = true; all.push(sv); }
             });
           });
           if(!all.length) throw new Error("no videos");
-          all = capPerArtist(all, 4);
-          shuffleList(all);
-          return { videos: all, seedIds: hardSeeds.slice(), name: seedName };
+          /* Purity filter: keep only core-artist videos. If too few survive
+             (YouTube's recommendations don't overlap the list), fall back to
+             the full merged list so the station always starts. */
+          var pure = all.filter(function(sv){ return genrePure(seedName, sv.ownerChannel); });
+          var useList = (pure.length >= 10) ? pure : all;
+          useList = capPerArtist(useList, 4);
+          shuffleList(useList);
+          return { videos: useList, seedIds: hardSeeds.slice(), name: seedName };
         });
     } else {
     /* Cache the genre/artist seed video: repeat taps skip the search call
@@ -1498,13 +1514,7 @@ function maybeRefillRadio(){
       var a = normArtist(sv.ownerChannel || sv.channel || "");
       qCounts[a] = (qCounts[a] || 0) + 1;
     });
-    var fresh = [];
-    videos.forEach(function(sv){
-      var a = normArtist(sv.ownerChannel || sv.channel || "");
-      if(!r.seenIds[sv.videoId] && genrePure(r.seedName, sv.ownerChannel) && (qCounts[a] || 0) < 6){
-        r.seenIds[sv.videoId] = true; qCounts[a] = (qCounts[a] || 0) + 1; fresh.push(sv);
-      }
-    });
+    var fresh = filterRefillVideos(videos, r, qCounts);
     fresh.forEach(function(sv){ state.queue.push(sv); });
     r.refilling = false;
     renderQueue();
