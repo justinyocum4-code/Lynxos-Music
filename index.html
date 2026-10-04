@@ -95,7 +95,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.4.3</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.4.4</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <div class="homeBlock">
@@ -156,7 +156,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v1.4.3. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
+      <p class="hint">Lynxos Music v1.4.4. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
     </div>
   </section>
 </main>
@@ -940,11 +940,8 @@ function startRadio(artist){
       var queries = [q].concat(first);
       if(first.length) say("Radio: " + q + ", plus " + first.slice(0, 4).join(", ") + (first.length > 4 ? ", and more" : "") + ". Gathering songs.");
       else say("Gathering " + q + " songs.");
-      return Promise.all(queries.map(function(name){
-        return ytSearch(name).catch(function(){ return []; }).then(function(videos){
-          return { artist: name, videos: videos };
-        });
-      })).then(function(groups){ return { groups: groups, names: names }; });
+      return Promise.all(queries.map(fetchRadioGroup))
+        .then(function(groups){ return { groups: groups, names: names }; });
     })
     .then(function(res){
       var all = collectRadioSongs(res.groups, 6);
@@ -957,13 +954,55 @@ function startRadio(artist){
     })
     .catch(function(){ say("Radio failed. Check your connection."); });
 }
-/* Take up to perArtist songs per artist so no single band dominates. */
+/* Does this video's actual artist match the artist we searched for?
+   (YouTube searches bleed across artists, so we verify instead of trusting.) */
+function artistMatches(query, video){
+  var a = trackArtist(video).toLowerCase();
+  var qn = String(query || "").toLowerCase().trim();
+  if(!a || !qn) return false;
+  if(a === qn) return true;
+  var aq = a.replace(/[^a-z0-9]/g, ""), qq = qn.replace(/[^a-z0-9]/g, "");
+  return aq === qq || aq.indexOf(qq) === 0 || qq.indexOf(aq) === 0;
+}
+/* Drop videos longer than maxMin (podcast episodes are 30+ min; songs aren't).
+   Uses one cheap videos.list call per 50 videos; keeps everything on failure. */
+function isoDurationMinutes(iso){
+  var m = String(iso || "").match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  if(!m) return 0;
+  return (parseInt(m[1] || "0", 10) * 60) + parseInt(m[2] || "0", 10) + (parseInt(m[3] || "0", 10) / 60);
+}
+function filterLongVideos(videos, maxMin){
+  if(!videos.length) return Promise.resolve(videos);
+  var ids = videos.map(function(v){ return v.videoId; }).join(",");
+  var url = "https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id=" + encodeURIComponent(ids) + "&key=" + encodeURIComponent(getKey());
+  return fetch(url).then(function(r){ return r.json(); }).then(function(d){
+    var map = {};
+    (d.items || []).forEach(function(it){ map[it.id] = it.contentDetails.duration; });
+    return videos.filter(function(v){
+      var dur = map[v.videoId];
+      if(!dur) return true;
+      return isoDurationMinutes(dur) <= maxMin;
+    });
+  }).catch(function(){ return videos; });
+}
+/* One radio group's worth of songs: music-only, duration-capped, attributed. */
+function fetchRadioGroup(name){
+  return ytSearch(name).catch(function(){ return []; }).then(function(videos){
+    return filterLongVideos(videos, 25).then(function(filtered){
+      return { artist: name, videos: filtered };
+    });
+  });
+}
+/* Take up to perArtist songs per artist, counting by each video's ACTUAL
+   artist (not the search query), so the station can't collapse to 3-4 bands. */
 function collectRadioSongs(groups, perArtist){
   var all = [], seen = {};
   groups.forEach(function(g){
+    var matched = g.videos.filter(function(sv){ return artistMatches(g.artist, sv); });
+    var pool = matched.length >= 2 ? matched : g.videos;
     var taken = 0;
-    for(var i = 0; i < g.videos.length && taken < perArtist; i++){
-      var sv = g.videos[i];
+    for(var i = 0; i < pool.length && taken < perArtist; i++){
+      var sv = pool[i];
       if(!seen[sv.videoId]){ seen[sv.videoId] = true; all.push(sv); taken++; }
     }
   });
@@ -981,11 +1020,7 @@ function maybeRefillRadio(){
 }
 function fetchRadioArtists(names, r){
   say("Finding more artists for your radio.");
-  Promise.all(names.map(function(name){
-    return ytSearch(name).catch(function(){ return []; }).then(function(videos){
-      return { artist: name, videos: videos };
-    });
-  })).then(function(groups){
+  Promise.all(names.map(fetchRadioGroup)).then(function(groups){
     if(state.radio !== r) return; /* station was replaced meanwhile */
     var ids = {};
     state.queue.forEach(function(sv){ ids[sv.videoId] = 1; });
