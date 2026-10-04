@@ -95,7 +95,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.4.9</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.5.0</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <div class="homeBlock">
@@ -157,7 +157,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v1.4.9. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
+      <p class="hint">Lynxos Music v1.5.0. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
     </div>
   </section>
 </main>
@@ -954,108 +954,6 @@ function addRecentRadioArtists(names){
 /* Endless radio: starts with the seed artist plus similar artists, then keeps
    pulling in more similar artists as the queue runs down — and when those run
    out it branches to artists similar to the ones already playing. Unlimited. */
-/* Resolve a typed name to Last.fm's canonical artist name (handles typos). */
-function resolveArtistName(query){
-  return fetch("https://ws.audioscrobbler.com/2.0/?method=artist.search&artist=" + encodeURIComponent(query) + "&api_key=" + LASTFM_KEY + "&format=json&limit=1")
-    .then(function(r){ return r.json(); })
-    .then(function(d){
-      var m = (d && d.results && d.results.artistmatches && d.results.artistmatches.artist) || [];
-      if(m.length && m[0].name) return m[0].name;
-      return query;
-    }).catch(function(){ return query; });
-}
-/* Fallback: if no similar artists, pull artists from the band's top genre tag. */
-function artistsFromTopTag(artistName){
-  return fetch("https://ws.audioscrobbler.com/2.0/?method=artist.getTopTags&artist=" + encodeURIComponent(artistName) + "&api_key=" + LASTFM_KEY + "&format=json")
-    .then(function(r){ return r.json(); })
-    .then(function(d){
-      var tags = (d && d.toptags && d.toptags.tag) || [];
-      if(!tags.length) throw new Error("no tags");
-      var topTag = tags[0].name;
-      return fetch("https://ws.audioscrobbler.com/2.0/?method=tag.getTopArtists&tag=" + encodeURIComponent(topTag) + "&api_key=" + LASTFM_KEY + "&format=json&limit=30")
-        .then(function(r){ return r.json(); });
-    })
-    .then(function(d){
-      var arts = (d && d.topartists && d.topartists.artist) || [];
-      return arts.map(function(a){ return a.name; }).filter(function(n){ return n; });
-    }).catch(function(){ return []; });
-}
-/* Fetch similar-artist names from Last.fm (free, no YouTube quota). */
-function similarArtistsOf(name, limit){
-  return fetch("https://ws.audioscrobbler.com/2.0/?method=artist.getSimilar&artist=" + encodeURIComponent(name) + "&api_key=" + LASTFM_KEY + "&format=json&limit=" + (limit || 40))
-    .then(function(r){ return r.json(); })
-    .then(function(d){
-      var arts = (d && d.similarartists && d.similarartists.artist) || [];
-      return arts.map(function(a){ return a.name; })
-        .filter(function(n){ return n; });
-    }).catch(function(){ return []; });
-}
-function startRadio(artist){
-  var v = currentVideo();
-  var q = artist || (v ? trackArtist(v) : "");
-  if(!q){ say("Couldn't figure out the artist for this song."); return; }
-  say("Starting " + q + " radio, based on " + (artist ? "your search." : "the song playing now. To use a different band, play one of their songs first, then hit the radio button."));
-  var recent = getRecentRadioArtists();
-  var notRecent = function(n){ return recent.indexOf(String(n).toLowerCase()) < 0; };
-  resolveArtistName(q).then(function(canonical){
-    if(canonical && canonical.toLowerCase() !== q.toLowerCase()){
-      say("Found " + canonical + ". Starting their radio.");
-      q = canonical;
-    }
-    return similarArtistsOf(q, 40);
-  }).then(function(names){
-    names = names.filter(function(n){ return n.toLowerCase() !== q.toLowerCase(); });
-    if(!names.length){
-      /* Last.fm has no similar artists for this band — try their genre. */
-      say("No close matches found for " + q + ". Trying their genre instead.");
-      return artistsFromTopTag(q).then(function(tagNames){
-        return tagNames.filter(function(n){ return n.toLowerCase() !== q.toLowerCase(); });
-      });
-    }
-    return names;
-  }).then(function(names){
-    var ordered = names.filter(notRecent).concat(names.filter(function(n){ return !notRecent(n); }));
-    var direct = ordered.slice(0, 4);
-    /* Second-degree: artists similar to the similar artists — this is what
-       takes the station BEYOND the tight similar cluster. */
-    var secondSeeds = direct.slice(0, 3);
-    return Promise.all(secondSeeds.map(function(s){ return similarArtistsOf(s, 12); }))
-      .then(function(secondLists){
-        var seen = {};
-        seen[q.toLowerCase()] = 1;
-        direct.forEach(function(n){ seen[n.toLowerCase()] = 1; });
-        var second = [];
-        secondLists.forEach(function(list){
-          list.forEach(function(n){
-            var ln = n.toLowerCase();
-            if(n && !seen[ln] && notRecent(n)){ seen[ln] = 1; second.push(n); }
-          });
-        });
-        second = second.slice(0, 8);
-        var allArtists = [q].concat(direct).concat(second);
-        return { artists: allArtists, pending: ordered.slice(4) };
-      });
-  }).then(function(res){
-    var extra = res.artists.length - 1;
-    if(extra <= 0){
-      say("Couldn't find other artists for " + q + ". Playing " + q + " songs only.");
-    } else {
-      say("Radio: " + q + ", reaching " + extra + " artists wide. Gathering songs.");
-    }
-    return Promise.all(res.artists.map(fetchRadioGroup)).then(function(groups){
-      return { groups: groups, pending: res.pending, artists: res.artists };
-    });
-  }).then(function(res){
-    var all = collectRadioSongs(res.groups, 4);
-    if(!all.length){ say("Couldn't find any songs for this radio."); return; }
-    shuffleList(all);
-    playVideo(all[0], all, 0);
-    state.radio = { seed: q, pending: res.pending, seenArtists: {}, active: true, refilling: false };
-    res.artists.forEach(function(n){ state.radio.seenArtists[String(n).toLowerCase()] = 1; });
-    addRecentRadioArtists(res.artists);
-    say("Radio started, " + res.artists.length + " artists wide. It keeps reaching further as you listen.");
-  }).catch(function(){ say("Radio failed. Check your connection."); });
-}
 /* Does this video's actual artist match the artist we searched for?
    (YouTube searches bleed across artists, so we verify instead of trusting.) */
 function artistMatches(query, video){
@@ -1087,28 +985,72 @@ function filterLongVideos(videos, maxMin){
     });
   }).catch(function(){ return videos; });
 }
-/* One radio group's worth of songs: music-only, duration-capped, attributed. */
-function fetchRadioGroup(name){
-  return ytSearch(name).catch(function(){ return []; }).then(function(videos){
-    return filterLongVideos(videos, 25).then(function(filtered){
-      return { artist: name, videos: filtered };
-    });
+/* YouTube's own radio engine (the same one behind YouTube Music radio):
+   RD<videoId> is a playlist YouTube generates from its recommendation
+   algorithm. One cheap call returns 50 tracks, far wider than any
+   "similar artists" list. */
+function fetchYouTubeRadio(videoId){
+  var pid = "RD" + videoId;
+  var url = "https://www.googleapis.com/youtube/v3/playlistItems?part=snippet,contentDetails&playlistId=" + encodeURIComponent(pid) + "&maxResults=50&key=" + encodeURIComponent(getKey());
+  return fetch(url).then(function(r){ return r.json(); }).then(function(d){
+    if(d.error) throw new Error(d.error.message || "Radio failed");
+    var videos = (d.items || []).map(function(it){
+      var sn = it.snippet || {}, th = sn.thumbnails || {};
+      return {
+        videoId: (it.contentDetails || {}).videoId,
+        title: sn.title || "",
+        channel: sn.channelTitle || "",
+        thumb: th.medium ? th.medium.url : (th.default ? th.default.url : ""),
+        art: th.high ? th.high.url : (th.medium ? th.medium.url : "")
+      };
+    }).filter(function(v){ return v.videoId; });
+    videos = videos.filter(function(v){ return !NON_MUSIC_RE.test(v.title); });
+    return filterLongVideos(videos, 25);
   });
 }
-/* Take up to perArtist songs per artist, counting by each video's ACTUAL
-   artist (not the search query), so the station can't collapse to 3-4 bands. */
-function collectRadioSongs(groups, perArtist){
-  var all = [], seen = {};
-  groups.forEach(function(g){
-    var matched = g.videos.filter(function(sv){ return artistMatches(g.artist, sv); });
-    var pool = matched.length >= 2 ? matched : g.videos;
-    var taken = 0;
-    for(var i = 0; i < pool.length && taken < perArtist; i++){
-      var sv = pool[i];
-      if(!seen[sv.videoId]){ seen[sv.videoId] = true; all.push(sv); taken++; }
-    }
-  });
-  return all;
+function startRadio(artist){
+  var v = currentVideo();
+  var seedName = artist || "";
+  var getSeed;
+  if(seedName){
+    say("Finding " + seedName + ".");
+    getSeed = ytSearch(seedName).then(function(videos){
+      if(!videos.length) throw new Error("no videos");
+      var best = videos[0];
+      for(var i = 0; i < videos.length; i++){
+        if(artistMatches(seedName, videos[i]) && isOfficialMusic(videos[i])){ best = videos[i]; break; }
+      }
+      return { id: best.videoId, name: seedName };
+    });
+  } else if(v && v.videoId){
+    getSeed = Promise.resolve({ id: v.videoId, name: trackArtist(v) || "this song" });
+  } else if(v){
+    var aname = trackArtist(v) || "music";
+    say("Finding " + aname + ".");
+    getSeed = ytSearch(aname).then(function(videos){
+      if(!videos.length) throw new Error("no videos");
+      return { id: videos[0].videoId, name: aname };
+    });
+  } else {
+    say("Play a song first, or type an artist in search.");
+    return;
+  }
+  getSeed.then(function(seed){
+    say("Starting " + seed.name + " radio.");
+    return fetchYouTubeRadio(seed.id).then(function(videos){
+      return { seed: seed, videos: videos };
+    });
+  }).then(function(res){
+    var seenIds = {}, all = [];
+    res.videos.forEach(function(sv){
+      if(!seenIds[sv.videoId]){ seenIds[sv.videoId] = true; all.push(sv); }
+    });
+    if(!all.length){ say("Couldn't build a radio station. Try another artist."); return; }
+    playVideo(all[0], all, 0);
+    state.radio = { seedId: res.seed.id, seedName: res.seed.name, active: true, refilling: false, seenIds: seenIds };
+    addRecentRadioArtists([res.seed.name]);
+    say("Radio started with " + all.length + " songs. It keeps widening as you listen.");
+  }).catch(function(){ say("Radio failed. Check your connection and try again."); });
 }
 function maybeRefillRadio(){
   var r = state.radio;
@@ -1116,54 +1058,24 @@ function maybeRefillRadio(){
   var remaining = state.queue.length - 1 - state.qi;
   if(remaining > 5) return;
   r.refilling = true;
-  var batch = r.pending.splice(0, 6);
-  if(!batch.length){ branchRadioDeeper(r); return; }
-  fetchRadioArtists(batch, r);
-}
-function fetchRadioArtists(names, r){
-  say("Finding more artists for your radio.");
-  Promise.all(names.map(fetchRadioGroup)).then(function(groups){
-    if(state.radio !== r) return; /* station was replaced meanwhile */
-    var ids = {};
-    state.queue.forEach(function(sv){ ids[sv.videoId] = 1; });
-    var fresh = collectRadioSongs(groups, 6).filter(function(sv){ return !ids[sv.videoId]; });
-    fresh.forEach(function(sv){ state.queue.push(sv); });
-    names.forEach(function(n){ r.seenArtists[String(n).toLowerCase()] = 1; });
-    r.refilling = false;
-    renderQueue();
-    if(fresh.length) say("Radio extended with " + names.length + " more artists.");
-    else maybeRefillRadio();
-  }).catch(function(){ r.refilling = false; });
-}
-function branchRadioDeeper(r){
-  /* Second-degree discovery: pull artists similar to the ones already playing. */
-  var artists = [], seenA = {};
-  state.queue.forEach(function(sv){
-    var a = trackArtist(sv);
-    if(a && !seenA[a.toLowerCase()] && !r.seenArtists[a.toLowerCase()]){ seenA[a.toLowerCase()] = 1; artists.push(a); }
-  });
-  shuffleList(artists);
-  var seeds = artists.slice(0, 3);
-  if(!seeds.length){ r.refilling = false; r.active = false; return; }
-  say("Digging deeper for new artists.");
-  Promise.all(seeds.map(function(s){
-    return fetch("https://ws.audioscrobbler.com/2.0/?method=artist.getSimilar&artist=" + encodeURIComponent(s) + "&api_key=" + LASTFM_KEY + "&format=json&limit=10")
-      .then(function(res){ return res.json(); }).catch(function(){ return null; });
-  })).then(function(results){
+  /* Branch from a random song near the end of the queue — each hop reaches
+     further out through YouTube's recommendations, so it never repeats. */
+  var tailStart = Math.max(0, state.queue.length - 10);
+  var candidates = state.queue.slice(tailStart).filter(function(sv){ return sv.videoId; });
+  if(!candidates.length){ r.refilling = false; return; }
+  var branchFrom = candidates[Math.floor(Math.random() * candidates.length)];
+  say("Widening your radio.");
+  fetchYouTubeRadio(branchFrom.videoId).then(function(videos){
     if(state.radio !== r) return;
     var fresh = [];
-    results.forEach(function(d){
-      var arts = (d && d.similarartists && d.similarartists.artist) || [];
-      arts.forEach(function(a){
-        var n = a.name;
-        if(n && !r.seenArtists[String(n).toLowerCase()]){ r.seenArtists[String(n).toLowerCase()] = 1; fresh.push(n); }
-      });
+    videos.forEach(function(sv){
+      if(!r.seenIds[sv.videoId]){ r.seenIds[sv.videoId] = true; fresh.push(sv); }
     });
-    r.pending = fresh;
+    fresh.forEach(function(sv){ state.queue.push(sv); });
     r.refilling = false;
-    if(fresh.length) maybeRefillRadio();
-    else r.active = false;
-  });
+    renderQueue();
+    if(fresh.length) say("Radio widened with " + fresh.length + " more songs.");
+  }).catch(function(){ r.refilling = false; });
 }
 $("fpRadioBtn").addEventListener("click", function(){ startRadio(""); });
 /* ================= similar artists (Last.fm) ================= */
