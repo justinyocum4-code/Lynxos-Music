@@ -95,7 +95,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.4.1</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.4.2</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <div class="homeBlock">
@@ -156,7 +156,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v1.4.1. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
+      <p class="hint">Lynxos Music v1.4.2. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
     </div>
   </section>
 </main>
@@ -508,7 +508,8 @@ function onPlayerState(e){
   if(!v) return;
   if(e.data === YT.PlayerState.PLAYING){
     if(state.loggedVideo !== v.videoId){ state.loggedVideo = v.videoId; logHistory(v); }
-    say("Playing: " + parseTrack(v.title, v.channel).title + " by " + parseTrack(v.title, v.channel).artist + ".");
+    var p = parseTrack(v.title, v.channel);
+    say("Playing: " + p.title + " by " + p.artist + ".");
     startProgress();
   } else if(e.data === YT.PlayerState.PAUSED){
     stopProgress();
@@ -568,7 +569,11 @@ function playQueueIndex(i){
     if(!rv.videoId){ say("Couldn't find " + v.title + " on YouTube. Trying the next one."); playNext(true); return; }
     ensurePlayer(rv);
     $("miniPlayer").hidden = false;
-  }).catch(function(){ say("Couldn't load that song."); });
+  }).catch(function(){
+    if(state.queue[state.qi] !== v) return;
+    say("Couldn't load " + v.title + ". Trying the next one.");
+    playNext(true);
+  });
 }
 function playNext(auto){
   if(!state.queue.length) return;
@@ -919,32 +924,40 @@ function startRadio(artist){
   var v = currentVideo();
   var q = artist || (v ? trackArtist(v) : "");
   if(!q){ say("Couldn't figure out the artist for this song."); return; }
-  say("Building a " + q + " radio station with similar artists.");
-  fetch("https://ws.audioscrobbler.com/2.0/?method=artist.getSimilar&artist=" + encodeURIComponent(q) + "&api_key=" + LASTFM_KEY + "&format=json&limit=5")
+  say("Building a wide " + q + " radio station.");
+  fetch("https://ws.audioscrobbler.com/2.0/?method=artist.getSimilar&artist=" + encodeURIComponent(q) + "&api_key=" + LASTFM_KEY + "&format=json&limit=15")
     .then(function(r){ return r.json(); })
     .then(function(d){
       var arts = (d && d.similarartists && d.similarartists.artist) || [];
       var names = arts.map(function(a){ return a.name; })
         .filter(function(n){ return n && n.toLowerCase() !== q.toLowerCase(); })
-        .slice(0, 4);
+        .slice(0, 8);
       var queries = [q].concat(names);
-      if(names.length) say("Radio: " + q + ", plus " + names.join(", ") + ". Gathering songs.");
+      if(names.length) say("Radio: " + q + ", plus " + names.slice(0, 5).join(", ") + (names.length > 5 ? ", and " + (names.length - 5) + " more" : "") + ". Gathering songs.");
       else say("Gathering " + q + " songs.");
       return Promise.all(queries.map(function(name){
-        return ytSearch(name).catch(function(){ return []; });
+        return ytSearch(name).catch(function(){ return []; }).then(function(videos){
+          return { artist: name, videos: videos };
+        });
       }));
     })
-    .then(function(lists){
+    .then(function(groups){
+      /* Cap each artist at 6 songs so the station stays wide instead of
+         collapsing to two or three bands. */
       var all = [], seen = {};
-      lists.forEach(function(list){
-        list.forEach(function(sv){
-          if(!seen[sv.videoId]){ seen[sv.videoId] = true; all.push(sv); }
-        });
+      groups.forEach(function(g){
+        var taken = 0;
+        for(var i = 0; i < g.videos.length && taken < 6; i++){
+          var sv = g.videos[i];
+          if(!seen[sv.videoId]){ seen[sv.videoId] = true; all.push(sv); taken++; }
+        }
       });
       if(!all.length){ say("Couldn't find any songs for this radio."); return; }
       shuffleList(all);
       playVideo(all[0], all, 0);
-      say("Radio started. " + all.length + " songs, shuffled.");
+      var distinct = {};
+      all.forEach(function(sv){ distinct[sv.videoId] = 1; });
+      say("Radio started. " + all.length + " songs from " + groups.length + " artists, shuffled.");
     })
     .catch(function(){ say("Radio failed. Check your connection."); });
 }
