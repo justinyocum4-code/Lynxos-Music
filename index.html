@@ -137,57 +137,61 @@
   /* Phone: the TV layout wrappers disappear, so the phone layout is unchanged. */
   .fp-tv-main, .fp-tv-left { display: contents; }
   #tvLyricsCol { display: none; }
-  /* TV: two-column player — album art left with transport buttons right under
-     it, lyrics in a scrollable right column. The grid guarantees everything
-     fits the screen, so buttons can never be pushed out of view. */
+  /* TV player makeover: compact two-column layout guaranteed to fit any TV.
+     Left column is a flex stack where the artwork shrinks first, so the song
+     title, artist, and transport buttons can never be pushed off-screen.
+     Lyrics live in a scrollable right column. */
   body.tv #fullPlayer {
-    display: grid; grid-auto-rows: auto; gap: 1.2vh; align-content: start;
-    height: 100vh; height: 100dvh; max-height: 100vh; max-height: 100dvh;
-    overflow: hidden; box-sizing: border-box; padding: 2vh 6vw;
+    display: flex; flex-direction: column;
+    height: 100vh; max-height: 100vh; overflow: hidden;
+    box-sizing: border-box; padding: 2vh 5vw; gap: 1vh;
   }
-  /* The grid display above outranks #fullPlayer[hidden]{display:none}, which
-     made the player unclosable on TV — this restores the hidden state. */
+  /* The flex display above outranks #fullPlayer[hidden]{display:none}, which
+     once made the player unclosable on TV — this restores the hidden state. */
   body.tv #fullPlayer[hidden] { display: none; }
+  body.tv .fp-top { flex: 0 0 auto; }
   body.tv .fp-tv-main {
-    display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
-    gap: 4vw; min-height: 0; min-width: 0;
+    flex: 1 1 auto; min-height: 0; min-width: 0;
+    display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 3vw;
   }
   body.tv .fp-tv-left {
-    display: flex; flex-direction: column; align-items: center;
-    min-height: 0; min-width: 0; gap: 1vh;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    min-height: 0; min-width: 0; overflow: hidden; gap: 1vh;
   }
   body.tv #fpArt {
-    order: 1; flex: 0 1 auto; min-height: 60px; min-width: 0;
-    width: auto; max-width: 100%; max-height: 34vh;
-    aspect-ratio: 1; object-fit: cover; margin: 0;
+    order: 1; flex: 0 1 auto; min-height: 48px; min-width: 0;
+    width: auto; height: auto; max-width: 100%; max-height: 30vh;
+    object-fit: contain; margin: 0; border-radius: 10px;
   }
-  body.tv .fp-tv-left .fp-controls {
-    order: 2; margin: 0; justify-content: center; gap: 2.5vw; width: 100%;
-  }
-  body.tv .fp-tv-left .fp-like-row { order: 3; margin: 0; }
   body.tv .fp-tv-left #fpTitle {
-    order: 4; font-size: 28px; margin: 0; text-align: center;
+    order: 2; flex: 0 0 auto; font-size: 26px; margin: 0; text-align: center;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
   }
   body.tv .fp-tv-left #fpArtist {
-    order: 5; font-size: 22px; margin: 0; text-align: center;
+    order: 3; flex: 0 0 auto; font-size: 20px; margin: 0; text-align: center; color: var(--gold);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
   }
-  body.tv .fp-tv-left #fpSeek { order: 6; margin: 0; width: 100%; }
-  body.tv .fp-tv-left .times { order: 7; font-size: 18px; margin: 0; width: 100%; }
+  body.tv .fp-tv-left .fp-controls {
+    order: 4; flex: 0 0 auto; margin: 0; justify-content: center; gap: 2vw;
+  }
   body.tv .fp-controls .iconbtn {
-    min-width: 68px; min-height: 68px; font-size: 30px;
+    width: 56px; height: 56px; min-width: 56px; min-height: 56px; padding: 0; font-size: 24px;
     border: 2px solid var(--gold); border-radius: 50%;
     display: flex; align-items: center; justify-content: center;
   }
-  body.tv #fpPlayBtn { font-size: 36px; background: rgba(212,175,55,.15); }
+  body.tv #fpPlayBtn { font-size: 28px; background: rgba(212,175,55,.18); }
+  body.tv .fp-tv-left .fp-like-row { order: 5; flex: 0 0 auto; margin: 0; }
+  body.tv .fp-tv-left .fp-like-row .iconbtn { width: 48px; height: 48px; min-width: 48px; min-height: 48px; font-size: 22px; }
+  body.tv .fp-tv-left label.sr-only { order: 6; }
+  body.tv .fp-tv-left #fpSeek { order: 7; flex: 0 0 auto; margin: 0; width: 100%; max-width: 420px; }
+  body.tv .fp-tv-left .times { order: 8; flex: 0 0 auto; font-size: 16px; margin: 0; width: 100%; max-width: 420px; }
   body.tv .fp-tv-right {
     display: block; min-height: 0; min-width: 0; overflow-y: auto;
-    border-left: 3px solid var(--gold); padding-left: 2vw;
+    border-left: 2px solid var(--gold); padding-left: 2vw;
   }
-  body.tv .fp-lyrics-head { color: var(--gold); font-size: 22px; margin-bottom: 1vh; }
-  body.tv #tvLyricsTitle { font-size: 24px; margin: 0 0 1vh; }
-  body.tv #tvLyricsBody { font-size: 22px; line-height: 1.6; white-space: pre-wrap; }
+  body.tv .fp-lyrics-head { color: var(--gold); font-size: 20px; margin-bottom: 1vh; }
+  body.tv #tvLyricsTitle { font-size: 22px; margin: 0 0 1vh; }
+  body.tv #tvLyricsBody { font-size: 20px; line-height: 1.6; white-space: pre-wrap; }
   /* TV: the secondary action rows (Playlist, YouTube Music, Radio, Sleep…)
      stay on the phone — on TV they clutter the player, so they're hidden. */
   body.tv #fullPlayer > .row { display: none; }
@@ -221,7 +225,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.7.3</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.7.4</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <div class="homeBlock">
@@ -292,7 +296,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v1.7.3. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
+      <p class="hint">Lynxos Music v1.7.4. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
     </div>
   </section>
 </main>
@@ -539,11 +543,34 @@ LIBSEGS.forEach(function(s){
 /* ================= search (music only, embeddable only) ================= */
 /* Titles that are talk/documentary/promo rather than actual music. */
 var NON_MUSIC_RE = /interview|documentary|podcast|reaction|reacts to|review|vlog|livestream|live stream|press conference|behind the scenes|the story of|track by track|tier list|ranking|ranked|explains|breakdown|discusses|talks about|tutorial|lesson|q&a|unboxing|trailer/i;
+/* YouTube API fetch with retry: the search endpoint gets rate-limited (429)
+   under load. A short backoff turns a transient throttle into a small delay
+   instead of a "check your connection" dead end. */
+function ytFetch(url, tries){
+  if(typeof tries !== "number") tries = 3;
+  function attempt(n){
+    return fetch(url).then(function(r){
+      if(!r.ok && n > 1 && (r.status === 429 || r.status >= 500)){
+        return new Promise(function(res){ setTimeout(res, 1500 * (4 - n)); }).then(function(){ return attempt(n - 1); });
+      }
+      return r.json().then(function(d){
+        if(d && d.error){
+          if(d.error.code === 429 && n > 1){
+            return new Promise(function(res){ setTimeout(res, 1500 * (4 - n)); }).then(function(){ return attempt(n - 1); });
+          }
+          throw new Error(d.error.message || "API error");
+        }
+        return d;
+      });
+    });
+  }
+  return attempt(tries);
+}
 function isOfficialMusic(v){ return /official\s+(music\s+video|audio|video|lyric)/i.test(v.title); }
 function ytSearch(q){
   var key = getKey();
   var url = "https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&videoCategoryId=10&videoEmbeddable=true&maxResults=25&q=" + encodeURIComponent(q) + "&key=" + encodeURIComponent(key);
-  return fetch(url).then(function(r){ return r.json(); }).then(function(data){
+  return ytFetch(url).then(function(data){
     if(data.error) throw new Error(data.error.message || "API error");
     var videos = (data.items || []).map(function(it){
       var th = it.snippet.thumbnails || {};
@@ -827,9 +854,30 @@ function playNext(auto){
   } else {
     if(state.qi >= state.queue.length - 1){
       if(state.repeat === 1){ playQueueIndex(0); }
+      else if(state.radio && state.radio.active && !state.radio.refilling){ refillRadioNow(); }
       else { if(!auto) say("End of queue."); return; }
     } else { playQueueIndex(state.qi + 1); }
   }
+}
+/* Forward pressed at the end of a radio station: widen the station right now
+   and keep going instead of dead-ending on "End of queue". */
+function refillRadioNow(){
+  var r = state.radio;
+  if(!r || !r.active) return;
+  r.refilling = true;
+  say("Widening your radio.");
+  fetchYouTubeRadio(r.seedId).then(function(videos){
+    if(state.radio !== r){ r.refilling = false; return; }
+    var fresh = [];
+    videos.forEach(function(sv){
+      if(!r.seenIds[sv.videoId]){ r.seenIds[sv.videoId] = true; fresh.push(sv); }
+    });
+    fresh.forEach(function(sv){ state.queue.push(sv); });
+    r.refilling = false;
+    renderQueue();
+    if(fresh.length){ playQueueIndex(state.qi + 1); }
+    else { say("End of queue."); }
+  }).catch(function(){ r.refilling = false; say("End of queue."); });
 }
 function playPrev(){
   if(!state.queue.length) return;
@@ -1234,7 +1282,7 @@ function filterLongVideos(videos, maxMin){
   if(!videos.length) return Promise.resolve(videos);
   var ids = videos.map(function(v){ return v.videoId; }).join(",");
   var url = "https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id=" + encodeURIComponent(ids) + "&key=" + encodeURIComponent(getKey());
-  return fetch(url).then(function(r){ return r.json(); }).then(function(d){
+  return ytFetch(url).then(function(d){
     var map = {};
     (d.items || []).forEach(function(it){ map[it.id] = it.contentDetails.duration; });
     return videos.filter(function(v){
@@ -1251,7 +1299,7 @@ function filterLongVideos(videos, maxMin){
 function fetchYouTubeRadio(videoId){
   var pid = "RD" + videoId;
   var url = "https://www.googleapis.com/youtube/v3/playlistItems?part=snippet,contentDetails&playlistId=" + encodeURIComponent(pid) + "&maxResults=50&key=" + encodeURIComponent(getKey());
-  return fetch(url).then(function(r){ return r.json(); }).then(function(d){
+  return ytFetch(url).then(function(d){
     if(d.error) throw new Error(d.error.message || "Radio failed");
     var videos = (d.items || []).map(function(it){
       var sn = it.snippet || {}, th = sn.thumbnails || {};
@@ -1273,14 +1321,24 @@ function startRadio(artist){
   var getSeed;
   if(seedName){
     say("Finding " + seedName + ".");
+    /* Cache the genre/artist seed video: repeat taps skip the search call
+       entirely (search is the rate-limited endpoint), so the radio starts
+       fast even when YouTube is throttling. */
+    var cachedSeed = null;
+    try { cachedSeed = localStorage.getItem("lm_seed_" + seedName.toLowerCase()); } catch(e){}
+    if(cachedSeed){
+      getSeed = Promise.resolve({ id: cachedSeed, name: seedName });
+    } else {
     getSeed = ytSearch(seedName).then(function(videos){
       if(!videos.length) throw new Error("no videos");
       var best = videos[0];
       for(var i = 0; i < videos.length; i++){
         if(artistMatches(seedName, videos[i]) && isOfficialMusic(videos[i])){ best = videos[i]; break; }
       }
+      try { localStorage.setItem("lm_seed_" + seedName.toLowerCase(), best.videoId); } catch(e){}
       return { id: best.videoId, name: seedName };
     });
+    }
   } else if(v && v.videoId){
     getSeed = Promise.resolve({ id: v.videoId, name: trackArtist(v) || "this song" });
   } else if(v){
