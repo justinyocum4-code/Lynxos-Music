@@ -231,7 +231,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.7.8</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.7.9</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <div class="homeBlock">
@@ -302,7 +302,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v1.7.8. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
+      <p class="hint">Lynxos Music v1.7.9. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
     </div>
   </section>
 </main>
@@ -877,9 +877,17 @@ function refillRadioNow(){
   var sid = seeds[Math.floor(Math.random() * seeds.length)];
   fetchYouTubeRadio(sid).then(function(videos){
     if(state.radio !== r){ r.refilling = false; return; }
+    var qCounts = {};
+    state.queue.forEach(function(sv){
+      var a = normArtist(sv.ownerChannel || sv.channel || "");
+      qCounts[a] = (qCounts[a] || 0) + 1;
+    });
     var fresh = [];
     videos.forEach(function(sv){
-      if(!r.seenIds[sv.videoId] && genrePure(r.seedName, sv.ownerChannel)){ r.seenIds[sv.videoId] = true; fresh.push(sv); }
+      var a = normArtist(sv.ownerChannel || sv.channel || "");
+      if(!r.seenIds[sv.videoId] && genrePure(r.seedName, sv.ownerChannel) && (qCounts[a] || 0) < 6){
+        r.seenIds[sv.videoId] = true; qCounts[a] = (qCounts[a] || 0) + 1; fresh.push(sv);
+      }
     });
     fresh.forEach(function(sv){ state.queue.push(sv); });
     r.refilling = false;
@@ -1371,6 +1379,18 @@ function normArtist(s){
   });
   return s;
 }
+/* Balance: cap songs per artist so one artist can't dominate the station.
+   Without this, 80% of Metal was just SOAD/Metallica/Slipknot on repeat. */
+function capPerArtist(videos, maxPer){
+  var counts = {}, out = [];
+  for(var i = 0; i < videos.length; i++){
+    var v = videos[i];
+    var a = normArtist(v.ownerChannel || v.channel || "");
+    var c = counts[a] || 0;
+    if(c < maxPer){ counts[a] = c + 1; out.push(v); }
+  }
+  return out;
+}
 function genrePure(genre, ownerChannel){
   var artists = GENRE_ARTISTS[String(genre || "").toLowerCase()];
   if(!artists || !artists.length) return true;
@@ -1402,6 +1422,7 @@ function startRadio(artist){
             });
           });
           if(!all.length) throw new Error("no videos");
+          all = capPerArtist(all, 4);
           shuffleList(all);
           return { videos: all, seedIds: hardSeeds.slice(), name: seedName };
         });
@@ -1471,9 +1492,18 @@ function maybeRefillRadio(){
   say("Widening your radio.");
   fetchYouTubeRadio(branchFrom.videoId).then(function(videos){
     if(state.radio !== r) return;
+    /* Count artists already queued so the refill maintains balance. */
+    var qCounts = {};
+    state.queue.forEach(function(sv){
+      var a = normArtist(sv.ownerChannel || sv.channel || "");
+      qCounts[a] = (qCounts[a] || 0) + 1;
+    });
     var fresh = [];
     videos.forEach(function(sv){
-      if(!r.seenIds[sv.videoId] && genrePure(r.seedName, sv.ownerChannel)){ r.seenIds[sv.videoId] = true; fresh.push(sv); }
+      var a = normArtist(sv.ownerChannel || sv.channel || "");
+      if(!r.seenIds[sv.videoId] && genrePure(r.seedName, sv.ownerChannel) && (qCounts[a] || 0) < 6){
+        r.seenIds[sv.videoId] = true; qCounts[a] = (qCounts[a] || 0) + 1; fresh.push(sv);
+      }
     });
     fresh.forEach(function(sv){ state.queue.push(sv); });
     r.refilling = false;
