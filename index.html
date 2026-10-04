@@ -7,6 +7,20 @@
 <script src="https://www.youtube.com/iframe_api"></script>
 <style>
   :root { --gold: #d4af37; --gold-dim: #9a7b1e; --bg: #0a0a0a; --surface: #1a1a1a; --surface2: #242424; --text: #ffffff; --muted: #aaaaaa; }
+  body.light { --gold: #8a6d00; --gold-dim: #6e5600; --bg: #f7f5ef; --surface: #ffffff; --surface2: #ece8dc; --text: #1a1a1a; --muted: #5a5a5a; }
+  body.light header.topbar { border-bottom-color: #d8d2c0; }
+  body.light nav.tabs { background: #ffffff; border-top-color: #d8d2c0; }
+  body.light #miniPlayer { background: var(--surface2); border-top-color: #d8d2c0; }
+  body.light .track { border-bottom-color: #e4dfd2; }
+  body.light .queue-item { border-bottom-color: #e4dfd2; }
+  body.light .mixCard { background: #fffdf5; }
+  body.light .mixCard small { color: #5a5a5a; }
+  body.light .albumCard { background: #ffffff; border-color: #d8d2c0; color: #1a1a1a; }
+  body.light .albumCard .ad { color: #5a5a5a; }
+  body.light input[type="text"], body.light input[type="search"] { border-color: #c9c2ae; }
+  body.light .segbar button { border-color: #c9c2ae; }
+  body.light #albumArt { border-color: #c9c2ae; }
+  body.light #fpArt { border: 1px solid #d8d2c0; }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text); font-family: sans-serif; font-size: 17px; padding-bottom: 150px; }
   header.topbar { display: flex; align-items: center; gap: 10px; padding: 12px 16px; position: sticky; top: 0; z-index: 20; background: var(--bg); border-bottom: 1px solid #2a2a2a; }
@@ -95,12 +109,16 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.5.0</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.6.0</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <div class="homeBlock">
       <h2>Your mixes</h2>
       <div class="mixRow" id="mixRow"></div>
+    </div>
+    <div class="homeBlock">
+      <h2>Browse genres</h2>
+      <div class="row" id="genreRow" role="group" aria-label="Music genres"></div>
     </div>
     <div class="homeBlock">
       <h2>New albums</h2>
@@ -156,8 +174,13 @@
       <p class="hint" id="keyStatus"></p>
     </div>
     <div class="card">
+      <h3>Appearance</h3>
+      <p class="hint">Switch between the gold-and-black dark theme and a light theme.</p>
+      <button class="btn secondary" id="themeToggleBtn" aria-label="Switch theme">🌙 Dark theme</button>
+    </div>
+    <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v1.5.0. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
+      <p class="hint">Lynxos Music v1.6.0. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
     </div>
   </section>
 </main>
@@ -205,10 +228,18 @@
   </div>
   <div class="row" style="margin-top:4px">
     <button class="btn secondary small" id="fpArtistBtn">🧑‍🎤 Artist</button>
+    <button class="btn secondary small" id="fpLyricsBtn">📝 Lyrics</button>
+    <button class="btn secondary small" id="fpShareBtn" aria-label="Share this song">↗ Share</button>
+  </div>
+  <div id="lyricsPanel" hidden>
+    <button class="backBtn" id="lyricsBackBtn" aria-label="Back to player">‹ Back</button>
+    <h2 id="lyricsTitle" style="color:var(--gold);margin:6px 0"></h2>
+    <div id="lyricsBody" style="white-space:pre-wrap;line-height:1.6;padding:8px 0"></div>
   </div>
   <div id="artistPanel" hidden>
     <button class="backBtn" id="artistBackBtn" aria-label="Back to player">‹ Back</button>
     <h2 id="artistName" style="color:var(--gold);margin:6px 0"></h2>
+    <div class="row"><button class="btn secondary small" id="artistShareBtn" aria-label="Share this artist">↗ Share artist</button></div>
     <div class="fp-section-title">Albums</div>
     <div class="hscroll" id="artistAlbums"></div>
     <div class="fp-section-title">Top songs</div>
@@ -885,6 +916,23 @@ $("saveKeyBtn").addEventListener("click", function(){
   say("Your key is saved.");
 });
 /* ================= init ================= */
+function applyTheme(){
+  var light = false;
+  try { light = localStorage.getItem("lm_theme") === "light"; } catch(e){}
+  document.body.classList.toggle("light", light);
+  var b = $("themeToggleBtn");
+  if(b){
+    b.textContent = light ? "☀️ Light theme" : "🌙 Dark theme";
+    b.setAttribute("aria-label", light ? "Light theme on. Tap for dark theme." : "Dark theme on. Tap for light theme.");
+  }
+}
+$("themeToggleBtn").addEventListener("click", function(){
+  var light = !document.body.classList.contains("light");
+  try { localStorage.setItem("lm_theme", light ? "light" : "dark"); } catch(e){}
+  applyTheme();
+  say(light ? "Light theme on." : "Dark theme on.");
+});
+applyTheme();
 refreshKeyStatus();
 syncPlayIcons();
 say("Lynxos Music ready.");
@@ -1120,8 +1168,28 @@ $("fpSimilarBtn").addEventListener("click", showSimilar);
 /* ================= home screen ================= */
 function renderHome(){
   renderMixes();
+  renderGenres();
   renderRecentPlayed();
   loadNewReleases();
+}
+/* ================= genres ================= */
+var GENRES = [
+  ["🤘", "Metal"], ["🎸", "Rock"], ["🌲", "Grunge"], ["🌀", "Alternative"],
+  ["🎤", "Hip-Hop"], ["✨", "Pop"], ["🤠", "Country"], ["🎷", "Jazz"],
+  ["🎻", "Classical"], ["🎧", "Electronic"], ["🌊", "R&B"], ["🔥", "Punk"]
+];
+function renderGenres(){
+  var box = $("genreRow");
+  if(!box) return;
+  box.innerHTML = "";
+  GENRES.forEach(function(g){
+    var b = document.createElement("button");
+    b.className = "btn secondary small";
+    b.setAttribute("aria-label", "Start " + g[1] + " radio");
+    b.textContent = g[0] + " " + g[1];
+    b.addEventListener("click", function(){ startRadio(g[1]); });
+    box.appendChild(b);
+  });
 }
 function renderMixes(){
   var box = $("mixRow");
@@ -1314,7 +1382,61 @@ function renderRecentPlayed(){
 }
 /* ================= artist panel (in player) ================= */
 $("fpArtistBtn").addEventListener("click", openArtistPanel);
+/* ================= lyrics ================= */
+$("fpLyricsBtn").addEventListener("click", function(){
+  var v = currentVideo();
+  if(!v){ say("Nothing playing."); return; }
+  var p = parseTrack(v.title, v.channel);
+  var artist = p.artist, title = p.title;
+  if(!artist || !title){ say("Couldn't figure out this song's details."); return; }
+  $("lyricsPanel").hidden = false;
+  $("lyricsTitle").textContent = title + " — " + artist;
+  $("lyricsBody").textContent = "Loading lyrics…";
+  say("Loading lyrics for " + title + ".");
+  fetch("https://api.lyrics.ovh/v1/" + encodeURIComponent(artist) + "/" + encodeURIComponent(title))
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if(d && d.lyrics){
+        $("lyricsBody").textContent = d.lyrics;
+        say("Lyrics loaded.");
+      } else {
+        $("lyricsBody").textContent = "No lyrics found for this song.";
+        say("No lyrics found for this song.");
+      }
+    })
+    .catch(function(){
+      $("lyricsBody").textContent = "Couldn't load lyrics. Check your connection.";
+      say("Couldn't load lyrics.");
+    });
+});
+$("lyricsBackBtn").addEventListener("click", function(){
+  $("lyricsPanel").hidden = true;
+});
+/* ================= share ================= */
+function shareText(text, label){
+  if(navigator.share){
+    navigator.share({ text: text }).catch(function(){});
+    say("Share sheet opened.");
+  } else if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(function(){
+      say(label + " link copied to clipboard.");
+    }).catch(function(){ say("Couldn't copy the link."); });
+  } else {
+    say("Sharing isn't supported here. The link is: " + text);
+  }
+}
+$("fpShareBtn").addEventListener("click", function(){
+  var v = currentVideo();
+  if(!v || !v.videoId){ say("Nothing to share yet."); return; }
+  var p = parseTrack(v.title, v.channel);
+  shareText(p.title + " by " + p.artist + " — https://www.youtube.com/watch?v=" + v.videoId, "Song");
+});
 $("artistBackBtn").addEventListener("click", function(){ $("artistPanel").hidden = true; say("Back to player."); });
+$("artistShareBtn").addEventListener("click", function(){
+  var name = $("artistName").textContent.trim();
+  if(!name){ say("No artist to share."); return; }
+  shareText("Check out " + name + " — https://www.youtube.com/results?search_query=" + encodeURIComponent(name), "Artist");
+});
 function openArtistPanel(){
   var v = currentVideo();
   if(!v){ say("Play something first."); return; }
