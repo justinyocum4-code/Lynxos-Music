@@ -70,14 +70,47 @@
   .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .queue-item { padding: 10px 4px; border-bottom: 1px solid #1e1e1e; font-size: 15px; }
   .queue-item.current { color: var(--gold); font-weight: bold; }
+  .topbar { position: relative; }
+  #homeSearchBtn { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); }
+  .backBtn { background: none; border: 1px solid var(--gold); color: var(--gold); border-radius: 8px; padding: 8px 14px; font-size: 16px; margin-bottom: 8px; }
+  .homeBlock { margin: 4px 0 20px; }
+  .homeBlock h2 { color: var(--gold); font-size: 18px; margin: 0 0 8px; }
+  .mixRow { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 6px; }
+  .mixCard { min-width: 140px; background: #161616; border: 1px solid var(--gold); border-radius: 12px; padding: 16px 10px; color: var(--gold); text-align: center; font-size: 16px; font-weight: bold; }
+  .mixCard small { display: block; color: #ccc; font-size: 12px; font-weight: normal; margin-top: 6px; }
+  .hscroll { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 6px; }
+  .albumCard { min-width: 132px; max-width: 132px; background: #111; border: 1px solid #3a3a3a; border-radius: 10px; overflow: hidden; color: #fff; padding: 0 0 8px; text-align: left; }
+  .albumCard img { width: 132px; height: 132px; object-fit: cover; display: block; }
+  .albumCard .an { font-size: 13px; padding: 6px 6px 0; font-weight: bold; }
+  .albumCard .aa { font-size: 12px; color: var(--gold); padding: 2px 6px 0; }
+  .albumCard .ad { font-size: 11px; color: #999; padding: 2px 6px 0; }
 </style>
 </head>
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.2.2</small></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.3.0</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
 <main>
-  <section id="searchView" role="tabpanel" aria-labelledby="tab-search">
+  <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
+    <div class="homeBlock">
+      <h2>Your mixes</h2>
+      <div class="mixRow" id="mixRow"></div>
+    </div>
+    <div class="homeBlock">
+      <h2>New metal albums</h2>
+      <div class="hscroll" id="newAlbums"><p style="color:#999">Loading…</p></div>
+    </div>
+    <div class="homeBlock">
+      <h2>New metal songs</h2>
+      <div class="hscroll" id="newSongs"><p style="color:#999">Loading…</p></div>
+    </div>
+    <div class="homeBlock">
+      <h2>Recently played</h2>
+      <div id="recentPlayed"></div>
+    </div>
+  </section>
+  <section id="searchView" role="tabpanel" aria-labelledby="tab-search" hidden>
+    <button class="backBtn" id="searchBackBtn" aria-label="Back to home">‹ Back</button><br>
     <label for="searchBox" class="sr-only">Search songs or artists</label>
     <input type="search" id="searchBox" placeholder="Search songs, artists" autocomplete="off">
     <button class="btn" id="searchBtn">Search</button>
@@ -117,7 +150,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v1.2.2. Plays through YouTube's official embedded player. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
+      <p class="hint">Lynxos Music v1.3.0. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
     </div>
   </section>
 </main>
@@ -130,7 +163,7 @@
   <button class="iconbtn" id="mpPlayBtn" aria-label="Play or pause">▶</button>
 </div>
 <nav class="tabs" role="tablist" aria-label="Main sections">
-  <button role="tab" id="tab-search" aria-selected="true" aria-controls="searchView"><span class="ticon">🔍</span>Search</button>
+  <button role="tab" id="tab-home" aria-selected="true" aria-controls="homeView"><span class="ticon">🏠</span>Home</button>
   <button role="tab" id="tab-library" aria-selected="false" aria-controls="libraryView"><span class="ticon">📚</span>Library</button>
   <button role="tab" id="tab-settings" aria-selected="false" aria-controls="settingsView"><span class="ticon">⚙️</span>Settings</button>
 </nav>
@@ -163,6 +196,17 @@
     <button class="btn secondary small" id="fpSimilarBtn">🎸 Similar</button>
     <button class="btn secondary small" id="fpSleepBtn" aria-label="Sleep timer off. Tap to set.">⏲</button>
   </div>
+  <div class="row" style="margin-top:4px">
+    <button class="btn secondary small" id="fpArtistBtn">🧑‍🎤 Artist</button>
+  </div>
+  <div id="artistPanel" hidden>
+    <button class="backBtn" id="artistBackBtn" aria-label="Back to player">‹ Back</button>
+    <h2 id="artistName" style="color:var(--gold);margin:6px 0"></h2>
+    <div class="fp-section-title">Albums</div>
+    <div class="hscroll" id="artistAlbums"></div>
+    <div class="fp-section-title">Top songs</div>
+    <div id="artistSongs"></div>
+  </div>
   <div class="fp-section-title">Similar artists</div>
   <div id="fpSimilarList" hidden></div>
   <div class="fp-section-title">Up next</div>
@@ -180,38 +224,58 @@ function fmtTime(sec){ sec = Math.max(0, Math.floor(sec || 0)); var m = Math.flo
 /* ================= state ================= */
 var state = {
   queue: [], qi: -1, player: null, playerReady: false, pendingVideo: null,
-  lastResults: [], loggedVideo: null, shuffle: false, repeat: 0, seeking: false
+  lastResults: [], loggedVideo: null, shuffle: false, repeat: 0, seeking: false,
+  tab: "home", searchOpen: false
 };
 var BUILTIN_KEY = "AIzaSyBh9a-6YYjorfAHm_ax7PeHcfRktVLdBBQ";
 function getKey(){ try { var k = (localStorage.getItem("lm_api_key") || "").trim(); return k || BUILTIN_KEY; } catch(e){ return BUILTIN_KEY; } }
 /* ================= tabs ================= */
-var TABS = [["tab-search","searchView","Search"],["tab-library","libraryView","Library"],["tab-settings","settingsView","Settings"]];
+var TABS = [["tab-home","homeView","Home"],["tab-library","libraryView","Library"],["tab-settings","settingsView","Settings"]];
 function showTab(name){
   state.tab = name;
+  state.searchOpen = false;
   TABS.forEach(function(t){
     var sel = (t[0] === "tab-" + name);
     $(t[0]).setAttribute("aria-selected", sel ? "true" : "false");
     $(t[1]).hidden = !sel;
   });
+  $("searchView").hidden = true;
   var label = "";
   TABS.forEach(function(t){ if(t[0] === "tab-" + name) label = t[2]; });
   say(label + " tab.");
+  if(name === "home") renderHome();
   if(name === "library") renderLibrary();
 }
 /* Back chain for the Android back button (called from Java):
-   full player -> playlist detail -> Library/Settings tab -> Search tab -> exit app */
+   full player -> playlist detail -> artist panel -> search screen -> Home tab -> exit app */
 window.lmHandleBack = function(){
   try {
+    var ap = $("artistPanel");
+    if(ap && !ap.hidden && !$("fullPlayer").hidden){ ap.hidden = true; say("Back to player."); return "handled"; }
     if(!$("fullPlayer").hidden){ collapsePlayer(); return "handled"; }
     var pd = $("playlistDetail");
     if(pd && pd.innerHTML.trim() !== ""){ pd.innerHTML = ""; say("Back to playlists."); return "handled"; }
-    if(state.tab && state.tab !== "search"){ showTab("search"); return "handled"; }
+    if(state.searchOpen){ closeSearch(); return "handled"; }
+    if(state.tab && state.tab !== "home"){ showTab("home"); return "handled"; }
   } catch(e){}
   return "exit";
 };
 TABS.forEach(function(t){
   $(t[0]).addEventListener("click", function(){ showTab(t[0].replace("tab-","")); });
 });
+function openSearch(){
+  TABS.forEach(function(t){ $(t[1]).hidden = true; $(t[0]).setAttribute("aria-selected","false"); });
+  $("searchView").hidden = false;
+  state.searchOpen = true;
+  say("Search.");
+  setTimeout(function(){ try { $("searchBox").focus(); } catch(e){} }, 100);
+}
+function closeSearch(){
+  state.searchOpen = false;
+  showTab("home");
+}
+$("homeSearchBtn").addEventListener("click", openSearch);
+$("searchBackBtn").addEventListener("click", closeSearch);
 var LIBSEGS = ["playlists","liked","history"];
 function showLibSeg(name){
   LIBSEGS.forEach(function(s){
@@ -226,19 +290,33 @@ LIBSEGS.forEach(function(s){
 </script>
 <script>
 "use strict";
-/* ================= search (embeddable only) ================= */
+/* ================= search (music only, embeddable only) ================= */
+/* Titles that are talk/documentary/promo rather than actual music. */
+var NON_MUSIC_RE = /interview|documentary|podcast|reaction|reacts to|review|vlog|livestream|live stream|press conference|behind the scenes|the story of|track by track|tier list|ranking|ranked|explains|breakdown|discusses|talks about|tutorial|lesson|q&a|unboxing|trailer/i;
+function isOfficialMusic(v){ return /official\s+(music\s+video|audio|video|lyric)/i.test(v.title); }
 function ytSearch(q){
   var key = getKey();
-  var url = "https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&videoCategoryId=10&videoEmbeddable=true&maxResults=20&q=" + encodeURIComponent(q) + "&key=" + encodeURIComponent(key);
+  var url = "https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&videoCategoryId=10&videoEmbeddable=true&maxResults=25&q=" + encodeURIComponent(q) + "&key=" + encodeURIComponent(key);
   return fetch(url).then(function(r){ return r.json(); }).then(function(data){
     if(data.error) throw new Error(data.error.message || "API error");
-    return (data.items || []).map(function(it){
+    var videos = (data.items || []).map(function(it){
       var th = it.snippet.thumbnails || {};
       return { videoId: it.id.videoId, title: it.snippet.title, channel: it.snippet.channelTitle,
         thumb: th.medium ? th.medium.url : (th.default ? th.default.url : ""),
         art: th.high ? th.high.url : (th.medium ? th.medium.url : "") };
     });
+    /* Strictly music: drop talk/documentary/review-style videos, then float
+       official music videos and official audio to the top. */
+    videos = videos.filter(function(v){ return !NON_MUSIC_RE.test(v.title); });
+    videos.sort(function(a, b){ return (isOfficialMusic(b) ? 1 : 0) - (isOfficialMusic(a) ? 1 : 0); });
+    return videos.slice(0, 20);
   });
+}
+/* Clean a YouTube channel name down to a readable artist name. */
+function displayArtist(ch){
+  var s = String(ch == null ? "" : ch);
+  s = s.replace(/\s*-\s*Topic$/i, "").replace(/VEVO/gi, "").replace(/\bOfficial\b/gi, " ").replace(/\s{2,}/g, " ").trim();
+  return s || "Unknown artist";
 }
 function doSearch(){
   var q = $("searchBox").value.trim();
@@ -278,7 +356,7 @@ function renderRecentSearches(){
 }
 function trackRow(v, idx){
   return '<div class="track"><img src="' + esc(v.thumb) + '" alt="">' +
-    '<div class="info"><div class="title">' + esc(v.title) + '</div><div class="channel">' + esc(v.channel) + '</div></div>' +
+    '<div class="info"><div class="title">' + esc(v.title) + '</div><div class="channel">' + esc(displayArtist(v.channel)) + '</div></div>' +
     '<div class="actions">' +
     '<button class="iconbtn gold" data-play="' + idx + '" aria-label="Play ' + esc(v.title) + '">▶</button>' +
     '<button class="iconbtn" data-playnext="' + idx + '" aria-label="Play next: ' + esc(v.title) + '">⏭</button>' +
@@ -345,7 +423,10 @@ $("searchBox").addEventListener("keydown", function(e){ if(e.key === "Enter") do
 /* ================= player ================= */
 function onYouTubeIframeAPIReady(){
   state.playerReady = true;
-  if(state.pendingVideo){ var v = state.pendingVideo; state.pendingVideo = null; loadIntoPlayer(v); }
+  /* If the user tapped a song before the API finished loading, create the
+     player now. (Calling loadIntoPlayer here would silently drop the video
+     because state.player is still null.) */
+  if(state.pendingVideo){ var v = state.pendingVideo; state.pendingVideo = null; ensurePlayer(v); }
 }
 function ensurePlayer(v){
   if(state.player){ loadIntoPlayer(v); return; }
@@ -454,10 +535,10 @@ function syncPlayIcons(){
 function updateNowPlaying(v){
   $("mpThumb").src = v.thumb || "";
   $("mpTitle").textContent = v.title;
-  $("mpArtist").textContent = v.channel;
+  $("mpArtist").textContent = displayArtist(v.channel);
   $("fpArt").src = v.art || v.thumb || "";
   $("fpTitle").textContent = v.title;
-  $("fpArtist").textContent = v.channel;
+  $("fpArtist").textContent = displayArtist(v.channel);
   document.title = v.title + " — Lynxos Music";
   syncPlayIcons();
   renderQueue();
@@ -649,7 +730,7 @@ function renderHistory(){
     var d = "";
     try { d = new Date(v.playedAt).toLocaleString(); } catch(e){}
     return '<div class="track"><img src="' + esc(v.thumb) + '" alt="">' +
-      '<div class="info"><div class="title">' + esc(v.title) + '</div><div class="channel">' + esc(v.channel) + " · " + esc(d) + '</div></div>' +
+      '<div class="info"><div class="title">' + esc(v.title) + '</div><div class="channel">' + esc(displayArtist(v.channel)) + " · " + esc(d) + '</div></div>' +
       '<div class="actions"><button class="iconbtn gold" data-hplay="' + i + '" aria-label="Play again">▶</button></div></div>';
   }).join("");
   box.querySelectorAll("[data-hplay]").forEach(function(b){
@@ -665,6 +746,7 @@ $("clearHistoryBtn").addEventListener("click", function(){
 });
 /* ---- liked ---- */
 function getLiked(){ return getJSON("lm_liked", []); }
+function getHistory(){ return getJSON("lm_history", []); }
 function isLiked(id){ return getLiked().some(function(v){ return v.videoId === id; }); }
 function toggleLike(v){
   var l = getLiked();
@@ -828,9 +910,201 @@ function showSimilar(){
     });
 }
 $("fpSimilarBtn").addEventListener("click", showSimilar);
+/* ================= home screen ================= */
+function renderHome(){
+  renderMixes();
+  renderRecentPlayed();
+  loadNewReleases();
+}
+function renderMixes(){
+  var box = $("mixRow");
+  if(!box) return;
+  box.innerHTML = "";
+  var mixes = [
+    { icon: "❤️", name: "Liked Mix", sub: getLiked().length + " songs", go: playLikedMix },
+    { icon: "🕘", name: "Replay Mix", sub: getHistory().length + " songs", go: playReplayMix },
+    { icon: "🎲", name: "Discover Mix", sub: "new bands for you", go: playDiscoverMix }
+  ];
+  mixes.forEach(function(m){
+    var b = document.createElement("button");
+    b.className = "mixCard";
+    b.setAttribute("aria-label", m.name + ", " + m.sub);
+    b.innerHTML = m.icon + "<br>" + m.name + "<small>" + esc(m.sub) + "</small>";
+    b.addEventListener("click", m.go);
+    box.appendChild(b);
+  });
+}
+function playLikedMix(){
+  if(!getLiked().length){ say("You have not liked any songs yet. Tap the heart on a song to like it."); return; }
+  var q = getLiked().slice();
+  shuffleList(q);
+  playVideo(q[0], q, 0);
+  say("Liked mix. " + q.length + " songs, shuffled.");
+}
+function playReplayMix(){
+  if(!getHistory().length){ say("No listening history yet."); return; }
+  var q = getHistory().slice();
+  shuffleList(q);
+  playVideo(q[0], q, 0);
+  say("Replay mix. " + q.length + " songs, shuffled.");
+}
+function playDiscoverMix(){
+  var counts = {}, order = [];
+  getHistory().concat(getLiked()).forEach(function(v){
+    var a = cleanArtistName(v.channel);
+    if(!a) return;
+    if(!counts[a]){ counts[a] = 0; order.push(a); }
+    counts[a]++;
+  });
+  var best = null, bestN = 0;
+  order.forEach(function(a){ if(counts[a] > bestN){ bestN = counts[a]; best = a; } });
+  if(best) startRadio(best);
+  else say("Play a song first, then Discover Mix will find new bands for you.");
+}
+var newReleasesCache = null;
+function loadNewReleases(){
+  var aBox = $("newAlbums"), sBox = $("newSongs");
+  if(!aBox || !sBox) return;
+  if(newReleasesCache){ renderReleases(newReleasesCache); return; }
+  Promise.all([
+    fetch("https://itunes.apple.com/us/rss/topalbums/limit=25/genre=1153/json").then(function(r){ return r.json(); }),
+    fetch("https://itunes.apple.com/us/rss/topsongs/limit=25/genre=1153/json").then(function(r){ return r.json(); })
+  ]).then(function(res){
+    newReleasesCache = { albums: parseItunesFeed(res[0]), songs: parseItunesFeed(res[1]) };
+    renderReleases(newReleasesCache);
+  }).catch(function(){
+    aBox.innerHTML = "<p style='color:#999'>Couldn't load new releases.</p>";
+    sBox.innerHTML = "";
+  });
+}
+function parseItunesFeed(feed){
+  var entries = (feed && feed.feed && feed.feed.entry) || [];
+  var out = entries.map(function(e){
+    var imgs = e["im:image"] || [];
+    var img = imgs.length ? imgs[imgs.length - 1].label : "";
+    return {
+      name: ((e["im:name"] || {}).label) || "",
+      artist: ((e["im:artist"] || {}).label) || "",
+      art: img.replace(/\/\d+x\d+bb\.png$/, "/300x300bb.png"),
+      date: (((e["im:releaseDate"] || {}).label) || "").slice(0, 10)
+    };
+  }).filter(function(x){ return x.name && x.artist; });
+  out.sort(function(a, b){ return a.date < b.date ? 1 : (a.date > b.date ? -1 : 0); });
+  return out.slice(0, 15);
+}
+function releaseCard(item, kind){
+  var d = document.createElement("button");
+  d.className = "albumCard";
+  d.setAttribute("aria-label", (kind === "album" ? "Album " : "Song ") + item.name + " by " + item.artist + (item.date ? ", released " + item.date : ""));
+  d.innerHTML = (item.art ? '<img src="' + esc(item.art) + '" alt="">' : "") +
+    '<div class="an">' + esc(item.name) + '</div><div class="aa">' + esc(item.artist) + '</div>' +
+    (item.date ? '<div class="ad">' + esc(item.date) + "</div>" : "");
+  d.addEventListener("click", function(){ playItunes(item.artist, item.name); });
+  return d;
+}
+function renderReleases(c){
+  var aBox = $("newAlbums"), sBox = $("newSongs");
+  if(!aBox || !sBox) return;
+  aBox.innerHTML = ""; sBox.innerHTML = "";
+  c.albums.forEach(function(al){ aBox.appendChild(releaseCard(al, "album")); });
+  c.songs.forEach(function(sg){ sBox.appendChild(releaseCard(sg, "song")); });
+  if(!c.albums.length) aBox.innerHTML = "<p style='color:#999'>Nothing right now.</p>";
+  if(!c.songs.length) sBox.innerHTML = "<p style='color:#999'>Nothing right now.</p>";
+}
+function playItunes(artist, name){
+  say("Finding " + name + " by " + artist + ".");
+  ytSearch(artist + " " + name).then(function(videos){
+    if(!videos.length){ say("Couldn't find that on YouTube."); return; }
+    playVideo(videos[0], videos, 0);
+    say("Playing " + name + " by " + artist + ".");
+  }).catch(function(){ say("Search failed. Check your connection."); });
+}
+function renderRecentPlayed(){
+  var box = $("recentPlayed");
+  if(!box) return;
+  box.innerHTML = "";
+  var h = getHistory().slice(0, 8);
+  if(!h.length){ box.innerHTML = "<p style='color:#999'>Nothing yet. Tap the search button to find a band.</p>"; return; }
+  box.innerHTML = h.map(function(v, i){ return trackRow(v, i); }).join("");
+  bindTrackButtons(box, h);
+}
+/* ================= artist panel (in player) ================= */
+$("fpArtistBtn").addEventListener("click", openArtistPanel);
+$("artistBackBtn").addEventListener("click", function(){ $("artistPanel").hidden = true; say("Back to player."); });
+function openArtistPanel(){
+  var v = currentVideo();
+  if(!v){ say("Play something first."); return; }
+  var artist = cleanArtistName(v.channel) || displayArtist(v.channel);
+  if(!artist){ say("Couldn't figure out the artist for this song."); return; }
+  $("artistName").textContent = displayArtist(v.channel);
+  $("artistAlbums").innerHTML = "<p style='color:#999'>Loading albums…</p>";
+  $("artistSongs").innerHTML = "";
+  $("artistPanel").hidden = false;
+  say("Loading " + artist + ".");
+  var q = encodeURIComponent(artist);
+  Promise.all([
+    fetch("https://itunes.apple.com/search?term=" + q + "&entity=album&limit=40").then(function(r){ return r.json(); }),
+    fetch("https://itunes.apple.com/search?term=" + q + "&entity=song&limit=40").then(function(r){ return r.json(); })
+  ]).then(function(res){
+    renderArtistAlbums(artist, res[0].results || []);
+    renderArtistSongs(artist, res[1].results || []);
+    say(artist + " loaded.");
+  }).catch(function(){
+    $("artistAlbums").innerHTML = "<p style='color:#999'>Couldn't load. Check your connection.</p>";
+    say("Couldn't load the artist page.");
+  });
+}
+function itunesMatches(artist, itemArtist){
+  var a = String(artist).toLowerCase(), b = String(itemArtist || "").toLowerCase();
+  return b === a || b.indexOf(a) >= 0 || a.indexOf(b) >= 0;
+}
+function renderArtistAlbums(artist, results){
+  var box = $("artistAlbums");
+  box.innerHTML = "";
+  var seen = {}, list = [];
+  results.forEach(function(r){
+    if(!r.collectionName || seen[r.collectionName]) return;
+    if(!itunesMatches(artist, r.artistName)) return;
+    seen[r.collectionName] = 1;
+    list.push(r);
+  });
+  list.sort(function(a, b){ return (a.releaseDate || "") < (b.releaseDate || "") ? 1 : -1; });
+  list.slice(0, 20).forEach(function(r){
+    var yr = (r.releaseDate || "").slice(0, 4);
+    var d = document.createElement("button");
+    d.className = "albumCard";
+    d.setAttribute("aria-label", "Play album " + r.collectionName + (yr ? ", " + yr : ""));
+    d.innerHTML = (r.artworkUrl100 ? '<img src="' + esc(r.artworkUrl100.replace("100x100bb", "300x300bb")) + '" alt="">' : "") +
+      '<div class="an">' + esc(r.collectionName) + '</div>' + (yr ? '<div class="ad">' + esc(yr) + "</div>" : "");
+    d.addEventListener("click", function(){ playItunes(artist, r.collectionName); });
+    box.appendChild(d);
+  });
+  if(!list.length) box.innerHTML = "<p style='color:#999'>No albums found.</p>";
+}
+function renderArtistSongs(artist, results){
+  var box = $("artistSongs");
+  box.innerHTML = "";
+  var seen = {}, n = 0;
+  results.forEach(function(r){
+    if(n >= 15 || !r.trackName || seen[r.trackName]) return;
+    if(!itunesMatches(artist, r.artistName)) return;
+    seen[r.trackName] = 1; n++;
+    (function(title){
+      var row = document.createElement("button");
+      row.className = "track";
+      row.setAttribute("aria-label", "Play " + title);
+      row.style.width = "100%";
+      row.innerHTML = '<div class="info"><div class="title">' + esc(title) + '</div><div class="channel">' + esc(r.collectionName || "") + '</div></div><div class="actions"><span class="iconbtn gold">▶</span></div>';
+      row.addEventListener("click", function(){ playItunes(artist, title); });
+      box.appendChild(row);
+    })(r.trackName);
+  });
+  if(!n) box.innerHTML = "<p style='color:#999'>No songs found.</p>";
+}
 /* ================= v1.2 init additions ================= */
 renderRecentSearches();
 updateSleepBtn();
+renderHome();
 </script>
 </body>
 </html>
