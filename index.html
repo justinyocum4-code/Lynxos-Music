@@ -89,7 +89,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.3.0</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.3.1</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <div class="homeBlock">
@@ -97,11 +97,11 @@
       <div class="mixRow" id="mixRow"></div>
     </div>
     <div class="homeBlock">
-      <h2>New metal albums</h2>
+      <h2>New albums</h2>
       <div class="hscroll" id="newAlbums"><p style="color:#999">Loading…</p></div>
     </div>
     <div class="homeBlock">
-      <h2>New metal songs</h2>
+      <h2>New songs</h2>
       <div class="hscroll" id="newSongs"><p style="color:#999">Loading…</p></div>
     </div>
     <div class="homeBlock">
@@ -150,7 +150,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v1.3.0. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
+      <p class="hint">Lynxos Music v1.3.1. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
     </div>
   </section>
 </main>
@@ -318,6 +318,26 @@ function displayArtist(ch){
   s = s.replace(/\s*-\s*Topic$/i, "").replace(/VEVO/gi, "").replace(/\bOfficial\b/gi, " ").replace(/\s{2,}/g, " ").trim();
   return s || "Unknown artist";
 }
+/* Split "Artist - Song" style YouTube titles so the song name goes on top and
+   the real artist below (instead of the record label as the artist). */
+function parseTrack(title, channel){
+  var t = String(title == null ? "" : title).trim();
+  var chanArtist = displayArtist(channel);
+  var m = t.match(/^\s*(.+?)\s*[-\u2013\u2014|]\s*(.+?)\s*$/);
+  if(m){
+    var left = m[1].trim(), right = m[2].trim();
+    /* "Song - Live ..." means the left side is the song, not the artist. */
+    if(left && right && !/^(live|official|audio|video|lyric|acoustic|unplugged|remix|remaster\w*|demo|cover|instrumental)\b/i.test(right)){
+      return { artist: left, title: right };
+    }
+  }
+  return { artist: chanArtist, title: t };
+}
+function trackArtist(v){
+  if(!v) return "";
+  var p = parseTrack(v.title, v.channel);
+  return p.artist || cleanArtistName(v.channel);
+}
 function doSearch(){
   var q = $("searchBox").value.trim();
   if(!q){ say("Type something to search for first."); return; }
@@ -355,8 +375,9 @@ function renderRecentSearches(){
   });
 }
 function trackRow(v, idx){
+  var p = parseTrack(v.title, v.channel);
   return '<div class="track"><img src="' + esc(v.thumb) + '" alt="">' +
-    '<div class="info"><div class="title">' + esc(v.title) + '</div><div class="channel">' + esc(displayArtist(v.channel)) + '</div></div>' +
+    '<div class="info"><div class="title">' + esc(p.title) + '</div><div class="channel">' + esc(p.artist) + '</div></div>' +
     '<div class="actions">' +
     '<button class="iconbtn gold" data-play="' + idx + '" aria-label="Play ' + esc(v.title) + '">▶</button>' +
     '<button class="iconbtn" data-playnext="' + idx + '" aria-label="Play next: ' + esc(v.title) + '">⏭</button>' +
@@ -468,7 +489,7 @@ function onPlayerState(e){
   if(!v) return;
   if(e.data === YT.PlayerState.PLAYING){
     if(state.loggedVideo !== v.videoId){ state.loggedVideo = v.videoId; logHistory(v); }
-    say("Playing: " + v.title);
+    say("Playing: " + parseTrack(v.title, v.channel).title + " by " + parseTrack(v.title, v.channel).artist + ".");
     startProgress();
   } else if(e.data === YT.PlayerState.PAUSED){
     stopProgress();
@@ -534,11 +555,12 @@ function syncPlayIcons(){
 }
 function updateNowPlaying(v){
   $("mpThumb").src = v.thumb || "";
-  $("mpTitle").textContent = v.title;
-  $("mpArtist").textContent = displayArtist(v.channel);
+  var p = parseTrack(v.title, v.channel);
+  $("mpTitle").textContent = p.title;
+  $("mpArtist").textContent = p.artist;
   $("fpArt").src = v.art || v.thumb || "";
-  $("fpTitle").textContent = v.title;
-  $("fpArtist").textContent = displayArtist(v.channel);
+  $("fpTitle").textContent = p.title;
+  $("fpArtist").textContent = p.artist;
   document.title = v.title + " — Lynxos Music";
   syncPlayIcons();
   renderQueue();
@@ -601,7 +623,8 @@ function renderQueue(){
   }
   h += state.queue.map(function(v, i){
     var rm = (i === state.qi) ? "" : ' <button class="iconbtn" data-rmq="' + i + '" aria-label="Remove ' + esc(v.title) + ' from queue">✖</button>';
-    return '<div class="queue-item' + (i === state.qi ? " current" : "") + '"><span data-qi="' + i + '">' + esc(v.title) + "</span>" + rm + "</div>";
+    var p = parseTrack(v.title, v.channel);
+    return '<div class="queue-item' + (i === state.qi ? " current" : "") + '"><span data-qi="' + i + '">' + esc(p.title) + "</span>" + rm + "</div>";
   }).join("");
   box.innerHTML = h;
   box.querySelectorAll("[data-qi]").forEach(function(el){
@@ -729,8 +752,9 @@ function renderHistory(){
   box.innerHTML = h.map(function(v, i){
     var d = "";
     try { d = new Date(v.playedAt).toLocaleString(); } catch(e){}
+    var p = parseTrack(v.title, v.channel);
     return '<div class="track"><img src="' + esc(v.thumb) + '" alt="">' +
-      '<div class="info"><div class="title">' + esc(v.title) + '</div><div class="channel">' + esc(displayArtist(v.channel)) + " · " + esc(d) + '</div></div>' +
+      '<div class="info"><div class="title">' + esc(p.title) + '</div><div class="channel">' + esc(p.artist) + " · " + esc(d) + '</div></div>' +
       '<div class="actions"><button class="iconbtn gold" data-hplay="' + i + '" aria-label="Play again">▶</button></div></div>';
   }).join("");
   box.querySelectorAll("[data-hplay]").forEach(function(b){
@@ -839,7 +863,7 @@ function shuffleList(a){
 }
 function startRadio(artist){
   var v = currentVideo();
-  var q = artist || (v ? cleanArtistName(v.channel) : "");
+  var q = artist || (v ? trackArtist(v) : "");
   if(!q){ say("Couldn't figure out the artist for this song."); return; }
   say("Building a " + q + " radio station with similar artists.");
   fetch("https://ws.audioscrobbler.com/2.0/?method=artist.getSimilar&artist=" + encodeURIComponent(q) + "&api_key=" + LASTFM_KEY + "&format=json&limit=5")
@@ -878,7 +902,7 @@ function showSimilar(){
   if(!box.hidden){ box.hidden = true; box.innerHTML = ""; say("Similar artists hidden."); return; }
   var v = currentVideo();
   if(!v){ say("Nothing playing."); return; }
-  var artist = cleanArtistName(v.channel);
+  var artist = trackArtist(v);
   if(!artist){ say("Couldn't figure out the artist for this song."); return; }
   box.hidden = false;
   box.innerHTML = '<div class="empty">Finding artists like ' + esc(artist) + "…</div>";
@@ -951,7 +975,7 @@ function playReplayMix(){
 function playDiscoverMix(){
   var counts = {}, order = [];
   getHistory().concat(getLiked()).forEach(function(v){
-    var a = cleanArtistName(v.channel);
+    var a = trackArtist(v);
     if(!a) return;
     if(!counts[a]){ counts[a] = 0; order.push(a); }
     counts[a]++;
@@ -967,8 +991,8 @@ function loadNewReleases(){
   if(!aBox || !sBox) return;
   if(newReleasesCache){ renderReleases(newReleasesCache); return; }
   Promise.all([
-    fetch("https://itunes.apple.com/us/rss/topalbums/limit=25/genre=1153/json").then(function(r){ return r.json(); }),
-    fetch("https://itunes.apple.com/us/rss/topsongs/limit=25/genre=1153/json").then(function(r){ return r.json(); })
+    fetch("https://itunes.apple.com/us/rss/topalbums/limit=25/json").then(function(r){ return r.json(); }),
+    fetch("https://itunes.apple.com/us/rss/topsongs/limit=25/json").then(function(r){ return r.json(); })
   ]).then(function(res){
     newReleasesCache = { albums: parseItunesFeed(res[0]), songs: parseItunesFeed(res[1]) };
     renderReleases(newReleasesCache);
@@ -1034,7 +1058,7 @@ $("artistBackBtn").addEventListener("click", function(){ $("artistPanel").hidden
 function openArtistPanel(){
   var v = currentVideo();
   if(!v){ say("Play something first."); return; }
-  var artist = cleanArtistName(v.channel) || displayArtist(v.channel);
+  var artist = trackArtist(v);
   if(!artist){ say("Couldn't figure out the artist for this song."); return; }
   $("artistName").textContent = displayArtist(v.channel);
   $("artistAlbums").innerHTML = "<p style='color:#999'>Loading albums…</p>";
