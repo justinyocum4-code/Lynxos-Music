@@ -231,7 +231,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.7.6</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.7.7</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <div class="homeBlock">
@@ -302,7 +302,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v1.7.6. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
+      <p class="hint">Lynxos Music v1.7.7. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
     </div>
   </section>
 </main>
@@ -872,7 +872,10 @@ function refillRadioNow(){
   if(!r || !r.active) return;
   r.refilling = true;
   say("Widening your radio.");
-  fetchYouTubeRadio(r.seedId).then(function(videos){
+  /* Multi-artist stations widen from a random seed so the mix stays varied. */
+  var seeds = (r.seedIds && r.seedIds.length) ? r.seedIds : [r.seedId];
+  var sid = seeds[Math.floor(Math.random() * seeds.length)];
+  fetchYouTubeRadio(sid).then(function(videos){
     if(state.radio !== r){ r.refilling = false; return; }
     var fresh = [];
     videos.forEach(function(sv){
@@ -1321,15 +1324,19 @@ function fetchYouTubeRadio(videoId){
     return filterLongVideos(videos, 25);
   });
 }
-/* Verified genre station seeds: these bypass YouTube's (rate-limited) search
-   entirely — the radio playlist endpoint is what builds the station, and it
-   stays reliable. Each seed is a well-known official video whose YouTube
-   recommendations stay in-genre. */
+/* Verified genre station seeds: each genre pulls recommendations from several
+   different artists in parallel, then merges and shuffles them — so Metal
+   isn't just AC/DC and Rock isn't just Queen. These bypass YouTube's
+   (rate-limited) search entirely; the radio playlist endpoint stays reliable.
+   Every ID below was verified live (its recommendation playlist returns). */
 var GENRE_SEEDS = {
-  "metal": "v2AC41dglnM",
-  "rock": "fJ9rUzIMcZQ",
-  "grunge": "hTWKbfoikeg",
-  "pop": "JGwWNGJdvx8"
+  "metal": ["v2AC41dglnM", "CD-E-LDc384", "CSvFpBOe8eY"],
+  "rock": ["fJ9rUzIMcZQ", "pAgnJDJN4VA", "A_MjCqQoLLA"],
+  "grunge": ["hTWKbfoikeg", "__biilMpnmw", "eVTXPUF4Oz4"],
+  "pop": ["JGwWNGJdvx8", "kJQP7kiw5Fk", "hT_nvWreIhg"],
+  "alternative": ["XFkzRNyygfk", "YlUKcNNmywk", "hTWKbfoikeg"],
+  "punk": ["7iNbnineUCI", "CSvFpBOe8eY", "eVTXPUF4Oz4"],
+  "hip-hop": ["RgKAFK5djSk", "euCqAq6BRa4"]
 };
 function startRadio(artist){
   var v = currentVideo();
@@ -1337,10 +1344,23 @@ function startRadio(artist){
   var getSeed;
   if(seedName){
     say("Finding " + seedName + ".");
-    var hardSeed = GENRE_SEEDS[seedName.toLowerCase()];
-    if(hardSeed){
-      /* Verified seed: skip the throttled search entirely. */
-      getSeed = Promise.resolve({ id: hardSeed, name: seedName });
+    var hardSeeds = GENRE_SEEDS[seedName.toLowerCase()];
+    if(hardSeeds && hardSeeds.length){
+      /* Verified multi-artist seeds: pull every artist's recommendations in
+         parallel, merge, dedupe, and shuffle — real genre variety from the
+         first song, with no search call at all. */
+      getSeed = Promise.all(hardSeeds.map(function(id){ return fetchYouTubeRadio(id); }))
+        .then(function(results){
+          var seen = {}, all = [];
+          results.forEach(function(videos){
+            (videos || []).forEach(function(sv){
+              if(sv.videoId && !seen[sv.videoId]){ seen[sv.videoId] = true; all.push(sv); }
+            });
+          });
+          if(!all.length) throw new Error("no videos");
+          shuffleList(all);
+          return { videos: all, seedIds: hardSeeds.slice(), name: seedName };
+        });
     } else {
     /* Cache the genre/artist seed video: repeat taps skip the search call
        entirely (search is the rate-limited endpoint), so the radio starts
@@ -1376,6 +1396,7 @@ function startRadio(artist){
   }
   getSeed.then(function(seed){
     say("Starting " + seed.name + " radio.");
+    if(seed.videos) return { seed: seed, videos: seed.videos };
     return fetchYouTubeRadio(seed.id).then(function(videos){
       return { seed: seed, videos: videos };
     });
@@ -1386,7 +1407,7 @@ function startRadio(artist){
     });
     if(!all.length){ say("Couldn't build a radio station. Try another artist."); return; }
     playVideo(all[0], all, 0);
-    state.radio = { seedId: res.seed.id, seedName: res.seed.name, active: true, refilling: false, seenIds: seenIds };
+    state.radio = { seedId: res.seed.id || null, seedIds: res.seed.seedIds || null, seedName: res.seed.name, active: true, refilling: false, seenIds: seenIds };
     addRecentRadioArtists([res.seed.name]);
     say("Radio started with " + all.length + " songs. It keeps widening as you listen.");
   }).catch(function(){ say("Radio failed. Check your connection and try again."); });
