@@ -104,12 +104,64 @@
   .albumCard .an { font-size: 13px; padding: 6px 6px 0; font-weight: bold; }
   .albumCard .aa { font-size: 12px; color: var(--gold); padding: 2px 6px 0; }
   .albumCard .ad { font-size: 11px; color: #999; padding: 2px 6px 0; }
+  /* ---------- TV / 10-foot mode (Fire TV, Android TV, Google TV): body.tv is
+     set by JS when a TV user agent is detected. Bigger text, strong gold focus
+     ring for D-pad navigation, overscan-safe padding. ---------- */
+  body.tv { font-size: 24px; }
+  body.tv header.topbar { font-size: 30px; padding: 14px 5vw; }
+  body.tv header.topbar .logo { font-size: 32px; }
+  body.tv header.topbar small { font-size: 20px; }
+  body.tv main { padding: 12px 5vw 40px; }
+  body.tv .homeBlock h2 { font-size: 32px; }
+  body.tv button { font-size: 26px; }
+  body.tv .btn { min-height: 84px; padding: 16px 28px; }
+  body.tv .btn.small { min-height: 76px; font-size: 24px; }
+  body.tv .iconbtn { min-width: 76px; min-height: 76px; font-size: 30px; }
+  body.tv .tabs button { font-size: 24px; padding: 18px 8px; }
+  body.tv :focus-visible { outline: 6px solid var(--gold); outline-offset: 4px; }
+  body.tv .track { padding: 18px 10px; font-size: 24px; }
+  body.tv .track .tt { font-size: 26px; }
+  body.tv .track .ta { font-size: 22px; }
+  body.tv input[type="text"], body.tv input[type="search"] { font-size: 26px; min-height: 76px; }
+  body.tv .mixCard { min-width: 220px; font-size: 26px; padding: 24px 16px; }
+  body.tv .mixCard small { font-size: 20px; }
+  body.tv .albumCard { min-width: 200px; max-width: 200px; }
+  body.tv .albumCard img { width: 200px; height: 200px; }
+  body.tv .albumCard .an { font-size: 22px; }
+  body.tv .albumCard .aa { font-size: 20px; }
+  body.tv .card { padding: 20px; font-size: 24px; }
+  body.tv .card h3 { font-size: 28px; }
+  /* TV: no bottom tab bar — the remote opens the side menu with the left arrow. */
+  body.tv nav.tabs { display: none; }
+  body.tv #miniPlayer { bottom: 0; }
+  /* TV: keep the whole player on screen with overscan-safe margins. */
+  body.tv #fullPlayer { padding: 3vh 6vw 4vh; }
+  body.tv #fpArt { width: min(38vh, 340px); margin: 1vh auto 1.5vh; }
+  body.tv #fpTitle { font-size: 34px; }
+  body.tv #fpArtist { font-size: 26px; }
+  body.tv .fp-controls .iconbtn { min-width: 96px; min-height: 96px; font-size: 40px; }
+  body.tv #albumPanel { padding: 3vh 6vw 4vh; }
+  body.tv #albumArt { width: 200px; height: 200px; }
+  /* TV side menu, opened with the left arrow key at the screen's left edge */
+  #tv-menu { display: none; }
+  body.tv #tv-menu {
+    display: flex; flex-direction: column; gap: 12px;
+    position: fixed; top: 0; left: 0; bottom: 0; z-index: 85;
+    width: min(430px, 72vw); background: #0a0a0a;
+    border-right: 3px solid var(--gold); padding: 5vh 26px;
+    transform: translateX(-106%); visibility: hidden;
+    transition: transform 0.22s ease, visibility 0s linear 0.22s;
+  }
+  body.tv #tv-menu.open { transform: none; visibility: visible; transition: transform 0.22s ease; }
+  body.tv #tv-menu h2 { font-size: 34px; color: var(--gold); margin: 0 0 10px 0; }
+  body.tv #tv-menu button { text-align: left; }
+  body.tv #tv-menu .tv-menu-hint { color: #999; font-size: 20px; margin: auto 0 0 0; }
 </style>
 </head>
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.6.0</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.7.0</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <div class="homeBlock">
@@ -180,7 +232,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v1.6.0. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
+      <p class="hint">Lynxos Music v1.7.0. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
     </div>
   </section>
 </main>
@@ -196,6 +248,14 @@
   <button role="tab" id="tab-home" aria-selected="true" aria-controls="homeView"><span class="ticon">🏠</span>Home</button>
   <button role="tab" id="tab-library" aria-selected="false" aria-controls="libraryView"><span class="ticon">📚</span>Library</button>
   <button role="tab" id="tab-settings" aria-selected="false" aria-controls="settingsView"><span class="ticon">⚙️</span>Settings</button>
+</nav>
+<nav id="tv-menu" aria-label="TV menu">
+  <h2>Menu</h2>
+  <button type="button" data-tv-tab="home">🏠 Home</button>
+  <button type="button" data-tv-search>🔍 Search</button>
+  <button type="button" data-tv-tab="library">📚 Library</button>
+  <button type="button" data-tv-tab="settings">⚙️ Settings</button>
+  <p class="tv-menu-hint">Tip: press the left arrow at the screen's edge anytime to open this menu.</p>
 </nav>
 <div id="fullPlayer" hidden role="dialog" aria-label="Now playing">
   <div class="fp-top">
@@ -263,6 +323,12 @@
 </div>
 <script>
 "use strict";
+/* ================= TV mode =================
+   Fire TV (AFT*), Android TV / Google TV: the remote drives D-pad focus.
+   Enlarge the UI, strengthen the focus ring, and swap the bottom tab bar
+   for a left-arrow side menu. Phones are untouched. */
+var IS_TV = /AFT|Fire TV|Android TV|Google TV|Leanback/i.test(navigator.userAgent || "");
+try { if(IS_TV) document.body.classList.add("tv"); } catch(e){}
 /* ================= helpers ================= */
 function $(id){ return document.getElementById(id); }
 function esc(s){ return String(s == null ? "" : s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
@@ -295,10 +361,67 @@ function showTab(name){
   if(name === "home") renderHome();
   if(name === "library") renderLibrary();
 }
+/* ================= TV side menu + remote hooks ================= */
+var tvMenu = $("tv-menu");
+function tvMenuOpen(){ return !!(tvMenu && tvMenu.classList.contains("open")); }
+function openTvMenu(){
+  if(!tvMenu || !IS_TV) return;
+  tvMenu.classList.add("open");
+  try {
+    var items = tvMenu.querySelectorAll("button");
+    var target = items[0];
+    for(var i = 0; i < items.length; i++){
+      if(items[i].getAttribute("data-tv-tab") === state.tab){ target = items[i]; break; }
+    }
+    if(target) target.focus();
+  } catch(e){}
+  say("Menu open. Choose a section.");
+}
+function closeTvMenu(){ if(tvMenu) tvMenu.classList.remove("open"); }
+if(tvMenu){
+  tvMenu.addEventListener("click", function(e){
+    var tab = e.target.closest("[data-tv-tab]");
+    if(tab){
+      closeTvMenu();
+      showTab(tab.getAttribute("data-tv-tab"));
+      try {
+        var view = $({home:"homeView",library:"libraryView",settings:"settingsView"}[tab.getAttribute("data-tv-tab")]);
+        var first = view ? view.querySelector("button, input, select") : null;
+        if(first) first.focus();
+      } catch(err){}
+      return;
+    }
+    if(e.target.closest("[data-tv-search]")){ closeTvMenu(); openSearch(); }
+  });
+}
+/* Left arrow at the screen's left edge opens the TV menu; left arrow while
+   the menu is open closes it. Never fires inside the player or text fields. */
+document.addEventListener("keydown", function(e){
+  if(!IS_TV || e.key !== "ArrowLeft") return;
+  if(!$("fullPlayer").hidden) return;
+  if(tvMenuOpen()){ closeTvMenu(); e.preventDefault(); return; }
+  var ae = document.activeElement;
+  if(!ae || !ae.getBoundingClientRect) return;
+  var tag = (ae.tagName || "").toLowerCase();
+  if(tag === "input" || tag === "textarea" || tag === "select") return;
+  if(tvMenu && tvMenu.contains(ae)) return;
+  var r = ae.getBoundingClientRect();
+  if(r.width > 0 && r.left < window.innerWidth * 0.18){
+    e.preventDefault();
+    openTvMenu();
+  }
+});
+/* Remote media-key hooks, called by the native wrapper on TV:
+   play/pause toggles, next skips forward, previous restarts the song
+   (or jumps to the previous song when pressed twice quickly). */
+window.lmRemotePlayPause = function(){ try { togglePlayPause(); } catch(e){} return "handled"; };
+window.lmRemoteNext = function(){ try { playNext(false); } catch(e){} return "handled"; };
+window.lmRemotePrev = function(){ try { playPrev(); } catch(e){} return "handled"; };
 /* Back chain for the Android back button (called from Java):
    full player -> playlist detail -> artist panel -> search screen -> Home tab -> exit app */
 window.lmHandleBack = function(){
   try {
+    if(tvMenuOpen()){ closeTvMenu(); say("Menu closed."); return "handled"; }
     var ap = $("artistPanel");
     if(ap && !ap.hidden && !$("fullPlayer").hidden){ ap.hidden = true; say("Back to player."); return "handled"; }
     var ab = $("albumPanel");
