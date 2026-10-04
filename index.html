@@ -95,7 +95,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.4.7</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.4.8</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <div class="homeBlock">
@@ -157,7 +157,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v1.4.7. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
+      <p class="hint">Lynxos Music v1.4.8. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
     </div>
   </section>
 </main>
@@ -954,40 +954,61 @@ function addRecentRadioArtists(names){
 /* Endless radio: starts with the seed artist plus similar artists, then keeps
    pulling in more similar artists as the queue runs down — and when those run
    out it branches to artists similar to the ones already playing. Unlimited. */
+/* Fetch similar-artist names from Last.fm (free, no YouTube quota). */
+function similarArtistsOf(name, limit){
+  return fetch("https://ws.audioscrobbler.com/2.0/?method=artist.getSimilar&artist=" + encodeURIComponent(name) + "&api_key=" + LASTFM_KEY + "&format=json&limit=" + (limit || 40))
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      var arts = (d && d.similarartists && d.similarartists.artist) || [];
+      return arts.map(function(a){ return a.name; })
+        .filter(function(n){ return n; });
+    }).catch(function(){ return []; });
+}
 function startRadio(artist){
   var v = currentVideo();
   var q = artist || (v ? trackArtist(v) : "");
   if(!q){ say("Couldn't figure out the artist for this song."); return; }
-  say("Starting " + q + " radio, based on the song playing now. To use a different band, play one of their songs first, then hit the radio button.");
-  fetch("https://ws.audioscrobbler.com/2.0/?method=artist.getSimilar&artist=" + encodeURIComponent(q) + "&api_key=" + LASTFM_KEY + "&format=json&limit=40")
-    .then(function(r){ return r.json(); })
-    .then(function(d){
-      var arts = (d && d.similarartists && d.similarartists.artist) || [];
-      var names = arts.map(function(a){ return a.name; })
-        .filter(function(n){ return n && n.toLowerCase() !== q.toLowerCase(); });
-      /* Prefer artists your recent stations haven't used, so switching bands
-         actually gives you new artists instead of the same cluster. */
-      var recent = getRecentRadioArtists();
-      var ordered = names.filter(function(n){ return recent.indexOf(n.toLowerCase()) < 0; })
-        .concat(names.filter(function(n){ return recent.indexOf(n.toLowerCase()) >= 0; }));
-      var first = ordered.slice(0, 6);
-      var queries = [q].concat(first);
-      if(first.length) say("Radio: " + q + ", plus " + first.slice(0, 4).join(", ") + (first.length > 4 ? ", and more" : "") + ". Gathering songs.");
-      else say("Gathering " + q + " songs.");
-      return Promise.all(queries.map(fetchRadioGroup))
-        .then(function(groups){ return { groups: groups, names: ordered }; });
-    })
-    .then(function(res){
-      var all = collectRadioSongs(res.groups, 6);
-      if(!all.length){ say("Couldn't find any songs for this radio."); return; }
-      shuffleList(all);
-      playVideo(all[0], all, 0);
-      state.radio = { seed: q, pending: res.names.slice(6), seenArtists: {}, active: true, refilling: false };
-      res.names.slice(0, 6).concat([q]).forEach(function(n){ state.radio.seenArtists[String(n).toLowerCase()] = 1; });
-      addRecentRadioArtists([q].concat(res.names.slice(0, 6)));
-      say("Endless radio started. It keeps finding new artists as you listen.");
-    })
-    .catch(function(){ say("Radio failed. Check your connection."); });
+  say("Starting " + q + " radio, based on " + (artist ? "your search." : "the song playing now. To use a different band, play one of their songs first, then hit the radio button."));
+  var recent = getRecentRadioArtists();
+  var notRecent = function(n){ return recent.indexOf(String(n).toLowerCase()) < 0; };
+  similarArtistsOf(q, 40).then(function(names){
+    names = names.filter(function(n){ return n.toLowerCase() !== q.toLowerCase(); });
+    var ordered = names.filter(notRecent).concat(names.filter(function(n){ return !notRecent(n); }));
+    var direct = ordered.slice(0, 4);
+    /* Second-degree: artists similar to the similar artists — this is what
+       takes the station BEYOND the tight similar cluster. */
+    var secondSeeds = direct.slice(0, 3);
+    return Promise.all(secondSeeds.map(function(s){ return similarArtistsOf(s, 12); }))
+      .then(function(secondLists){
+        var seen = {};
+        seen[q.toLowerCase()] = 1;
+        direct.forEach(function(n){ seen[n.toLowerCase()] = 1; });
+        var second = [];
+        secondLists.forEach(function(list){
+          list.forEach(function(n){
+            var ln = n.toLowerCase();
+            if(n && !seen[ln] && notRecent(n)){ seen[ln] = 1; second.push(n); }
+          });
+        });
+        second = second.slice(0, 8);
+        var allArtists = [q].concat(direct).concat(second);
+        return { artists: allArtists, pending: ordered.slice(4) };
+      });
+  }).then(function(res){
+    say("Radio: " + q + ", reaching " + (res.artists.length - 1) + " artists wide. Gathering songs.");
+    return Promise.all(res.artists.map(fetchRadioGroup)).then(function(groups){
+      return { groups: groups, pending: res.pending, artists: res.artists };
+    });
+  }).then(function(res){
+    var all = collectRadioSongs(res.groups, 4);
+    if(!all.length){ say("Couldn't find any songs for this radio."); return; }
+    shuffleList(all);
+    playVideo(all[0], all, 0);
+    state.radio = { seed: q, pending: res.pending, seenArtists: {}, active: true, refilling: false };
+    res.artists.forEach(function(n){ state.radio.seenArtists[String(n).toLowerCase()] = 1; });
+    addRecentRadioArtists(res.artists);
+    say("Radio started, " + res.artists.length + " artists wide. It keeps reaching further as you listen.");
+  }).catch(function(){ say("Radio failed. Check your connection."); });
 }
 /* Does this video's actual artist match the artist we searched for?
    (YouTube searches bleed across artists, so we verify instead of trusting.) */
