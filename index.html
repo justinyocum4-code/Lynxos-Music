@@ -75,12 +75,13 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.1.0</small></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.2.0</small></header>
 <main>
   <section id="searchView" role="tabpanel" aria-labelledby="tab-search">
     <label for="searchBox" class="sr-only">Search songs or artists</label>
     <input type="search" id="searchBox" placeholder="Search songs, artists" autocomplete="off">
     <button class="btn" id="searchBtn">Search</button>
+    <div id="recentSearches" class="row" style="margin-top:4px"></div>
     <div id="searchResults"></div>
   </section>
   <section id="libraryView" role="tabpanel" aria-labelledby="tab-library" hidden>
@@ -116,7 +117,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v1.1.0. Plays through YouTube's official embedded player. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
+      <p class="hint">Lynxos Music v1.2.0. Plays through YouTube's official embedded player. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
     </div>
   </section>
 </main>
@@ -157,6 +158,13 @@
     <button class="btn secondary small" id="fpAddToPlaylistBtn">＋ Playlist</button>
     <button class="btn secondary small" id="fpYtMusicBtn">▶ YouTube Music</button>
   </div>
+  <div class="row" style="margin-top:4px">
+    <button class="btn secondary small" id="fpRadioBtn">📻 Radio</button>
+    <button class="btn secondary small" id="fpSimilarBtn">🎸 Similar</button>
+    <button class="btn secondary small" id="fpSleepBtn" aria-label="Sleep timer off. Tap to set.">⏲</button>
+  </div>
+  <div class="fp-section-title">Similar artists</div>
+  <div id="fpSimilarList" hidden></div>
   <div class="fp-section-title">Up next</div>
   <div id="fpQueueList"></div>
 </div>
@@ -179,6 +187,7 @@ function getKey(){ try { var k = (localStorage.getItem("lm_api_key") || "").trim
 /* ================= tabs ================= */
 var TABS = [["tab-search","searchView","Search"],["tab-library","libraryView","Library"],["tab-settings","settingsView","Settings"]];
 function showTab(name){
+  state.tab = name;
   TABS.forEach(function(t){
     var sel = (t[0] === "tab-" + name);
     $(t[0]).setAttribute("aria-selected", sel ? "true" : "false");
@@ -189,6 +198,17 @@ function showTab(name){
   say(label + " tab.");
   if(name === "library") renderLibrary();
 }
+/* Back chain for the Android back button (called from Java):
+   full player -> playlist detail -> Library/Settings tab -> Search tab -> exit app */
+window.lmHandleBack = function(){
+  try {
+    if(!$("fullPlayer").hidden){ collapsePlayer(); return "handled"; }
+    var pd = $("playlistDetail");
+    if(pd && pd.innerHTML.trim() !== ""){ pd.innerHTML = ""; say("Back to playlists."); return "handled"; }
+    if(state.tab && state.tab !== "search"){ showTab("search"); return "handled"; }
+  } catch(e){}
+  return "exit";
+};
 TABS.forEach(function(t){
   $(t[0]).addEventListener("click", function(){ showTab(t[0].replace("tab-","")); });
 });
@@ -207,34 +227,64 @@ LIBSEGS.forEach(function(s){
 <script>
 "use strict";
 /* ================= search (embeddable only) ================= */
-function doSearch(){
-  var q = $("searchBox").value.trim();
-  if(!q){ say("Type something to search for first."); return; }
+function ytSearch(q){
   var key = getKey();
-  $("searchResults").innerHTML = '<div class="empty">Searching…</div>';
-  say("Searching for " + q);
   var url = "https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&videoCategoryId=10&videoEmbeddable=true&maxResults=20&q=" + encodeURIComponent(q) + "&key=" + encodeURIComponent(key);
-  fetch(url).then(function(r){ return r.json(); }).then(function(data){
-    if(data.error){ $("searchResults").innerHTML = '<div class="empty">Search failed: ' + esc(data.error.message || "API error") + '</div>'; say("Search failed."); return; }
-    var items = data.items || [];
-    state.lastResults = items.map(function(it){
+  return fetch(url).then(function(r){ return r.json(); }).then(function(data){
+    if(data.error) throw new Error(data.error.message || "API error");
+    return (data.items || []).map(function(it){
       var th = it.snippet.thumbnails || {};
       return { videoId: it.id.videoId, title: it.snippet.title, channel: it.snippet.channelTitle,
         thumb: th.medium ? th.medium.url : (th.default ? th.default.url : ""),
         art: th.high ? th.high.url : (th.medium ? th.medium.url : "") };
     });
+  });
+}
+function doSearch(){
+  var q = $("searchBox").value.trim();
+  if(!q){ say("Type something to search for first."); return; }
+  $("searchResults").innerHTML = '<div class="empty">Searching…</div>';
+  say("Searching for " + q);
+  ytSearch(q).then(function(videos){
+    state.lastResults = videos;
     renderResults();
-    say(items.length + " results. All of these play inside the app.");
-  }).catch(function(){
-    $("searchResults").innerHTML = '<div class="empty">Search failed. Check your connection.</div>';
+    saveRecentSearch(q);
+    say(videos.length + " results. All of these play inside the app.");
+  }).catch(function(err){
+    var msg = (err && err.message) || "connection problem";
+    $("searchResults").innerHTML = '<div class="empty">Search failed: ' + esc(msg) + '</div>';
     say("Search failed.");
+  });
+}
+/* ---- recent searches ---- */
+function getRecentSearches(){ return getJSON("lm_recent", []); }
+function saveRecentSearch(q){
+  var r = getRecentSearches().filter(function(x){ return x.toLowerCase() !== q.toLowerCase(); });
+  r.unshift(q);
+  setJSON("lm_recent", r.slice(0, 8));
+  renderRecentSearches();
+}
+function renderRecentSearches(){
+  var r = getRecentSearches();
+  var box = $("recentSearches");
+  if(!r.length){ box.innerHTML = ""; return; }
+  box.innerHTML = r.map(function(q, i){ return '<button class="btn small secondary" data-rs="' + i + '">' + esc(q) + "</button>"; }).join("");
+  box.querySelectorAll("[data-rs]").forEach(function(b){
+    b.addEventListener("click", function(){
+      var q = getRecentSearches()[parseInt(b.getAttribute("data-rs"), 10)];
+      if(q){ $("searchBox").value = q; doSearch(); }
+    });
   });
 }
 function trackRow(v, idx){
   return '<div class="track"><img src="' + esc(v.thumb) + '" alt="">' +
     '<div class="info"><div class="title">' + esc(v.title) + '</div><div class="channel">' + esc(v.channel) + '</div></div>' +
-    '<div class="actions"><button class="iconbtn gold" data-play="' + idx + '" aria-label="Play ' + esc(v.title) + '">▶</button>' +
-    '<button class="iconbtn" data-like="' + idx + '" aria-label="Like ' + esc(v.title) + '">' + (isLiked(v.videoId) ? "❤️" : "🤍") + '</button></div></div>';
+    '<div class="actions">' +
+    '<button class="iconbtn gold" data-play="' + idx + '" aria-label="Play ' + esc(v.title) + '">▶</button>' +
+    '<button class="iconbtn" data-playnext="' + idx + '" aria-label="Play next: ' + esc(v.title) + '">⏭</button>' +
+    '<button class="iconbtn" data-addq="' + idx + '" aria-label="Add to queue: ' + esc(v.title) + '">＋</button>' +
+    '<button class="iconbtn" data-like="' + idx + '" aria-label="Like ' + esc(v.title) + '">' + (isLiked(v.videoId) ? "❤️" : "🤍") + '</button>' +
+    '</div></div>';
 }
 function renderResults(){
   var box = $("searchResults");
@@ -249,12 +299,37 @@ function bindTrackButtons(root, list){
       if(v) playVideo(v, list, list.indexOf(v));
     });
   });
+  root.querySelectorAll("[data-playnext]").forEach(function(b){
+    b.addEventListener("click", function(){
+      var v = list[parseInt(b.getAttribute("data-playnext"), 10)];
+      if(v) queuePlayNext(v);
+    });
+  });
+  root.querySelectorAll("[data-addq]").forEach(function(b){
+    b.addEventListener("click", function(){
+      var v = list[parseInt(b.getAttribute("data-addq"), 10)];
+      if(v) queueAddLast(v);
+    });
+  });
   root.querySelectorAll("[data-like]").forEach(function(b){
     b.addEventListener("click", function(){
       var v = list[parseInt(b.getAttribute("data-like"), 10)];
       if(v){ toggleLike(v); refreshLikeIcons(root, list); }
     });
   });
+}
+/* insert right after the current song; start playing immediately if queue empty */
+function queuePlayNext(v){
+  if(!state.queue.length){ playVideo(v, [v], 0); return; }
+  state.queue.splice(state.qi + 1, 0, v);
+  say("Will play next: " + v.title);
+  renderQueue();
+}
+function queueAddLast(v){
+  if(!state.queue.length){ playVideo(v, [v], 0); return; }
+  state.queue.push(v);
+  say("Added to the end of the queue: " + v.title);
+  renderQueue();
 }
 function refreshLikeIcons(root, list){
   root.querySelectorAll("[data-like]").forEach(function(b){
@@ -431,14 +506,37 @@ $("fpYtMusicBtn").addEventListener("click", function(){
 function renderQueue(){
   var box = $("fpQueueList");
   if(!state.queue.length){ box.innerHTML = '<div class="empty">Queue is empty. Search for something to play.</div>'; return; }
-  box.innerHTML = state.queue.map(function(v, i){
-    return '<div class="queue-item' + (i === state.qi ? " current" : "") + '" data-qi="' + i + '">' + esc(v.title) + "</div>";
+  var h = "";
+  if(state.qi < state.queue.length - 1){
+    h += '<div class="row" style="justify-content:flex-end"><button class="btn small secondary" id="clearUpNext">Clear up next</button></div>';
+  }
+  h += state.queue.map(function(v, i){
+    var rm = (i === state.qi) ? "" : ' <button class="iconbtn" data-rmq="' + i + '" aria-label="Remove ' + esc(v.title) + ' from queue">✖</button>';
+    return '<div class="queue-item' + (i === state.qi ? " current" : "") + '"><span data-qi="' + i + '">' + esc(v.title) + "</span>" + rm + "</div>";
   }).join("");
+  box.innerHTML = h;
   box.querySelectorAll("[data-qi]").forEach(function(el){
     el.addEventListener("click", function(){
       state.qi = parseInt(el.getAttribute("data-qi"), 10);
       ensurePlayer(state.queue[state.qi]);
     });
+  });
+  box.querySelectorAll("[data-rmq]").forEach(function(b){
+    b.addEventListener("click", function(ev){
+      ev.stopPropagation();
+      var i = parseInt(b.getAttribute("data-rmq"), 10);
+      var v = state.queue[i];
+      state.queue.splice(i, 1);
+      if(i < state.qi) state.qi--;
+      say("Removed from queue: " + (v ? v.title : ""));
+      renderQueue();
+    });
+  });
+  var c = $("clearUpNext");
+  if(c) c.addEventListener("click", function(){
+    state.queue = state.queue.slice(0, state.qi + 1);
+    say("Up next cleared.");
+    renderQueue();
   });
 }
 </script>
@@ -603,6 +701,109 @@ $("saveKeyBtn").addEventListener("click", function(){
 refreshKeyStatus();
 syncPlayIcons();
 say("Lynxos Music ready.");
+</script>
+<script>
+"use strict";
+/* ================= sleep timer ================= */
+var SLEEP_STEPS = [0, 15, 30, 60];
+state.sleepMinutes = 0;
+state.sleepTimer = null;
+function updateSleepBtn(){
+  var b = $("fpSleepBtn");
+  b.textContent = state.sleepMinutes > 0 ? "⏲" + state.sleepMinutes : "⏲";
+  b.classList.toggle("active", state.sleepMinutes > 0);
+  b.setAttribute("aria-label", state.sleepMinutes > 0 ? ("Sleep timer: " + state.sleepMinutes + " minutes. Tap to change.") : "Sleep timer off. Tap to set.");
+}
+$("fpSleepBtn").addEventListener("click", function(){
+  var i = (SLEEP_STEPS.indexOf(state.sleepMinutes) + 1) % SLEEP_STEPS.length;
+  state.sleepMinutes = SLEEP_STEPS[i];
+  if(state.sleepTimer){ clearTimeout(state.sleepTimer); state.sleepTimer = null; }
+  if(state.sleepMinutes > 0){
+    state.sleepTimer = setTimeout(function(){
+      try { if(state.player) state.player.pauseVideo(); } catch(e){}
+      state.sleepMinutes = 0; updateSleepBtn();
+      say("Sleep timer ended. Music paused.");
+    }, state.sleepMinutes * 60000);
+    say("Sleep timer set for " + state.sleepMinutes + " minutes.");
+  } else {
+    say("Sleep timer off.");
+  }
+  updateSleepBtn();
+});
+/* ================= artist radio ================= */
+function cleanArtistName(channel){
+  return String(channel || "")
+    .replace(/ - Topic$/i, "")
+    .replace(/\s*VEVO\s*/gi, "")
+    .replace(/\s*Records$/i, "")
+    .replace(/\s*Official$/i, "")
+    .replace(/\s*Music$/i, "")
+    .trim();
+}
+function shuffleList(a){
+  for(var i = a.length - 1; i > 0; i--){
+    var j = Math.floor(Math.random() * (i + 1));
+    var t = a[i]; a[i] = a[j]; a[j] = t;
+  }
+  return a;
+}
+function startRadio(artist){
+  var v = currentVideo();
+  var q = artist || (v ? cleanArtistName(v.channel) : "");
+  if(!q){ say("Couldn't figure out the artist for this song."); return; }
+  say("Starting " + q + " radio. Searching for songs.");
+  ytSearch(q).then(function(videos){
+    if(!videos.length){ say("No songs found for " + q + "."); return; }
+    shuffleList(videos);
+    playVideo(videos[0], videos, 0);
+    say(q + " radio started. " + videos.length + " songs, shuffled.");
+  }).catch(function(){
+    say("Radio search failed. Check your connection.");
+  });
+}
+$("fpRadioBtn").addEventListener("click", function(){ startRadio(""); });
+/* ================= similar artists (Last.fm) ================= */
+var LASTFM_KEY = "e06508f947f4fac1595adde9c41264eb";
+function showSimilar(){
+  var box = $("fpSimilarList");
+  if(!box.hidden){ box.hidden = true; box.innerHTML = ""; say("Similar artists hidden."); return; }
+  var v = currentVideo();
+  if(!v){ say("Nothing playing."); return; }
+  var artist = cleanArtistName(v.channel);
+  if(!artist){ say("Couldn't figure out the artist for this song."); return; }
+  box.hidden = false;
+  box.innerHTML = '<div class="empty">Finding artists like ' + esc(artist) + "…</div>";
+  say("Finding artists like " + artist + ".");
+  fetch("https://ws.audioscrobbler.com/2.0/?method=artist.getSimilar&artist=" + encodeURIComponent(artist) + "&api_key=" + LASTFM_KEY + "&format=json&limit=12")
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      var arts = (d && d.similarartists && d.similarartists.artist) || [];
+      if(!arts.length){
+        box.innerHTML = '<div class="empty">No similar artists found for ' + esc(artist) + ".</div>";
+        say("No similar artists found.");
+        return;
+      }
+      box.innerHTML = '<div class="row">' + arts.map(function(a){
+        return '<button class="btn small secondary" data-sim="' + esc(a.name) + '">' + esc(a.name) + "</button>";
+      }).join("") + "</div>" + '<p class="hint">Tap an artist to start their radio.</p>';
+      say(arts.length + " similar artists found.");
+      box.querySelectorAll("[data-sim]").forEach(function(b){
+        b.addEventListener("click", function(){
+          var name = b.getAttribute("data-sim");
+          box.hidden = true; box.innerHTML = "";
+          startRadio(name);
+        });
+      });
+    })
+    .catch(function(){
+      box.innerHTML = '<div class="empty">Lookup failed. Check your connection.</div>';
+      say("Similar artist lookup failed.");
+    });
+}
+$("fpSimilarBtn").addEventListener("click", showSimilar);
+/* ================= v1.2 init additions ================= */
+renderRecentSearches();
+updateSleepBtn();
 </script>
 </body>
 </html>
