@@ -232,7 +232,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.7.18</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.7.19</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <div class="homeBlock">
@@ -303,7 +303,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v1.7.18. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
+      <p class="hint">Lynxos Music v1.7.19. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
     </div>
   </section>
 </main>
@@ -1463,6 +1463,94 @@ function diversifyStart(videos, n){
   shuffleList(tail);
   return head.concat(tail);
 }
+/* Last.fm-powered genre station: get real artists for the genre from Last.fm,
+   then their top tracks, then find each on YouTube. No YouTube recommendations
+   — we control the variety. */
+function buildLastFmGenreStation(genreName){
+  say("Building " + genreName + " station.");
+  var tagMap = {
+    "metal": "metal", "rock": "rock", "grunge": "grunge", "alternative": "alternative",
+    "hip-hop": "hip-hop", "pop": "pop", "country": "country", "jazz": "jazz",
+    "classical": "classical", "electronic": "electronic", "r&b": "rnb", "punk": "punk"
+  };
+  var tag = tagMap[genreName.toLowerCase()] || genreName.toLowerCase();
+  /* Check cache first. */
+  var cacheKey = "lm_lfm_" + tag;
+  var cached = null;
+  try {
+    var c = localStorage.getItem(cacheKey);
+    if(c){
+      var parsed = JSON.parse(c);
+      /* Cache for 7 days. */
+      if(Date.now() - parsed.ts < 7 * 24 * 60 * 60 * 1000 && parsed.tracks && parsed.tracks.length >= 10){
+        cached = parsed.tracks;
+      }
+    }
+  } catch(e){}
+  function findVideosForTracks(tracks){
+    /* Find each track on YouTube via scraped search. */
+    var promises = tracks.map(function(t){
+      return ytScrapeSearch(t.artist + " " + t.title + " official audio")
+        .then(function(videos){
+          if(videos && videos.length){
+            var v = videos[0];
+            v.ownerChannel = t.artist;
+            v.channel = t.artist;
+            return v;
+          }
+          return null;
+        })
+        .catch(function(){ return null; });
+    });
+    return Promise.all(promises).then(function(results){
+      var videos = results.filter(function(v){ return v && v.videoId; });
+      /* Dedupe by video ID. */
+      var seen = {}, out = [];
+      videos.forEach(function(v){
+        if(!seen[v.videoId]){ seen[v.videoId] = true; out.push(v); }
+      });
+      /* Filter live and non-English. */
+      out = out.filter(function(v){ return !isLiveVersion(v.title) && !isNonEnglish(v.title, v.ownerChannel); });
+      if(out.length < 5) throw new Error("too few videos");
+      /* Diversify start: first 10 from different artists. */
+      out = diversifyStart(out, 10);
+      return { videos: out, seedIds: null, name: genreName };
+    });
+  }
+  if(cached){
+    return findVideosForTracks(cached);
+  }
+  /* Fetch from Last.fm. */
+  return fetch("https://ws.audioscrobbler.com/2.0/?method=tag.getTopArtists&tag=" + encodeURIComponent(tag) + "&api_key=" + LASTFM_KEY + "&format=json&limit=25")
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      var artists = ((d.topartists || {}).artist || []).map(function(a){ return a.name; }).filter(Boolean);
+      if(artists.length < 5) throw new Error("not enough artists");
+      shuffleList(artists);
+      /* Get top 2 tracks for first 15 artists. */
+      var trackPromises = artists.slice(0, 15).map(function(artistName){
+        return fetch("https://ws.audioscrobbler.com/2.0/?method=artist.getTopTracks&artist=" + encodeURIComponent(artistName) + "&api_key=" + LASTFM_KEY + "&format=json&limit=3")
+          .then(function(r2){ return r2.json(); })
+          .then(function(d2){
+            var tracks = ((d2.toptracks || {}).track || []).slice(0, 2);
+            return tracks.map(function(t){ return { artist: artistName, title: t.name }; });
+          })
+          .catch(function(){ return []; });
+      });
+      return Promise.all(trackPromises);
+    })
+    .then(function(trackLists){
+      var allTracks = [];
+      trackLists.forEach(function(list){ allTracks.push.apply(allTracks, list); });
+      if(allTracks.length < 5) throw new Error("not enough tracks");
+      shuffleList(allTracks);
+      /* Cache the track list. */
+      try {
+        localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), tracks: allTracks.slice(0, 30) }));
+      } catch(e){}
+      return findVideosForTracks(allTracks.slice(0, 30));
+    });
+}
 /* Live versions: filter out "(Live)", "Live at...", "Live Version" etc. */
 function isLiveVersion(title){
   var t = String(title || "").toLowerCase();
@@ -1548,64 +1636,10 @@ function startRadio(artist){
   var getSeed;
   if(seedName){
     say("Finding " + seedName + ".");
-    var hardSeeds = GENRE_SEEDS[seedName.toLowerCase()];
-    if(hardSeeds && hardSeeds.length){
-      /* Verified multi-artist seeds: pull every artist's recommendations in
-         parallel, merge, dedupe, and shuffle — real genre variety from the
-         first song, with no search call at all. */
-      getSeed = Promise.all(hardSeeds.map(function(id){ return fetchYouTubeRadio(id).catch(function(){ return []; }); }))
-        .then(function(results){
-          var seenIds = {}, seenSongs = {}, all = [];
-          results.forEach(function(videos){
-            (videos || []).forEach(function(sv){
-              if(!sv.videoId || seenIds[sv.videoId]) return;
-              seenIds[sv.videoId] = true;
-              /* Song-level dedupe: "Song (Official Video)" and "Song (Audio)"
-                 are the same song — keep one, prefer the audio version. */
-              var songKey = normArtist(sv.ownerChannel || sv.channel) + "|" + normSong(sv.title, sv.ownerChannel || sv.channel);
-              if(seenSongs[songKey]){
-                var existing = seenSongs[songKey];
-                if(isAudioVersion(sv.title) && !isAudioVersion(existing.title)){
-                  var idx = all.indexOf(existing);
-                  if(idx !== -1) all[idx] = sv;
-                  seenSongs[songKey] = sv;
-                }
-              } else {
-                seenSongs[songKey] = sv;
-                all.push(sv);
-              }
-            });
-          });
-          if(!all.length) throw new Error("no videos");
-          /* Filter out live versions (user preference), but keep as fallback
-             if too few studio tracks remain. */
-          var studioOnly = all.filter(function(sv){ return !isLiveVersion(sv.title); });
-          if(studioOnly.length >= 10) all = studioOnly;
-          /* Prefer audio tracks: filter out music-video-only versions, but
-             keep them as fallback if too few audio tracks remain. */
-          var audioOnly = all.filter(function(sv){ return !isMusicVideoOnly(sv.title); });
-          if(audioOnly.length >= 10) all = audioOnly;
-          /* Filter out non-English titles to keep the station on-genre. */
-          var englishOnly = all.filter(function(sv){ return !isNonEnglish(sv.title, sv.ownerChannel || sv.channel); });
-          if(englishOnly.length >= 10) all = englishOnly;
-          /* Purity: prefer core-artist videos, but don't kill variety. Use the
-             pure list only if it has enough videos AND enough artists;
-             otherwise use the full merged list (the genre seeds already
-             keep it on-genre). */
-          var pure = all.filter(function(sv){ return genrePure(seedName, sv.ownerChannel); });
-          var pureArtists = {};
-          pure.forEach(function(sv){ pureArtists[normArtist(sv.ownerChannel || sv.channel)] = true; });
-          var pureArtistCount = Object.keys(pureArtists).length;
-          /* Require 8+ artists for pure; if not, use full list which has
-             more variety from the genre seeds' recommendations. */
-          var useList = (pure.length >= 20 && pureArtistCount >= 8) ? pure : all;
-          useList = capPerArtist(useList, 4);
-          /* Start with distinct artists so it doesn't open with the same
-             4-5 bands every time; shuffle the rest. */
-          useList = diversifyStart(useList, 10);
-          return { videos: useList, seedIds: hardSeeds.slice(), name: seedName };
-        });
-    } else {
+    var genreNames = ["metal","rock","grunge","alternative","hip-hop","pop","country","jazz","classical","electronic","r&b","punk"];
+    if(genreNames.indexOf(seedName.toLowerCase()) !== -1){
+      /* Last.fm-powered: real artists for the genre, no YouTube recommendation roulette. */
+      getSeed = buildLastFmGenreStation(seedName);    } else {
     /* Cache the genre/artist seed video: repeat taps skip the search call
        entirely (search is the rate-limited endpoint), so the radio starts
        fast even when YouTube is throttling. */
