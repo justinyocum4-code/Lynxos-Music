@@ -231,7 +231,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.7.14</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.7.15</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <div class="homeBlock">
@@ -302,7 +302,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v1.7.14. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
+      <p class="hint">Lynxos Music v1.7.15. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
     </div>
   </section>
 </main>
@@ -937,7 +937,7 @@ function updateNowPlaying(v){
   renderQueue();
   updateLikeBtn();
   /* TV: lyrics live in the player's right column — load them for every song. */
-  if(IS_TV) loadLyricsFor(v, false);
+  if(IS_TV) loadLyricsFor(v, true);
 }
 /* progress bar */
 var progTimer = null;
@@ -1507,15 +1507,17 @@ function startRadio(artist){
              keep them as fallback if too few audio tracks remain. */
           var audioOnly = all.filter(function(sv){ return !isMusicVideoOnly(sv.title); });
           if(audioOnly.length >= 10) all = audioOnly;
-          /* Purity filter: keep only core-artist videos. If too few survive
-             (YouTube's recommendations don't overlap the list), fall back to
-             the full merged list so the station always starts. Also require
-             minimum artist diversity — 10 videos from 3 artists is not variety. */
+          /* Purity: prefer core-artist videos, but don't kill variety. Use the
+             pure list only if it has enough videos AND enough artists;
+             otherwise use the full merged list (the genre seeds already
+             keep it on-genre). */
           var pure = all.filter(function(sv){ return genrePure(seedName, sv.ownerChannel); });
           var pureArtists = {};
           pure.forEach(function(sv){ pureArtists[normArtist(sv.ownerChannel || sv.channel)] = true; });
           var pureArtistCount = Object.keys(pureArtists).length;
-          var useList = (pure.length >= 10 && pureArtistCount >= 8) ? pure : all;
+          /* Require 8+ artists for pure; if not, use full list which has
+             more variety from the genre seeds' recommendations. */
+          var useList = (pure.length >= 20 && pureArtistCount >= 8) ? pure : all;
           useList = capPerArtist(useList, 4);
           shuffleList(useList);
           return { videos: useList, seedIds: hardSeeds.slice(), name: seedName };
@@ -1881,7 +1883,11 @@ function fetchLyrics(artist, title, titleEl, bodyEl, announce){
   if(bodyEl) bodyEl.textContent = "Loading lyrics…";
   if(announce) say("Loading lyrics for " + title + ".");
   var url = "https://api.lyrics.ovh/v1/" + encodeURIComponent(artist) + "/" + encodeURIComponent(title);
-  fetch(url)
+  /* Timeout after 10s so a hanging request can't leave the UI stuck. */
+  var timeout = new Promise(function(_, reject){
+    setTimeout(function(){ reject(new Error("timeout")); }, 10000);
+  });
+  Promise.race([fetch(url), timeout])
     .then(function(r){ return r.json(); })
     .then(function(d){
       if(d && d.lyrics){
@@ -1893,14 +1899,17 @@ function fetchLyrics(artist, title, titleEl, bodyEl, announce){
         var simpleTitle = title.split(/\(/)[0].trim();
         if(simpleArtist !== artist || simpleTitle !== title){
           var url2 = "https://api.lyrics.ovh/v1/" + encodeURIComponent(simpleArtist) + "/" + encodeURIComponent(simpleTitle);
-          fetch(url2).then(function(r2){ return r2.json(); }).then(function(d2){
+          Promise.race([fetch(url2), timeout]).then(function(r2){ return r2.json(); }).then(function(d2){
             if(d2 && d2.lyrics){
               if(bodyEl) bodyEl.textContent = d2.lyrics;
+              if(announce) say("Lyrics loaded.");
             } else {
               if(bodyEl) bodyEl.textContent = "No lyrics found for this song.";
+              if(announce) say("No lyrics found for this song.");
             }
           }).catch(function(){
             if(bodyEl) bodyEl.textContent = "No lyrics found for this song.";
+            if(announce) say("No lyrics found for this song.");
           });
         } else {
           if(bodyEl) bodyEl.textContent = "No lyrics found for this song.";
@@ -1918,7 +1927,7 @@ function loadLyricsFor(v, announce){
   var p = parseTrack(v.title, v.channel);
   if(!p.artist || !p.title) return false;
   fetchLyrics(p.artist, p.title, $("lyricsTitle"), $("lyricsBody"), announce);
-  if(IS_TV) fetchLyrics(p.artist, p.title, $("tvLyricsTitle"), $("tvLyricsBody"), false);
+  if(IS_TV) fetchLyrics(p.artist, p.title, $("tvLyricsTitle"), $("tvLyricsBody"), announce);
   return true;
 }
 $("fpLyricsBtn").addEventListener("click", function(){
