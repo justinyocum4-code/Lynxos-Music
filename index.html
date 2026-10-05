@@ -232,7 +232,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.7.24</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.7.25</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <div class="homeBlock">
@@ -303,7 +303,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v1.7.24. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
+      <p class="hint">Lynxos Music v1.7.25. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
     </div>
   </section>
 </main>
@@ -556,7 +556,7 @@ var NON_MUSIC_RE = /interview|documentary|podcast|reaction|reacts to|review|vlog
 function ytFetch(url, tries){
   if(typeof tries !== "number") tries = 3;
   function attempt(n){
-    return fetch(url).then(function(r){
+    return fetchWithTimeout(url, {}, 15000).then(function(r){
       if(!r.ok && n > 1 && (r.status === 429 || r.status >= 500)){
         return new Promise(function(res){ setTimeout(res, 1500 * (4 - n)); }).then(function(){ return attempt(n - 1); });
       }
@@ -578,7 +578,7 @@ function isOfficialMusic(v){ return /official\s+(music\s+video|audio|video|lyric
    to the Data API if scraping fails. */
 function ytScrapeSearch(q){
   var url = "https://www.youtube.com/results?search_query=" + encodeURIComponent(q);
-  return fetch(url, { headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" } })
+  return fetchWithTimeout(url, { headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" } }, 15000)
     .then(function(r){ return r.text(); })
     .then(function(html){
       var m = html.match(/var ytInitialData = (\{.+?\});<\/script>/s);
