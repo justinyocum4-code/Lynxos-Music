@@ -232,7 +232,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.7.17</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.7.18</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <div class="homeBlock">
@@ -303,7 +303,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v1.7.17. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
+      <p class="hint">Lynxos Music v1.7.18. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
     </div>
   </section>
 </main>
@@ -574,17 +574,58 @@ function ytFetch(url, tries){
   return attempt(tries);
 }
 function isOfficialMusic(v){ return /official\s+(music\s+video|audio|video|lyric)/i.test(v.title); }
-function ytSearch(q){
-  var key = getKey();
-  var url = "https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&videoCategoryId=10&videoEmbeddable=true&maxResults=25&q=" + encodeURIComponent(q) + "&key=" + encodeURIComponent(key);
-  return ytFetch(url).then(function(data){
-    if(data.error) throw new Error(data.error.message || "API error");
-    var videos = (data.items || []).map(function(it){
-      var th = it.snippet.thumbnails || {};
-      return { videoId: it.id.videoId, title: it.snippet.title, channel: it.snippet.channelTitle,
-        thumb: th.medium ? th.medium.url : (th.default ? th.default.url : ""),
-        art: th.high ? th.high.url : (th.medium ? th.medium.url : "") };
+/* Scrape YouTube search results directly (no API key, no quota). Falls back
+   to the Data API if scraping fails. */
+function ytScrapeSearch(q){
+  var url = "https://www.youtube.com/results?search_query=" + encodeURIComponent(q);
+  return fetch(url, { headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" } })
+    .then(function(r){ return r.text(); })
+    .then(function(html){
+      var m = html.match(/var ytInitialData = (\{.+?\});<\/script>/s);
+      if(!m) throw new Error("no data");
+      var data = JSON.parse(m[1]);
+      var videos = [];
+      try {
+        var sections = data.contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer.contents;
+        for(var s = 0; s < sections.length && videos.length < 20; s++){
+          var items = (sections[s].itemSectionRenderer || {}).contents || [];
+          for(var i = 0; i < items.length && videos.length < 20; i++){
+            var vr = items[i].videoRenderer;
+            if(!vr || !vr.videoId) continue;
+            var title = ((vr.title || {}).runs || [{}])[0].text || "";
+            var channel = (((vr.ownerText || {}).runs || [{}])[0].text) ||
+                          (((vr.longBylineText || {}).runs || [{}])[0].text) || "";
+            var thumbs = (vr.thumbnail || {}).thumbnails || [];
+            var thumbUrl = thumbs.length ? thumbs[thumbs.length - 1].url : "";
+            if(title){
+              videos.push({
+                videoId: vr.videoId, title: title, channel: channel,
+                thumb: thumbUrl, art: thumbUrl
+              });
+            }
+          }
+        }
+      } catch(e){ throw new Error("parse failed"); }
+      if(!videos.length) throw new Error("no videos");
+      return videos;
     });
+}
+function ytSearch(q){
+  /* Try scraping first (no quota); fall back to Data API on failure. */
+  return ytScrapeSearch(q).catch(function(){
+    var key = getKey();
+    var url = "https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&videoCategoryId=10&videoEmbeddable=true&maxResults=25&q=" + encodeURIComponent(q) + "&key=" + encodeURIComponent(key);
+    return ytFetch(url).then(function(data){
+      if(data.error) throw new Error(data.error.message || "API error");
+      var videos = (data.items || []).map(function(it){
+        var th = it.snippet.thumbnails || {};
+        return { videoId: it.id.videoId, title: it.snippet.title, channel: it.snippet.channelTitle,
+          thumb: th.medium ? th.medium.url : (th.default ? th.default.url : ""),
+          art: th.high ? th.high.url : (th.medium ? th.medium.url : "") };
+      });
+      return videos;
+    });
+  }).then(function(videos){
     /* Strictly music: drop talk/documentary/review-style videos, then float
        official music videos and official audio to the top. */
     videos = videos.filter(function(v){ return !NON_MUSIC_RE.test(v.title); });
