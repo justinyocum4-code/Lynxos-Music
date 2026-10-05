@@ -231,7 +231,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.7.11</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.7.12</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <div class="homeBlock">
@@ -302,7 +302,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v1.7.11. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
+      <p class="hint">Lynxos Music v1.7.12. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
     </div>
   </section>
 </main>
@@ -1374,9 +1374,11 @@ function normArtist(s){
   return s;
 }
 /* Song dedupe: normalize titles so "Song (Official Music Video)" and
-   "Song (Official Audio)" are recognized as the same song. */
-function normSong(title){
+   "Song (Official Audio)" are recognized as the same song. Strips the
+   artist name from the title if present. */
+function normSong(title, artist){
   var t = String(title || "").toLowerCase();
+  var a = normArtist(artist || "");
   t = t.replace(/\(official music video\)/g, "");
   t = t.replace(/\(official video\)/g, "");
   t = t.replace(/\(official audio\)/g, "");
@@ -1386,6 +1388,8 @@ function normSong(title){
   t = t.replace(/official audio/g, "");
   t = t.replace(/lyric video/g, "");
   t = t.replace(/[^a-z0-9]/g, "");
+  /* Strip leading artist name if present (e.g. "metallicaentersandman" -> "entersandman") */
+  if(a && t.indexOf(a) === 0){ t = t.slice(a.length); }
   return t;
 }
 function isAudioVersion(title){
@@ -1417,7 +1421,7 @@ function filterRefillVideos(videos, r, qCounts){
   /* Build song keys for videos already in queue to avoid song repeats. */
   var queueSongs = {};
   state.queue.forEach(function(sv){
-    var k = normArtist(sv.ownerChannel || sv.channel) + "|" + normSong(sv.title);
+    var k = normArtist(sv.ownerChannel || sv.channel) + "|" + normSong(sv.title, sv.ownerChannel || sv.channel);
     queueSongs[k] = true;
   });
   var pureCount = 0;
@@ -1427,7 +1431,7 @@ function filterRefillVideos(videos, r, qCounts){
   var usePure = pureCount > 0;
   videos.forEach(function(sv){
     var a = normArtist(sv.ownerChannel || sv.channel || "");
-    var songKey = normArtist(sv.ownerChannel || sv.channel) + "|" + normSong(sv.title);
+    var songKey = normArtist(sv.ownerChannel || sv.channel) + "|" + normSong(sv.title, sv.ownerChannel || sv.channel);
     var okPure = usePure ? genrePure(r.seedName, sv.ownerChannel) : true;
     /* Skip music-video-only versions; skip songs already in queue. */
     if(!r.seenIds[sv.videoId] && !queueSongs[songKey] && !isMusicVideoOnly(sv.title) && okPure && (qCounts[a] || 0) < 6){
@@ -1458,7 +1462,7 @@ function startRadio(artist){
       /* Verified multi-artist seeds: pull every artist's recommendations in
          parallel, merge, dedupe, and shuffle — real genre variety from the
          first song, with no search call at all. */
-      getSeed = Promise.all(hardSeeds.map(function(id){ return fetchYouTubeRadio(id); }))
+      getSeed = Promise.all(hardSeeds.map(function(id){ return fetchYouTubeRadio(id).catch(function(){ return []; }); }))
         .then(function(results){
           var seenIds = {}, seenSongs = {}, all = [];
           results.forEach(function(videos){
@@ -1467,7 +1471,7 @@ function startRadio(artist){
               seenIds[sv.videoId] = true;
               /* Song-level dedupe: "Song (Official Video)" and "Song (Audio)"
                  are the same song — keep one, prefer the audio version. */
-              var songKey = normArtist(sv.ownerChannel || sv.channel) + "|" + normSong(sv.title);
+              var songKey = normArtist(sv.ownerChannel || sv.channel) + "|" + normSong(sv.title, sv.ownerChannel || sv.channel);
               if(seenSongs[songKey]){
                 var existing = seenSongs[songKey];
                 if(isAudioVersion(sv.title) && !isAudioVersion(existing.title)){
