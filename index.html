@@ -232,7 +232,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.7.19</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.7.20</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <div class="homeBlock">
@@ -303,7 +303,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v1.7.19. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
+      <p class="hint">Lynxos Music v1.7.20. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
     </div>
   </section>
 </main>
@@ -1488,22 +1488,40 @@ function buildLastFmGenreStation(genreName){
     }
   } catch(e){}
   function findVideosForTracks(tracks){
-    /* Find each track on YouTube via scraped search. */
-    var promises = tracks.map(function(t){
-      return ytScrapeSearch(t.artist + " " + t.title + " official audio")
-        .then(function(videos){
-          if(videos && videos.length){
-            var v = videos[0];
-            v.ownerChannel = t.artist;
-            v.channel = t.artist;
-            return v;
-          }
-          return null;
-        })
-        .catch(function(){ return null; });
-    });
-    return Promise.all(promises).then(function(results){
-      var videos = results.filter(function(v){ return v && v.videoId; });
+    /* Find each track on YouTube via scraped search, in small batches to
+       avoid tripping YouTube's rate limiting. */
+    function processBatch(batch){
+      var promises = batch.map(function(t){
+        return ytScrapeSearch(t.artist + " " + t.title + " official audio")
+          .then(function(videos){
+            if(videos && videos.length){
+              var v = videos[0];
+              v.ownerChannel = t.artist;
+              v.channel = t.artist;
+              return v;
+            }
+            return null;
+          })
+          .catch(function(){ return null; });
+      });
+      return Promise.all(promises);
+    }
+    /* Process in batches of 3, sequentially. */
+    var allResults = [];
+    var batchPromise = Promise.resolve();
+    for(var b = 0; b < tracks.length; b += 3){
+      (function(batch){
+        batchPromise = batchPromise.then(function(){
+          return processBatch(batch).then(function(results){
+            allResults.push.apply(allResults, results);
+            /* Small delay between batches. */
+            return new Promise(function(res){ setTimeout(res, 500); });
+          });
+        });
+      })(tracks.slice(b, b + 3));
+    }
+    return batchPromise.then(function(){
+      var videos = allResults.filter(function(v){ return v && v.videoId; });
       /* Dedupe by video ID. */
       var seen = {}, out = [];
       videos.forEach(function(v){
@@ -1546,9 +1564,9 @@ function buildLastFmGenreStation(genreName){
       shuffleList(allTracks);
       /* Cache the track list. */
       try {
-        localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), tracks: allTracks.slice(0, 30) }));
+        localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), tracks: allTracks.slice(0, 20) }));
       } catch(e){}
-      return findVideosForTracks(allTracks.slice(0, 30));
+      return findVideosForTracks(allTracks.slice(0, 20));
     });
 }
 /* Live versions: filter out "(Live)", "Live at...", "Live Version" etc. */
