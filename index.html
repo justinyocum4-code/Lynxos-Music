@@ -231,7 +231,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.7.13</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.7.14</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <div class="homeBlock">
@@ -302,7 +302,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v1.7.13. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
+      <p class="hint">Lynxos Music v1.7.14. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
     </div>
   </section>
 </main>
@@ -336,12 +336,8 @@
   <div class="fp-tv-main">
    <div class="fp-tv-left">
   <img id="fpArt" alt="Album art">
-  <div class="fp-like-row"><button class="iconbtn" id="fpLikeBtn" aria-label="Like this song">🤍</button></div>
   <h2 id="fpTitle">Nothing playing</h2>
   <div id="fpArtist"></div>
-  <label for="fpSeek" class="sr-only">Seek</label>
-  <input type="range" id="fpSeek" min="0" max="100" value="0" step="1">
-  <div class="times"><span id="fpCur">0:00</span><span id="fpDur">0:00</span></div>
   <div class="fp-controls">
     <button class="iconbtn" id="fpShuffleBtn" aria-label="Shuffle">🔀</button>
     <button class="iconbtn" id="fpPrevBtn" aria-label="Previous track">⏮</button>
@@ -349,6 +345,10 @@
     <button class="iconbtn" id="fpNextBtn" aria-label="Next track">⏭</button>
     <button class="iconbtn" id="fpRepeatBtn" aria-label="Repeat mode">🔁</button>
   </div>
+  <div class="fp-like-row"><button class="iconbtn" id="fpLikeBtn" aria-label="Like this song">🤍</button></div>
+  <label for="fpSeek" class="sr-only">Seek</label>
+  <input type="range" id="fpSeek" min="0" max="100" value="0" step="1">
+  <div class="times"><span id="fpCur">0:00</span><span id="fpDur">0:00</span></div>
    </div>
    <div class="fp-tv-right" id="tvLyricsCol">
      <div class="fp-lyrics-head">📝 Lyrics</div>
@@ -630,6 +630,7 @@ function doSearch(){
   say("Searching for " + q);
   ytSearch(q).then(function(videos){
     state.lastResults = videos;
+    state.lastQuery = q;
     renderResults();
     saveRecentSearch(q);
     say(videos.length + " results. All of these play inside the app.");
@@ -725,7 +726,14 @@ $("searchBtn").addEventListener("click", doSearch);
 $("searchRadioBtn").addEventListener("click", function(){
   var q = $("searchBox").value.trim();
   if(!q){ say("Type an artist name first, then hit the radio button."); return; }
-  startRadio(q);
+  /* If the user just searched for this exact query, reuse the top result as
+     the radio seed instead of burning another (throttled) search API call. */
+  if(state.lastQuery && state.lastQuery.toLowerCase() === q.toLowerCase() &&
+     state.lastResults && state.lastResults.length && state.lastResults[0].videoId){
+    startRadioFromVideo(state.lastResults[0]);
+  } else {
+    startRadio(q);
+  }
 });
 $("searchBox").addEventListener("keydown", function(e){ if(e.key === "Enter") doSearch(); });
 </script>
@@ -1501,9 +1509,13 @@ function startRadio(artist){
           if(audioOnly.length >= 10) all = audioOnly;
           /* Purity filter: keep only core-artist videos. If too few survive
              (YouTube's recommendations don't overlap the list), fall back to
-             the full merged list so the station always starts. */
+             the full merged list so the station always starts. Also require
+             minimum artist diversity — 10 videos from 3 artists is not variety. */
           var pure = all.filter(function(sv){ return genrePure(seedName, sv.ownerChannel); });
-          var useList = (pure.length >= 10) ? pure : all;
+          var pureArtists = {};
+          pure.forEach(function(sv){ pureArtists[normArtist(sv.ownerChannel || sv.channel)] = true; });
+          var pureArtistCount = Object.keys(pureArtists).length;
+          var useList = (pure.length >= 10 && pureArtistCount >= 8) ? pure : all;
           useList = capPerArtist(useList, 4);
           shuffleList(useList);
           return { videos: useList, seedIds: hardSeeds.slice(), name: seedName };
@@ -1556,6 +1568,24 @@ function startRadio(artist){
     playVideo(all[0], all, 0);
     state.radio = { seedId: res.seed.id || null, seedIds: res.seed.seedIds || null, seedName: res.seed.name, active: true, refilling: false, seenIds: seenIds };
     addRecentRadioArtists([res.seed.name]);
+    say("Radio started with " + all.length + " songs. It keeps widening as you listen.");
+  }).catch(function(){ say("Radio failed. YouTube may be busy right now — try again in a moment."); });
+}
+/* Start radio from an already-found video (e.g. top search result) — skips
+   the throttled search API call entirely. */
+function startRadioFromVideo(v){
+  if(!v || !v.videoId){ say("Nothing to play."); return; }
+  var name = trackArtist(v) || "this song";
+  say("Starting " + name + " radio.");
+  fetchYouTubeRadio(v.videoId).then(function(videos){
+    var seenIds = {}, all = [];
+    videos.forEach(function(sv){
+      if(!seenIds[sv.videoId]){ seenIds[sv.videoId] = true; all.push(sv); }
+    });
+    if(!all.length){ say("Couldn't build a radio station. Try another artist."); return; }
+    playVideo(all[0], all, 0);
+    state.radio = { seedId: v.videoId, seedIds: null, seedName: name, active: true, refilling: false, seenIds: seenIds };
+    addRecentRadioArtists([name]);
     say("Radio started with " + all.length + " songs. It keeps widening as you listen.");
   }).catch(function(){ say("Radio failed. YouTube may be busy right now — try again in a moment."); });
 }
@@ -1847,22 +1877,39 @@ $("fpArtistBtn").addEventListener("click", openArtistPanel);
 /* ================= lyrics ================= */
 /* ================= lyrics ================= */
 function fetchLyrics(artist, title, titleEl, bodyEl, announce){
-  titleEl.textContent = title + " — " + artist;
-  bodyEl.textContent = "Loading lyrics…";
+  if(titleEl) titleEl.textContent = title + " — " + artist;
+  if(bodyEl) bodyEl.textContent = "Loading lyrics…";
   if(announce) say("Loading lyrics for " + title + ".");
-  fetch("https://api.lyrics.ovh/v1/" + encodeURIComponent(artist) + "/" + encodeURIComponent(title))
+  var url = "https://api.lyrics.ovh/v1/" + encodeURIComponent(artist) + "/" + encodeURIComponent(title);
+  fetch(url)
     .then(function(r){ return r.json(); })
     .then(function(d){
       if(d && d.lyrics){
-        bodyEl.textContent = d.lyrics;
+        if(bodyEl) bodyEl.textContent = d.lyrics;
         if(announce) say("Lyrics loaded.");
       } else {
-        bodyEl.textContent = "No lyrics found for this song.";
-        if(announce) say("No lyrics found for this song.");
+        /* Retry with simplified names (strip feat., &, etc.) */
+        var simpleArtist = artist.split(/[&,(]/)[0].trim();
+        var simpleTitle = title.split(/\(/)[0].trim();
+        if(simpleArtist !== artist || simpleTitle !== title){
+          var url2 = "https://api.lyrics.ovh/v1/" + encodeURIComponent(simpleArtist) + "/" + encodeURIComponent(simpleTitle);
+          fetch(url2).then(function(r2){ return r2.json(); }).then(function(d2){
+            if(d2 && d2.lyrics){
+              if(bodyEl) bodyEl.textContent = d2.lyrics;
+            } else {
+              if(bodyEl) bodyEl.textContent = "No lyrics found for this song.";
+            }
+          }).catch(function(){
+            if(bodyEl) bodyEl.textContent = "No lyrics found for this song.";
+          });
+        } else {
+          if(bodyEl) bodyEl.textContent = "No lyrics found for this song.";
+          if(announce) say("No lyrics found for this song.");
+        }
       }
     })
     .catch(function(){
-      bodyEl.textContent = "Couldn't load lyrics. Check your connection.";
+      if(bodyEl) bodyEl.textContent = "Couldn't load lyrics. Check your connection.";
       if(announce) say("Couldn't load lyrics.");
     });
 }
