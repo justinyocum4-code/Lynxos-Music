@@ -175,13 +175,13 @@
     order: 4; flex: 0 0 auto; margin: 0; justify-content: center; gap: 2vw;
   }
   body.tv .fp-controls .iconbtn {
-    width: 56px; height: 56px; min-width: 56px; min-height: 56px; padding: 0; font-size: 24px;
+    width: 44px; height: 44px; min-width: 44px; min-height: 44px; padding: 0; font-size: 20px;
     border: 2px solid var(--gold); border-radius: 50%;
     display: flex; align-items: center; justify-content: center;
   }
-  body.tv #fpPlayBtn { font-size: 28px; background: rgba(212,175,55,.18); }
+  body.tv #fpPlayBtn { font-size: 24px; background: rgba(212,175,55,.18); }
   body.tv .fp-tv-left .fp-like-row { order: 5; flex: 0 0 auto; margin: 0; }
-  body.tv .fp-tv-left .fp-like-row .iconbtn { width: 48px; height: 48px; min-width: 48px; min-height: 48px; font-size: 22px; }
+  body.tv .fp-tv-left .fp-like-row .iconbtn { width: 38px; height: 38px; min-width: 38px; min-height: 38px; font-size: 18px; }
   body.tv .fp-tv-left label.sr-only { order: 6; }
   body.tv .fp-tv-left #fpSeek { order: 7; flex: 0 0 auto; margin: 0; width: 100%; max-width: 420px; }
   body.tv .fp-tv-left .times { order: 8; flex: 0 0 auto; font-size: 16px; margin: 0; width: 100%; max-width: 420px; }
@@ -231,7 +231,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.7.12</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.7.13</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <div class="homeBlock">
@@ -302,7 +302,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v1.7.12. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
+      <p class="hint">Lynxos Music v1.7.13. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
     </div>
   </section>
 </main>
@@ -608,7 +608,7 @@ function cleanTrackTitle(t){
 function parseTrack(title, channel){
   var t = String(title == null ? "" : title).trim();
   var chanArtist = displayArtist(channel);
-  var m = t.match(/^\s*(.+?)\s*[-\u2013\u2014|]\s*(.+?)\s*$/);
+  var m = t.match(/^\s*(.+?)\s*[:\-\u2013\u2014|]\s*(.+?)\s*$/);
   if(m){
     var left = m[1].trim(), right = m[2].trim();
     /* "Song - Live ..." means the left side is the song, not the artist. */
@@ -1373,6 +1373,11 @@ function normArtist(s){
   });
   return s;
 }
+/* Live versions: filter out "(Live)", "Live at...", "Live Version" etc. */
+function isLiveVersion(title){
+  var t = String(title || "").toLowerCase();
+  return /\blive\b/.test(t);
+}
 /* Song dedupe: normalize titles so "Song (Official Music Video)" and
    "Song (Official Audio)" are recognized as the same song. Strips the
    artist name from the title if present. */
@@ -1433,8 +1438,8 @@ function filterRefillVideos(videos, r, qCounts){
     var a = normArtist(sv.ownerChannel || sv.channel || "");
     var songKey = normArtist(sv.ownerChannel || sv.channel) + "|" + normSong(sv.title, sv.ownerChannel || sv.channel);
     var okPure = usePure ? genrePure(r.seedName, sv.ownerChannel) : true;
-    /* Skip music-video-only versions; skip songs already in queue. */
-    if(!r.seenIds[sv.videoId] && !queueSongs[songKey] && !isMusicVideoOnly(sv.title) && okPure && (qCounts[a] || 0) < 6){
+    /* Skip music-video-only versions, live versions, and songs already in queue. */
+    if(!r.seenIds[sv.videoId] && !queueSongs[songKey] && !isMusicVideoOnly(sv.title) && !isLiveVersion(sv.title) && okPure && (qCounts[a] || 0) < 6){
       r.seenIds[sv.videoId] = true; qCounts[a] = (qCounts[a] || 0) + 1; fresh.push(sv);
     }
   });
@@ -1486,6 +1491,10 @@ function startRadio(artist){
             });
           });
           if(!all.length) throw new Error("no videos");
+          /* Filter out live versions (user preference), but keep as fallback
+             if too few studio tracks remain. */
+          var studioOnly = all.filter(function(sv){ return !isLiveVersion(sv.title); });
+          if(studioOnly.length >= 10) all = studioOnly;
           /* Prefer audio tracks: filter out music-video-only versions, but
              keep them as fallback if too few audio tracks remain. */
           var audioOnly = all.filter(function(sv){ return !isMusicVideoOnly(sv.title); });
