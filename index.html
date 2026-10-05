@@ -231,7 +231,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.7.10</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.7.11</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <div class="homeBlock">
@@ -302,7 +302,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v1.7.10. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
+      <p class="hint">Lynxos Music v1.7.11. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
     </div>
   </section>
 </main>
@@ -1317,7 +1317,7 @@ function fetchYouTubeRadio(videoId){
       return {
         videoId: (it.contentDetails || {}).videoId,
         title: sn.title || "",
-        channel: sn.channelTitle || "",
+        channel: sn.videoOwnerChannelTitle || sn.channelTitle || "",
         ownerChannel: sn.videoOwnerChannelTitle || sn.channelTitle || "",
         thumb: th.medium ? th.medium.url : (th.default ? th.default.url : ""),
         art: th.high ? th.high.url : (th.medium ? th.medium.url : "")
@@ -1373,6 +1373,30 @@ function normArtist(s){
   });
   return s;
 }
+/* Song dedupe: normalize titles so "Song (Official Music Video)" and
+   "Song (Official Audio)" are recognized as the same song. */
+function normSong(title){
+  var t = String(title || "").toLowerCase();
+  t = t.replace(/\(official music video\)/g, "");
+  t = t.replace(/\(official video\)/g, "");
+  t = t.replace(/\(official audio\)/g, "");
+  t = t.replace(/\(lyric video\)/g, "");
+  t = t.replace(/official music video/g, "");
+  t = t.replace(/official video/g, "");
+  t = t.replace(/official audio/g, "");
+  t = t.replace(/lyric video/g, "");
+  t = t.replace(/[^a-z0-9]/g, "");
+  return t;
+}
+function isAudioVersion(title){
+  var t = String(title || "").toLowerCase();
+  return t.indexOf("audio") !== -1;
+}
+function isMusicVideoOnly(title){
+  var t = String(title || "").toLowerCase();
+  if(t.indexOf("audio") !== -1) return false;
+  return t.indexOf("music video") !== -1;
+}
 /* Balance: cap songs per artist so one artist can't dominate the station.
    Without this, 80% of Metal was just SOAD/Metallica/Slipknot on repeat. */
 function capPerArtist(videos, maxPer){
@@ -1385,9 +1409,17 @@ function capPerArtist(videos, maxPer){
   }
   return out;
 }
-/* Refill helper: filter by purity with fallback, respect per-artist cap. */
+/* Refill helper: filter by purity with fallback, respect per-artist cap,
+   dedupe by song (not just videoId) so the same song doesn't repeat as
+   both audio and music video versions. */
 function filterRefillVideos(videos, r, qCounts){
   var fresh = [];
+  /* Build song keys for videos already in queue to avoid song repeats. */
+  var queueSongs = {};
+  state.queue.forEach(function(sv){
+    var k = normArtist(sv.ownerChannel || sv.channel) + "|" + normSong(sv.title);
+    queueSongs[k] = true;
+  });
   var pureCount = 0;
   videos.forEach(function(sv){
     if(genrePure(r.seedName, sv.ownerChannel)) pureCount++;
@@ -1395,8 +1427,10 @@ function filterRefillVideos(videos, r, qCounts){
   var usePure = pureCount > 0;
   videos.forEach(function(sv){
     var a = normArtist(sv.ownerChannel || sv.channel || "");
+    var songKey = normArtist(sv.ownerChannel || sv.channel) + "|" + normSong(sv.title);
     var okPure = usePure ? genrePure(r.seedName, sv.ownerChannel) : true;
-    if(!r.seenIds[sv.videoId] && okPure && (qCounts[a] || 0) < 6){
+    /* Skip music-video-only versions; skip songs already in queue. */
+    if(!r.seenIds[sv.videoId] && !queueSongs[songKey] && !isMusicVideoOnly(sv.title) && okPure && (qCounts[a] || 0) < 6){
       r.seenIds[sv.videoId] = true; qCounts[a] = (qCounts[a] || 0) + 1; fresh.push(sv);
     }
   });
@@ -1426,13 +1460,32 @@ function startRadio(artist){
          first song, with no search call at all. */
       getSeed = Promise.all(hardSeeds.map(function(id){ return fetchYouTubeRadio(id); }))
         .then(function(results){
-          var seen = {}, all = [];
+          var seenIds = {}, seenSongs = {}, all = [];
           results.forEach(function(videos){
             (videos || []).forEach(function(sv){
-              if(sv.videoId && !seen[sv.videoId]){ seen[sv.videoId] = true; all.push(sv); }
+              if(!sv.videoId || seenIds[sv.videoId]) return;
+              seenIds[sv.videoId] = true;
+              /* Song-level dedupe: "Song (Official Video)" and "Song (Audio)"
+                 are the same song — keep one, prefer the audio version. */
+              var songKey = normArtist(sv.ownerChannel || sv.channel) + "|" + normSong(sv.title);
+              if(seenSongs[songKey]){
+                var existing = seenSongs[songKey];
+                if(isAudioVersion(sv.title) && !isAudioVersion(existing.title)){
+                  var idx = all.indexOf(existing);
+                  if(idx !== -1) all[idx] = sv;
+                  seenSongs[songKey] = sv;
+                }
+              } else {
+                seenSongs[songKey] = sv;
+                all.push(sv);
+              }
             });
           });
           if(!all.length) throw new Error("no videos");
+          /* Prefer audio tracks: filter out music-video-only versions, but
+             keep them as fallback if too few audio tracks remain. */
+          var audioOnly = all.filter(function(sv){ return !isMusicVideoOnly(sv.title); });
+          if(audioOnly.length >= 10) all = audioOnly;
           /* Purity filter: keep only core-artist videos. If too few survive
              (YouTube's recommendations don't overlap the list), fall back to
              the full merged list so the station always starts. */
