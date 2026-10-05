@@ -137,6 +137,7 @@
   /* Phone: the TV layout wrappers disappear, so the phone layout is unchanged. */
   .fp-tv-main, .fp-tv-left { display: contents; }
   #tvLyricsCol { display: none; }
+  body.tv #tvLyricsCol { display: block; }
   /* TV player makeover: compact two-column layout guaranteed to fit any TV.
      Left column is a flex stack where the artwork shrinks first, so the song
      title, artist, and transport buttons can never be pushed off-screen.
@@ -231,7 +232,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.7.15</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.7.16</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <div class="homeBlock">
@@ -302,7 +303,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v1.7.15. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
+      <p class="hint">Lynxos Music v1.7.16. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
     </div>
   </section>
 </main>
@@ -1437,17 +1438,13 @@ function filterRefillVideos(videos, r, qCounts){
     var k = normArtist(sv.ownerChannel || sv.channel) + "|" + normSong(sv.title, sv.ownerChannel || sv.channel);
     queueSongs[k] = true;
   });
-  var pureCount = 0;
-  videos.forEach(function(sv){
-    if(genrePure(r.seedName, sv.ownerChannel)) pureCount++;
-  });
-  var usePure = pureCount > 0;
   videos.forEach(function(sv){
     var a = normArtist(sv.ownerChannel || sv.channel || "");
     var songKey = normArtist(sv.ownerChannel || sv.channel) + "|" + normSong(sv.title, sv.ownerChannel || sv.channel);
-    var okPure = usePure ? genrePure(r.seedName, sv.ownerChannel) : true;
-    /* Skip music-video-only versions, live versions, and songs already in queue. */
-    if(!r.seenIds[sv.videoId] && !queueSongs[songKey] && !isMusicVideoOnly(sv.title) && !isLiveVersion(sv.title) && okPure && (qCounts[a] || 0) < 6){
+    /* Skip music-video-only versions, live versions, and songs already in queue.
+       No purity filter on refills — the branch song already keeps it on-genre,
+       and we want to WIDEN the station, not narrow it. */
+    if(!r.seenIds[sv.videoId] && !queueSongs[songKey] && !isMusicVideoOnly(sv.title) && !isLiveVersion(sv.title) && (qCounts[a] || 0) < 6){
       r.seenIds[sv.videoId] = true; qCounts[a] = (qCounts[a] || 0) + 1; fresh.push(sv);
     }
   });
