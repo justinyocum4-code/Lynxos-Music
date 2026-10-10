@@ -232,7 +232,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.7.27</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.8.0</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <div class="homeBlock">
@@ -297,13 +297,23 @@
       <p class="hint" id="keyStatus"></p>
     </div>
     <div class="card">
+      <h3>Import from Google Takeout</h3>
+      <p class="hint">Bring your YouTube Music likes and playlists into this app. Google can't sign in inside apps, so this uses a free export file instead — no password needed here.</p>
+      <p class="hint">Steps: 1. Go to takeout.google.com. 2. Tap "Deselect all", then check "YouTube and YouTube Music". 3. Tap "All YouTube data included", tap "Deselect all", check "playlists" (and "music library" if you see it), then OK. 4. "Next step", then "Create export". Google emails you a download link when it's ready — usually minutes, sometimes hours. 5. Download the zip and unzip it (your Files app can do this). 6. Come back here, tap "Choose files", open the playlists folder, select every CSV file, then tap Import.</p>
+      <label for="takeoutFiles">Takeout CSV files</label>
+      <input type="file" id="takeoutFiles" accept=".csv,text/csv" multiple>
+      <button class="btn" id="takeoutImportBtn">Import selected files</button>
+      <p class="hint" id="takeoutStatus" role="status"></p>
+      <div id="takeoutResults"></div>
+    </div>
+    <div class="card">
       <h3>Appearance</h3>
       <p class="hint">Switch between the gold-and-black dark theme and a light theme.</p>
       <button class="btn secondary" id="themeToggleBtn" aria-label="Switch theme">🌙 Dark theme</button>
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v1.7.27. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
+      <p class="hint">Lynxos Music v1.8.0. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
     </div>
   </section>
 </main>
@@ -1234,6 +1244,186 @@ $("saveKeyBtn").addEventListener("click", function(){
   $("apiKeyInput").value = "";
   refreshKeyStatus();
   say("Your key is saved.");
+});
+/* ================= Google Takeout import (v1.8) ================= */
+function takeoutStatus(msg){ var el = $("takeoutStatus"); if(el) el.textContent = msg; say(msg); }
+/* Minimal CSV parser: handles quoted fields with commas and newlines inside. */
+function parseCSV(text){
+  text = String(text || "").replace(/^\uFEFF/, "");
+  var rows = [], row = [], field = "", inQ = false, i, c;
+  for(i = 0; i < text.length; i++){
+    c = text[i];
+    if(inQ){
+      if(c === '"'){ if(text[i+1] === '"'){ field += '"'; i++; } else inQ = false; }
+      else field += c;
+    }
+    else if(c === '"') inQ = true;
+    else if(c === ","){ row.push(field); field = ""; }
+    else if(c === "\n" || c === "\r"){
+      if(c === "\r" && text[i+1] === "\n") i++;
+      row.push(field); field = "";
+      if(row.length > 1 || row[0] !== "") rows.push(row);
+      row = [];
+    }
+    else field += c;
+  }
+  row.push(field);
+  if(row.length > 1 || row[0] !== "") rows.push(row);
+  return rows;
+}
+function takeoutIsLibrary(header){
+  return header.join(" ").toLowerCase().indexOf("song title") >= 0;
+}
+function takeoutIsLikedPlaylist(name){
+  return /^\s*liked(\s+(videos|music|songs))?\s*$/i.test(name || "");
+}
+function takeoutPlaylistName(filename){
+  var n = String(filename || "").replace(/\.csv$/i, "").replace(/-videos$/i, "").trim();
+  return n || "Imported playlist";
+}
+function takeoutValidId(id){
+  return /^[A-Za-z0-9_-]{11}$/.test(String(id || "").trim());
+}
+function takeoutTrack(id, title, channel){
+  id = String(id || "").trim();
+  return { videoId: id,
+    title: (title || "").trim() || id,
+    channel: (channel || "").trim(),
+    thumb: "https://i.ytimg.com/vi/" + id + "/hqdefault.jpg",
+    art: "https://i.ytimg.com/vi/" + id + "/hqdefault.jpg" };
+}
+/* Resolve video IDs to titles/artists via the Data API, 50 per call.
+   Falls back to playable ID-only tracks if the API is unreachable. */
+function takeoutResolveIds(ids, onTick){
+  var map = {}, queue = ids.slice(), done = 0, total = ids.length;
+  function next(){
+    if(!queue.length) return Promise.resolve(map);
+    var batch = queue.splice(0, 50);
+    var url = "https://www.googleapis.com/youtube/v3/videos?part=snippet&id=" +
+      batch.join(",") + "&key=" + encodeURIComponent(getKey());
+    return ytFetch(url).then(function(d){
+      (d.items || []).forEach(function(it){
+        var sn = it.snippet || {}, th = sn.thumbnails || {};
+        map[it.id] = {
+          videoId: it.id, title: sn.title || it.id, channel: sn.channelTitle || "",
+          thumb: th.medium ? th.medium.url : ("https://i.ytimg.com/vi/" + it.id + "/hqdefault.jpg"),
+          art: th.high ? th.high.url : ("https://i.ytimg.com/vi/" + it.id + "/hqdefault.jpg")
+        };
+      });
+      done += batch.length;
+      if(onTick) onTick(done, total);
+      return next();
+    }).catch(function(){
+      batch.forEach(function(id){ if(!map[id]) map[id] = takeoutTrack(id); });
+      done += batch.length;
+      if(onTick) onTick(done, total);
+      return next();
+    });
+  }
+  return next();
+}
+function takeoutDedupe(ids){
+  var seen = {}, out = [];
+  ids.forEach(function(id){ if(!seen[id]){ seen[id] = 1; out.push(id); } });
+  return out;
+}
+$("takeoutImportBtn").addEventListener("click", function(){
+  var input = $("takeoutFiles");
+  var files = input && input.files ? input.files : [];
+  if(!files.length){ takeoutStatus("Choose your Takeout CSV files first, then tap Import."); return; }
+  takeoutStatus("Reading " + files.length + " file" + (files.length > 1 ? "s" : "") + "...");
+  $("takeoutResults").innerHTML = "";
+  var reads = [];
+  Array.prototype.forEach.call(files, function(f){
+    reads.push(new Promise(function(res){
+      var r = new FileReader();
+      r.onload = function(){ res({ name: f.name, text: r.result }); };
+      r.onerror = function(){ res({ name: f.name, text: "" }); };
+      r.readAsText(f);
+    }));
+  });
+  Promise.all(reads).then(function(blobs){
+    var likedIds = [], likedTracks = [], plIds = {}, skipped = 0, usedFiles = 0;
+    blobs.forEach(function(b){
+      var rows = parseCSV(b.text);
+      if(rows.length < 2){ skipped++; return; }
+      usedFiles++;
+      var i, id;
+      if(takeoutIsLibrary(rows[0])){
+        /* Music library CSV: Video ID, Song Title, Album Title, Artist */
+        for(i = 1; i < rows.length; i++){
+          id = String(rows[i][0] || "").trim();
+          if(!takeoutValidId(id)){ skipped++; continue; }
+          likedTracks.push(takeoutTrack(id, rows[i][1], rows[i][3]));
+        }
+        return;
+      }
+      var pname = takeoutPlaylistName(b.name);
+      var ids = [];
+      for(i = 1; i < rows.length; i++){
+        id = String(rows[i][0] || "").trim();
+        if(takeoutValidId(id)) ids.push(id);
+        else skipped++;
+      }
+      if(!ids.length) return;
+      if(takeoutIsLikedPlaylist(pname)) likedIds = likedIds.concat(ids);
+      else {
+        if(!plIds[pname]) plIds[pname] = [];
+        plIds[pname] = plIds[pname].concat(ids);
+      }
+    });
+    if(!usedFiles){ takeoutStatus("No readable CSV files found. Make sure you extracted the zip and picked the .csv files."); return; }
+    likedIds = takeoutDedupe(likedIds);
+    var plNames = Object.keys(plIds);
+    plNames.forEach(function(n){ plIds[n] = takeoutDedupe(plIds[n]); });
+    var allIds = likedIds.slice();
+    plNames.forEach(function(n){ allIds = allIds.concat(plIds[n]); });
+    allIds = takeoutDedupe(allIds);
+    takeoutStatus("Looking up song titles: 0 of " + allIds.length + "...");
+    takeoutResolveIds(allIds, function(done, total){
+      takeoutStatus("Looking up song titles: " + done + " of " + total + "...");
+    }).then(function(meta){
+      var addedLiked = 0, addedPl = {}, mergedPl = 0;
+      var liked = getLiked();
+      var haveLiked = {};
+      liked.forEach(function(v){ haveLiked[v.videoId] = 1; });
+      function pushLiked(t){
+        if(haveLiked[t.videoId]) return;
+        haveLiked[t.videoId] = 1;
+        liked.push(t);
+        addedLiked++;
+      }
+      likedIds.forEach(function(id){ if(meta[id]) pushLiked(meta[id]); });
+      likedTracks.forEach(function(t){ pushLiked(t); });
+      setJSON("lm_liked", liked);
+      var pls = getPlaylists();
+      plNames.forEach(function(n){
+        var isNew = !pls[n];
+        if(isNew) pls[n] = [];
+        var have = {};
+        pls[n].forEach(function(v){ have[v.videoId] = 1; });
+        var added = 0;
+        plIds[n].forEach(function(id){
+          if(meta[id] && !have[id]){ have[id] = 1; pls[n].push(meta[id]); added++; }
+        });
+        if(added){ addedPl[n] = added; if(!isNew) mergedPl++; }
+      });
+      savePlaylists(pls);
+      renderLibrary();
+      var parts = [];
+      if(addedLiked) parts.push(addedLiked + " liked song" + (addedLiked > 1 ? "s" : ""));
+      var plTotal = 0;
+      plNames.forEach(function(n){ if(addedPl[n]) plTotal += addedPl[n]; });
+      if(plTotal) parts.push(plTotal + " song" + (plTotal > 1 ? "s" : "") + " across " + Object.keys(addedPl).length + " playlist" + (Object.keys(addedPl).length > 1 ? "s" : ""));
+      var msg = parts.length ? ("Import done: " + parts.join(", ") + " added.") : "Import done: nothing new — those songs were already in your library.";
+      if(skipped) msg += " " + skipped + " line" + (skipped > 1 ? "s" : "") + " couldn't be read and were skipped.";
+      if(mergedPl) msg += " Merged into " + mergedPl + " existing playlist" + (mergedPl > 1 ? "s" : "") + ".";
+      takeoutStatus(msg);
+      $("takeoutResults").innerHTML = '<div class="card"><p class="hint">' + esc(msg) + ' Your likes are in the Library tab under Liked, and imported playlists are under Playlists.</p></div>';
+    }).catch(function(){
+      takeoutStatus("Import failed while looking up titles. Check your connection and try again.");
+    });
+  });
 });
 /* ================= init ================= */
 function applyTheme(){
