@@ -232,7 +232,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.8.0</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v1.9.0</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <div class="homeBlock">
@@ -313,7 +313,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v1.8.0. Plays through YouTube's official embedded player — strictly music, no interviews or talk videos. The YouTube Music button sends a song to your YouTube Music app, where it can play with the screen off.</p>
+      <p class="hint">Lynxos Music v1.9.0. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -431,6 +431,62 @@ var state = {
   queue: [], qi: -1, player: null, playerReady: false, pendingVideo: null,
   lastResults: [], loggedVideo: null, shuffle: false, repeat: 0, seeking: false,
   tab: "home", searchOpen: false
+};
+/* ================= native audio engine (v1.9) =================
+   Inside the Android app, Java injects a LynxosPlayer bridge and all
+   playback goes through the native ExoPlayer service — music keeps
+   playing with the screen off. In a plain browser the bridge is absent
+   and the YouTube iframe player is used exactly as before. */
+var NATIVE_AUDIO = (typeof LynxosPlayer !== "undefined");
+var nativeState = { playing: false, pos: 0, dur: 0 };
+function nativeQueueJson(){
+  return JSON.stringify(state.queue.map(function(v){
+    return { videoId: v.videoId || "", title: v.title || "", channel: v.channel || "", thumb: v.thumb || "" };
+  }));
+}
+function nativeAppendJson(tracks){
+  return JSON.stringify(tracks.map(function(v){
+    return { videoId: v.videoId || "", title: v.title || "", channel: v.channel || "", thumb: v.thumb || "" };
+  }));
+}
+/* Called by Java when the native service starts a track. */
+window.lmNativeTrack = function(i){
+  i = parseInt(i, 10);
+  if(isNaN(i) || i < 0 || i >= state.queue.length) return;
+  state.qi = i;
+  var v = state.queue[i];
+  updateNowPlaying(v);
+  logHistory(v);
+  var p = parseTrack(v.title, v.channel);
+  say("Playing: " + p.title + " by " + p.artist + ".");
+};
+/* Called by Java about once a second while the native player runs. */
+window.lmNativeProgress = function(pos, dur, playing){
+  nativeState.pos = pos || 0;
+  nativeState.dur = dur || 0;
+  nativeState.playing = !!playing;
+  if(!state.seeking){
+    try {
+      if(nativeState.dur > 0){
+        $("fpSeek").max = Math.floor(nativeState.dur);
+        $("fpSeek").value = Math.floor(nativeState.pos);
+        $("fpCur").textContent = fmtTime(nativeState.pos);
+        $("fpDur").textContent = fmtTime(nativeState.dur);
+      }
+    } catch(e){}
+  }
+  syncPlayIcons();
+};
+/* Called by Java when a track fails to load in the native player. */
+window.lmNativeError = function(msg){
+  say("That song wouldn't play. Trying the next one.");
+  playNext(true);
+};
+/* Called by Java when the native player reaches the end of a track.
+   Queue policy (shuffle / repeat / radio) stays here in JS. */
+window.lmNativeEnded = function(){
+  if(state.repeat === 2){ playQueueIndex(state.qi); }
+  else { playNext(true); }
 };
 var BUILTIN_KEY = "AIzaSyBlRExgehSNPYhBoVol3BToThbNIB3I0Ns";
 function getKey(){ try { var k = (localStorage.getItem("lm_api_key") || "").trim(); return k || BUILTIN_KEY; } catch(e){ return BUILTIN_KEY; } }
@@ -862,7 +918,7 @@ function playVideo(v, list, idx){
   state.queue = (list || []).slice();
   state.qi = (typeof idx === "number" && idx >= 0) ? idx : state.queue.indexOf(v);
   if(state.qi < 0){ state.queue = [v]; state.qi = 0; }
-  playQueueIndex(state.qi);
+  playQueueIndex(state.qi, true);
 }
 /* Album tracks start life without a YouTube videoId (they come from the
    album's real tracklist). Resolve to an actual playable video on demand,
@@ -891,7 +947,7 @@ function resolveTrack(v){
     return v;
   });
 }
-function playQueueIndex(i){
+function playQueueIndex(i, fresh){
   if(i < 0 || i >= state.queue.length) return;
   state.qi = i;
   maybeRefillRadio();
@@ -900,12 +956,26 @@ function playQueueIndex(i){
   resolveTrack(v).then(function(rv){
     if(state.queue[state.qi] !== v) return; /* user moved on meanwhile */
     if(!rv.videoId){ say("Couldn't find " + v.title + " on YouTube. Trying the next one."); playNext(true); return; }
+    /* v1.9 native path: hand the whole queue to the Android service. A
+       fresh list replaces the service queue; anything else just moves
+       within the queue the service already has. */
+    if(NATIVE_AUDIO){
+      try {
+        if(fresh) LynxosPlayer.playQueue(nativeQueueJson(), state.qi);
+        else LynxosPlayer.playAt(state.qi);
+      } catch(e){ say("Player isn't ready yet."); return; }
+      var freshStart = $("miniPlayer").hidden;
+      $("miniPlayer").hidden = false;
+      if(IS_TV && freshStart) expandPlayer();
+      say("Loading " + v.title + ".");
+      return;
+    }
     ensurePlayer(rv);
-    var freshStart = $("miniPlayer").hidden;
+    var freshStart2 = $("miniPlayer").hidden;
     $("miniPlayer").hidden = false;
     /* TV: open the full player as soon as music starts — no hunting for the
        mini player with the remote. Later tracks leave it as the user left it. */
-    if(IS_TV && freshStart) expandPlayer();
+    if(IS_TV && freshStart2) expandPlayer();
   }).catch(function(){
     if(state.queue[state.qi] !== v) return;
     say("Couldn't load " + v.title + ". Trying the next one.");
@@ -946,16 +1016,29 @@ function refillRadioNow(){
     fresh.forEach(function(sv){ state.queue.push(sv); });
     r.refilling = false;
     renderQueue();
+    /* v1.9: keep the native service queue in step. */
+    if(NATIVE_AUDIO && fresh.length){ try { LynxosPlayer.appendTracks(nativeAppendJson(fresh)); } catch(e){} }
     if(fresh.length){ playQueueIndex(state.qi + 1); }
     else { say("End of queue."); }
   }).catch(function(){ r.refilling = false; say("End of queue."); });
 }
 function playPrev(){
   if(!state.queue.length) return;
+  if(NATIVE_AUDIO){
+    if(nativeState.pos > 3){ try { LynxosPlayer.seekTo(0); } catch(e){} return; }
+    playQueueIndex((state.qi - 1 + state.queue.length) % state.queue.length);
+    return;
+  }
   try { if(state.player && state.player.getCurrentTime() > 3){ state.player.seekTo(0); return; } } catch(e){}
   playQueueIndex((state.qi - 1 + state.queue.length) % state.queue.length);
 }
 function togglePlayPause(){
+  /* v1.9 native path: the service owns play state and reports back. */
+  if(NATIVE_AUDIO){
+    if(state.qi < 0 || !state.queue.length){ say("Nothing to play yet. Search for something first."); return; }
+    try { LynxosPlayer.toggle(); } catch(e){ say("Player isn't ready yet."); }
+    return;
+  }
   if(!state.player){ say("Nothing to play yet. Search for something first."); return; }
   try {
     var s = state.player.getPlayerState();
@@ -966,7 +1049,9 @@ function togglePlayPause(){
 }
 function syncPlayIcons(){
   var playing = false;
-  try { playing = state.player && state.player.getPlayerState() === YT.PlayerState.PLAYING; } catch(e){}
+  /* v1.9: the native service reports its state once a second. */
+  if(NATIVE_AUDIO){ playing = nativeState.playing; }
+  else { try { playing = state.player && state.player.getPlayerState() === YT.PlayerState.PLAYING; } catch(e){} }
   var icon = playing ? "⏸" : "▶";
   $("mpPlayBtn").textContent = icon;
   $("fpPlayBtn").textContent = icon;
@@ -994,6 +1079,8 @@ function updateNowPlaying(v){
 /* progress bar */
 var progTimer = null;
 function startProgress(){
+  /* v1.9 native path: the service pushes progress via lmNativeProgress. */
+  if(NATIVE_AUDIO) return;
   stopProgress();
   progTimer = setInterval(function(){
     if(state.seeking || !state.player) return;
@@ -1012,7 +1099,10 @@ function stopProgress(){ if(progTimer){ clearInterval(progTimer); progTimer = nu
 $("fpSeek").addEventListener("input", function(){ state.seeking = true; $("fpCur").textContent = fmtTime(parseInt($("fpSeek").value, 10)); });
 $("fpSeek").addEventListener("change", function(){
   state.seeking = false;
-  try { if(state.player) state.player.seekTo(parseInt($("fpSeek").value, 10), true); } catch(e){}
+  try {
+    if(NATIVE_AUDIO) LynxosPlayer.seekTo(parseInt($("fpSeek").value, 10));
+    else if(state.player) state.player.seekTo(parseInt($("fpSeek").value, 10), true);
+  } catch(e){}
 });
 /* player buttons */
 $("mpPlayBtn").addEventListener("click", togglePlayPause);
@@ -1074,6 +1164,8 @@ function renderQueue(){
       var v = state.queue[i];
       state.queue.splice(i, 1);
       if(i < state.qi) state.qi--;
+      /* v1.9: keep the native service queue in step. */
+      if(NATIVE_AUDIO){ try { LynxosPlayer.removeAt(i); } catch(e){} }
       say("Removed from queue: " + (v ? v.title : ""));
       renderQueue();
     });
@@ -1081,6 +1173,8 @@ function renderQueue(){
   var c = $("clearUpNext");
   if(c) c.addEventListener("click", function(){
     state.queue = state.queue.slice(0, state.qi + 1);
+    /* v1.9: keep the native service queue in step. */
+    if(NATIVE_AUDIO){ try { LynxosPlayer.truncateAfter(state.qi); } catch(e){} }
     say("Up next cleared.");
     renderQueue();
   });
@@ -1465,7 +1559,10 @@ $("fpSleepBtn").addEventListener("click", function(){
   if(state.sleepTimer){ clearTimeout(state.sleepTimer); state.sleepTimer = null; }
   if(state.sleepMinutes > 0){
     state.sleepTimer = setTimeout(function(){
-      try { if(state.player) state.player.pauseVideo(); } catch(e){}
+      try {
+        if(NATIVE_AUDIO) LynxosPlayer.pause();
+        else if(state.player) state.player.pauseVideo();
+      } catch(e){}
       state.sleepMinutes = 0; updateSleepBtn();
       say("Sleep timer ended. Music paused.");
     }, state.sleepMinutes * 60000);
@@ -1971,6 +2068,8 @@ function maybeRefillRadio(){
     fresh.forEach(function(sv){ state.queue.push(sv); });
     r.refilling = false;
     renderQueue();
+    /* v1.9: keep the native service queue in step. */
+    if(NATIVE_AUDIO && fresh.length){ try { LynxosPlayer.appendTracks(nativeAppendJson(fresh)); } catch(e){} }
     if(fresh.length) say("Radio widened with " + fresh.length + " more songs.");
   }).catch(function(){ r.refilling = false; });
 }
