@@ -6,11 +6,11 @@ on:
       version_name:
         description: 'Version name (e.g. 1.0)'
         required: false
-        default: '1.9.1'
+        default: '1.9.2'
       version_code:
         description: 'Version code (whole number, bump every build)'
         required: false
-        default: '51'
+        default: '52'
       release_notes:
         description: 'Release notes'
         required: false
@@ -131,6 +131,7 @@ jobs:
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.INTERNET" />
               <!-- v1.9 native audio: keep music playing with the screen off -->
+              <uses-permission android:name="android.permission.WAKE_LOCK" />
               <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
               <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
               <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
