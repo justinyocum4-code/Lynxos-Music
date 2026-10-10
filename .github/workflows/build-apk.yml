@@ -71,6 +71,10 @@ jobs:
             echo "WARNING: tv_banner.png not found in repo root; TV banner skipped."
           fi
 
+          cat > gradle.properties <<'EOF'
+          android.useAndroidX=true
+          EOF
+
           cat > settings.gradle <<'EOF'
           pluginManagement {
               repositories {
