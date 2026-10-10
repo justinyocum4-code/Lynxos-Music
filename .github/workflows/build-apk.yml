@@ -905,12 +905,12 @@ jobs:
               /** Minimal HTTP downloader for the NewPipe extractor. */
               static class ExtractorDownloader extends Downloader {
                   @Override
-                  public Response execute(Request request) throws IOException, ExtractionException {
+                  public Response execute(Request request) throws IOException {
                       HttpURLConnection conn = (HttpURLConnection) new URL(request.url()).openConnection();
                       try {
                           conn.setRequestMethod(request.httpMethod());
                       } catch (Exception e) {
-                          throw new ExtractionException("Bad HTTP method", e);
+                          throw new IOException("Bad HTTP method");
                       }
                       conn.setConnectTimeout(15000);
                       conn.setReadTimeout(15000);
