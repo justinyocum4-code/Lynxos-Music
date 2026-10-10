@@ -6,11 +6,11 @@ on:
       version_name:
         description: 'Version name (e.g. 1.0)'
         required: false
-        default: '1.9.0'
+        default: '1.9.1'
       version_code:
         description: 'Version code (whole number, bump every build)'
         required: false
-        default: '50'
+        default: '51'
       release_notes:
         description: 'Release notes'
         required: false
@@ -167,6 +167,7 @@ jobs:
 
           import android.Manifest;
           import android.app.Activity;
+          import android.app.AlertDialog;
           import android.content.ComponentName;
           import android.content.Context;
           import android.content.Intent;
@@ -186,6 +187,8 @@ jobs:
           import android.webkit.WebView;
           import android.webkit.WebViewClient;
           import java.io.BufferedReader;
+          import java.io.File;
+          import java.io.FileWriter;
           import java.io.InputStream;
           import java.io.InputStreamReader;
           import org.json.JSONObject;
@@ -330,6 +333,8 @@ jobs:
               @Override
               protected void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
+                  installCrashCapture();
+                  showLastCrashIfAny();
                   webView = new WebView(this);
                   WebSettings s = webView.getSettings();
                   s.setJavaScriptEnabled(true);
@@ -371,21 +376,20 @@ jobs:
                               try { filePathCallback.onReceiveValue(null); } catch (Exception ignored) {}
                           }
                           filePathCallback = callback;
+                          // v1.9.1: always use "*/*" so the file manager never
+                          // greys out the CSV files (params.createIntent()
+                          // carries the input's accept filter, which many
+                          // file managers can't match, leaving nothing
+                          // selectable).
                           try {
-                              Intent intent = params.createIntent();
+                              Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+                              intent.addCategory(Intent.CATEGORY_OPENABLE);
+                              intent.setType("*/*");
                               intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-                              startActivityForResult(intent, FILE_CHOOSER_REQUEST);
+                              startActivityForResult(Intent.createChooser(intent, "Choose files"), FILE_CHOOSER_REQUEST);
                           } catch (Exception e) {
-                              try {
-                                  Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
-                                  intent.addCategory(Intent.CATEGORY_OPENABLE);
-                                  intent.setType("*/*");
-                                  intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-                                  startActivityForResult(Intent.createChooser(intent, "Choose files"), FILE_CHOOSER_REQUEST);
-                              } catch (Exception e2) {
-                                  filePathCallback = null;
-                                  return false;
-                              }
+                              filePathCallback = null;
+                              return false;
                           }
                           return true;
                       }
@@ -428,6 +432,58 @@ jobs:
                   }
               }
 
+              // v1.9.1 crash capture: if anything in the app process dies
+              // (player service included), save the stack trace. On the next
+              // launch it is shown in a dialog so it can be read back.
+              private void installCrashCapture() {
+                  final Thread.UncaughtExceptionHandler prev = Thread.getDefaultUncaughtExceptionHandler();
+                  Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
+                      @Override public void uncaughtException(Thread t, Throwable e) {
+                          try {
+                              StringBuilder sb = new StringBuilder();
+                              sb.append("Thread: ").append(t.getName()).append("\n");
+                              sb.append(e.toString()).append("\n");
+                              for (StackTraceElement el : e.getStackTrace()) {
+                                  sb.append("  at ").append(el.toString()).append("\n");
+                                  if (sb.length() > 8000) break;
+                              }
+                              File f = new File(getFilesDir(), "lm_crash.log");
+                              FileWriter fw = new FileWriter(f, false);
+                              fw.write(sb.toString());
+                              fw.close();
+                          } catch (Exception ignored) {}
+                          if (prev != null) {
+                              try { prev.uncaughtException(t, e); } catch (Exception ignored) {}
+                          }
+                      }
+                  });
+              }
+              private void showLastCrashIfAny() {
+                  try {
+                      final File f = new File(getFilesDir(), "lm_crash.log");
+                      if (!f.exists() || f.length() == 0 || f.length() > 100000) return;
+                      BufferedReader br = new BufferedReader(new InputStreamReader(new java.io.FileInputStream(f), "UTF-8"));
+                      StringBuilder sb = new StringBuilder();
+                      String line;
+                      while ((line = br.readLine()) != null) sb.append(line).append('\n');
+                      br.close();
+                      f.delete();
+                      final String crash = sb.toString();
+                      if (crash.length() == 0) return;
+                      final String show = crash.length() > 3000 ? crash.substring(0, 3000) : crash;
+                      mainHandler.postDelayed(new Runnable() {
+                          @Override public void run() {
+                              try {
+                                  new AlertDialog.Builder(MainActivity.this)
+                                      .setTitle("The app crashed last time")
+                                      .setMessage("What broke:\n" + show)
+                                      .setPositiveButton("OK", null)
+                                      .show();
+                              } catch (Exception ignored) {}
+                          }
+                      }, 2000);
+                  } catch (Exception ignored) {}
+              }
               private String readAsset(String path) {
                   try {
                       InputStream is = getAssets().open(path);
@@ -753,7 +809,7 @@ jobs:
                           String url = null;
                           String err = "";
                           try { url = resolveAudioUrl(t.videoId); }
-                          catch (Exception e) { try { err = String.valueOf(e.getMessage()); } catch (Exception ignored) {} }
+                          catch (Throwable th) { try { err = String.valueOf(th.toString()); } catch (Exception ignored) {} }
                           final String fUrl = url;
                           final String fErr = err;
                           main.post(new Runnable() {
@@ -769,7 +825,7 @@ jobs:
                                       player.setMediaItem(MediaItem.fromUri(fUrl));
                                       player.prepare();
                                       player.play();
-                                  } catch (Exception e) {
+                                  } catch (Throwable th) {
                                       UiListener l = ui;
                                       if (l != null) { try { l.onTrackError("Playback failed."); } catch (Exception ignored) {} }
                                       return;
