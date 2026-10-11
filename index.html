@@ -252,7 +252,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.2</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.3</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <div class="homeBlock">
@@ -636,7 +636,7 @@ function openArtistPage(artistName){
         else if(!best && (rn.indexOf(aq) === 0 || aq.indexOf(rn) === 0)) best = r;
       });
       if(!best) throw new Error("no artist");
-      var aid = best.amgArtistId || best.artistId;
+      var aid = best.artistId;
       return Promise.all([
         fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(artistName) + "&entity=song&limit=25").then(function(r){ return r.json(); }),
         fetch("https://itunes.apple.com/lookup?id=" + aid + "&entity=album&limit=100").then(function(r){ return r.json(); })
@@ -674,7 +674,7 @@ function renderArtistPage(data){
   }
   if(albums.length){
     html += "<h3>Albums</h3><div class='row' style='flex-wrap:wrap'>";
-    html += albums.slice(0, 12).map(function(a){
+    html += albums.map(function(a){
       var art = (a.artworkUrl100 || "").replace("100x100bb", "300x300bb");
       return "<div class='card' style='width:150px'><img src='" + esc(art) + "' alt='' style='width:100%;border-radius:8px'>" +
         "<div style='font-weight:bold;font-size:14px'>" + esc(a.collectionName) + "</div>" +
@@ -1292,7 +1292,14 @@ function resolveTrack(v){
     if(!v.art) v.art = videos[0].art;
   }
   function attempt(i){
-    if(i >= queries.length) return Promise.resolve(v);
+    if(i >= queries.length){
+      /* v2.2.3: last resort — check MusicBrainz for the correct title.
+         If the stored title is wrong/mangled, search with the real one. */
+      return mbTitleFix().then(function(fixed){
+        if(fixed){ takeCands(fixed); return v; }
+        return v;
+      });
+    }
     return ytSearch(queries[i], true, artist).then(function(videos){
       /* v2.2.0: accuracy gate — only keep uploads that actually match the
          song title, so a wrong song never plays. */
@@ -1300,6 +1307,34 @@ function resolveTrack(v){
       if(matched.length){ takeCands(matched); return v; }
       return attempt(i + 1);
     });
+  }
+  /* Ask MusicBrainz for the canonical recording title; if it differs,
+     try one YouTube search with the corrected title. */
+  function mbTitleFix(){
+    if(!artist || !title) return Promise.resolve(null);
+    var q = 'artist:"' + artist.replace(/"/g, "") + '" AND recording:"' + title.replace(/"/g, "") + '"';
+    return fetch("https://musicbrainz.org/ws/2/recording/?query=" + encodeURIComponent(q) + "&fmt=json&limit=3")
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        var recs = d.recordings || [];
+        if(!recs.length) return null;
+        var mbTitle = recs[0].title || "";
+        var mbArtist = (((recs[0]["artist-credit"] || [])[0] || {}).name) || "";
+        if(!mbTitle || normTitle(mbTitle) === normTitle(title)) return null;
+        /* Different title found — try it. */
+        var fixQ = (mbArtist || artist) + " " + mbTitle + " official audio";
+        return ytSearch(fixQ, true, mbArtist || artist).then(function(videos){
+          var matched = videos.filter(function(vd){ return titleMatches(mbTitle, vd.title); });
+          if(matched.length){
+            /* Update the track to the correct title so it works next time. */
+            v.title = mbTitle;
+            if(mbArtist) v.channel = mbArtist;
+            return matched;
+          }
+          return null;
+        });
+      })
+      .catch(function(){ return null; });
   }
   return attempt(0);
 }
