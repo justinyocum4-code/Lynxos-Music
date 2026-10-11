@@ -232,7 +232,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.1.3</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.1.4</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <div class="homeBlock">
@@ -342,7 +342,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.1.3. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.1.4. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -997,27 +997,71 @@ function playVideo(v, list, idx){
 function resolveTrack(v){
   if(v.videoId) return Promise.resolve(v);
   var q = v.resolveQuery || ((v.channel || "") + " " + (v.title || ""));
+  /* v2.1.4: keep the top candidates — if the first upload won't play, the
+     player tries the next one before giving up on the song. */
+  function takeCands(videos){
+    v.candidates = videos.slice(0, 3).map(function(x){ return x.videoId; });
+    v.candIdx = 0;
+    v.videoId = v.candidates[0];
+    if(!v.thumb) v.thumb = videos[0].thumb;
+    if(!v.art) v.art = videos[0].art;
+  }
   return ytSearch(q, true).then(function(videos){
-    if(videos.length){
-      v.videoId = videos[0].videoId;
-      if(!v.thumb) v.thumb = videos[0].thumb;
-      if(!v.art) v.art = videos[0].art;
-      return v;
-    }
+    if(videos.length){ takeCands(videos); return v; }
     /* Fallback: retry without the "official audio" tail. */
     if(v.resolveQuery && v.fallbackQuery && q !== v.fallbackQuery){
       return ytSearch(v.fallbackQuery, true).then(function(vs2){
-        if(vs2.length){
-          v.videoId = vs2[0].videoId;
-          if(!v.thumb) v.thumb = vs2[0].thumb;
-          if(!v.art) v.art = vs2[0].art;
-        }
+        if(vs2.length) takeCands(vs2);
         return v;
       });
     }
     return v;
   });
 }
+/* Called by Java when the native extractor cannot play the current videoId.
+   v2.1.4: walk the track's candidate uploads (and, for Takeout tracks with a
+   dead original upload, search for another copy) before skipping the song. */
+window.lmNativeResolveFailed = function(i){
+  i = parseInt(i, 10);
+  if(isNaN(i) || i < 0 || i >= state.queue.length) return;
+  var v = state.queue[i];
+  function tryId(id){
+    v.videoId = id;
+    try {
+      if(NATIVE_AUDIO && LynxosPlayer.playTrackAt) LynxosPlayer.playTrackAt(i, id);
+      else if(NATIVE_AUDIO) LynxosPlayer.playAt(i);
+    } catch(e){}
+  }
+  function giveUp(){
+    say("That song wouldn't play. Trying the next one.");
+    playNext(true);
+  }
+  if(v.candidates && v.candIdx + 1 < v.candidates.length){
+    v.candIdx++;
+    say("Trying another upload of " + v.title + ".");
+    tryId(v.candidates[v.candIdx]);
+    return;
+  }
+  if(!v._recSearched){
+    /* Takeout tracks carry a known id but no candidates: find another copy. */
+    v._recSearched = true;
+    say("Looking for another copy of " + v.title + ".");
+    ytSearch((v.channel || "") + " " + (v.title || ""), true).then(function(videos){
+      if(state.queue[i] !== v) return;
+      var bad = v.videoId, alt = null, k;
+      for(k = 0; k < videos.length; k++){
+        if(videos[k].videoId && videos[k].videoId !== bad){ alt = videos[k]; break; }
+      }
+      if(alt){
+        v.candidates = [alt.videoId]; v.candIdx = 0;
+        if(!v.thumb) v.thumb = alt.thumb;
+        tryId(alt.videoId);
+      } else giveUp();
+    }).catch(giveUp);
+    return;
+  }
+  giveUp();
+};
 function playQueueIndex(i, fresh){
   if(i < 0 || i >= state.queue.length) return;
   state.qi = i;
@@ -1285,7 +1329,9 @@ function renderAlbums(){
   });
 }
 /* v2.1.3: one-tap pass that groups Liked songs carrying album info into
-   albums and removes them from the Songs list. */
+   albums and removes them from the Songs list.
+   v2.1.4: also dissolves 1-track "albums" (usually saved singles) back
+   into Songs — both passes always run. */
 function organizeAlbums(){
   var liked = getLiked();
   var groups = {}, order = [];
@@ -1315,12 +1361,29 @@ function organizeAlbums(){
     }
     g.tracks.forEach(function(t){ movedIds[t.videoId] = 1; moved++; });
   });
-  if(!moved){ say("No album groups found in your songs."); return; }
-  setJSON("lm_liked", liked.filter(function(v){ return !movedIds[v.videoId]; }));
-  saveAlbums(albums);
+  var likedKept = liked.filter(function(v){ return !movedIds[v.videoId]; });
+  var dissolved = 0;
+  var kept = [], k;
+  var have2 = {};
+  likedKept.forEach(function(x){ have2[(x.videoId || "") + "|" + String(x.title || "").toLowerCase()] = 1; });
+  for(k = 0; k < albums.length; k++){
+    var a = albums[k];
+    if(a.tracks && a.tracks.length === 1){
+      var t = a.tracks[0];
+      var tkey = (t.videoId || "") + "|" + String(t.title || "").toLowerCase();
+      if(!have2[tkey]){ have2[tkey] = 1; likedKept.push(t); }
+      dissolved++;
+    } else kept.push(a);
+  }
+  if(!moved && !dissolved){ say("Nothing to organize — your library is already tidy."); return; }
+  setJSON("lm_liked", likedKept);
+  saveAlbums(kept);
   renderAlbums();
   renderLiked();
-  say("Moved " + moved + " songs into albums. " + newAlbums + " new albums created.");
+  var msg = "";
+  if(moved) msg += "Moved " + moved + " songs into albums (" + newAlbums + " new). ";
+  if(dissolved) msg += "Moved " + dissolved + " single" + (dissolved === 1 ? "" : "s") + " back to your songs.";
+  say(msg);
 }
 function openLocalAlbum(idx){
   var a = getAlbums()[idx];
@@ -2626,6 +2689,8 @@ function openAlbumPanel(artist, name, colId){
       if(tracks.length && tracks[0].artworkUrl100)
         $("albumArt").src = tracks[0].artworkUrl100.replace("100x100bb", "600x600bb");
       renderAlbumTracks();
+      /* v2.1.4: a single saves to Songs, not Albums. */
+      try { $("albumSaveBtn").textContent = albumTracks.length === 1 ? "💾 Save song" : "💾 Save album"; } catch(e){}
       say(name + " loaded. " + albumTracks.length + " tracks. Tap Play to start.");
     })
     .catch(function(){
@@ -2680,6 +2745,24 @@ function saveCurrentAlbum(){
   var name = $("albumName").textContent || "";
   var artist = $("albumArtist").textContent || "";
   if(!name || !albumTracks.length){ say("Open an album first, then save it."); return; }
+  /* v2.1.4: a single is a song — it belongs in Songs, not the Albums tab. */
+  if(albumTracks.length === 1){
+    var t = albumTracks[0];
+    say("Saving " + t.title + ".");
+    resolveTrack(t).then(function(rv){
+      var liked = getLiked(), k, exists = false;
+      for(k = 0; k < liked.length; k++){
+        if(liked[k].videoId && rv.videoId && liked[k].videoId === rv.videoId){ exists = true; break; }
+      }
+      if(exists){ say("That song is already in your songs."); return; }
+      liked.push({ videoId: rv.videoId || "", title: t.title, channel: t.channel,
+        thumb: rv.thumb || t.thumb, art: rv.art || t.art });
+      setJSON("lm_liked", liked);
+      renderLiked();
+      say("Saved " + t.title + " to your songs.");
+    }).catch(function(){ say("Couldn't save that song. Check your connection."); });
+    return;
+  }
   var albums = getAlbums();
   var key = name.toLowerCase() + "  " + artist.toLowerCase();
   for(var i = 0; i < albums.length; i++){
