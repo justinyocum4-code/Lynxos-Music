@@ -775,7 +775,7 @@ jobs:
               /* v2.1.1: sync a JS-resolved videoId into the service queue
                  before playing (album tracks resolve on demand). */
               public void playTrackAt(final int index, final String videoId) {
-                  mainHandler.post(new Runnable() {
+                  main.post(new Runnable() {
                       @Override public void run() {
                           if (index >= 0 && index < queue.size() && videoId != null && !videoId.isEmpty()) {
                               queue.get(index).videoId = videoId;
