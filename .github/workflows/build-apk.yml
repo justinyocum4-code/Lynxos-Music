@@ -6,11 +6,11 @@ on:
       version_name:
         description: 'Version name (e.g. 1.0)'
         required: false
-        default: '2.1.6'
+        default: '2.1.8'
       version_code:
         description: 'Version code (whole number, bump every build)'
         required: false
-        default: '60'
+        default: '62'
       release_notes:
         description: 'Release notes'
         required: false
@@ -681,6 +681,9 @@ jobs:
               private final Handler main = new Handler(Looper.getMainLooper());
               private final ExecutorService bg = Executors.newSingleThreadExecutor();
               private final List<Track> queue = new ArrayList<>();
+              /* v2.1.7: cache of resolved audio URLs (videoId -> url) plus
+                 prefetch of the next track so skipping songs is instant. */
+              private final java.util.Map<String, String> urlCache = new java.util.HashMap<String, String>();
               private int currentIndex = -1;
               private UiListener ui;
 
@@ -843,7 +846,18 @@ jobs:
                       @Override public void run() {
                           String url = null;
                           String err = "";
-                          try { url = resolveAudioUrl(t.videoId); }
+                          /* v2.1.7: reuse a prefetched/cached URL when we have one. */
+                          try {
+                              synchronized (urlCache) { url = urlCache.get(t.videoId); }
+                          } catch (Exception ignored) {}
+                          try {
+                              if (url == null || url.isEmpty()) {
+                                  url = resolveAudioUrl(t.videoId);
+                                  try {
+                                      synchronized (urlCache) { urlCache.put(t.videoId, url); }
+                                  } catch (Exception ignored) {}
+                              }
+                          }
                           catch (Throwable th) { try { err = String.valueOf(th.toString()); } catch (Exception ignored) {} }
                           final String fUrl = url;
                           final String fErr = err;
@@ -874,8 +888,36 @@ jobs:
                                   updateNotification();
                                   UiListener l = ui;
                                   if (l != null) { try { l.onTrackChanged(wantIndex); } catch (Exception ignored) {} }
+                                  /* v2.1.7: while this song plays, resolve the
+                                     next one in the background so skipping is instant. */
+                                  prefetchNext(wantIndex + 1);
                               }
                           });
+                      }
+                  });
+              }
+
+              /* v2.1.7: resolve the next track's audio URL ahead of time. */
+              private void prefetchNext(final int i) {
+                  if (i < 0 || i >= queue.size()) return;
+                  final String vid;
+                  try { vid = queue.get(i).videoId; } catch (Exception e) { return; }
+                  if (vid == null || vid.isEmpty()) return;
+                  try {
+                      synchronized (urlCache) { if (urlCache.containsKey(vid)) return; }
+                  } catch (Exception ignored) {}
+                  bg.execute(new Runnable() {
+                      @Override public void run() {
+                          try {
+                              synchronized (urlCache) { if (urlCache.containsKey(vid)) return; }
+                              String url = resolveAudioUrl(vid);
+                              if (url != null && !url.isEmpty()) {
+                                  synchronized (urlCache) {
+                                      if (urlCache.size() > 60) urlCache.clear();
+                                      urlCache.put(vid, url);
+                                  }
+                              }
+                          } catch (Throwable ignored) {}
                       }
                   });
               }
