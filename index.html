@@ -69,6 +69,18 @@
   #fpMenu button { display: block; width: 100%; text-align: left; background: none;
     border: none; color: #f5f5f5; padding: 12px 14px; font-size: 16px; border-radius: 6px; }
   #fpMenu button:hover, #fpMenu button:focus { background: #2a2a2a; }
+  /* v2.2.2: in-app dialog. */
+  #lmDialog { position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,0.7);
+    display: flex; align-items: center; justify-content: center; padding: 20px; }
+  #lmDialog[hidden] { display: none; }
+  #lmDialogCard { background: #1a1a1a; border: 1px solid #d4af37; border-radius: 12px;
+    padding: 20px; max-width: 400px; width: 100%; }
+  #lmDialogCard h3 { margin: 0 0 12px; color: var(--gold); }
+  #lmDialogCard input[type="text"] { width: 100%; padding: 10px; margin: 6px 0;
+    background: #2a2a2a; border: 1px solid #444; color: #fff; border-radius: 6px; font-size: 16px; }
+  #lmDialogCard .plbtn { display: block; width: 100%; text-align: left; margin: 4px 0;
+    padding: 12px; background: #2a2a2a; border: 1px solid #444; color: #fff;
+    border-radius: 8px; font-size: 16px; }
   #albumPanel { position: fixed; inset: 0; z-index: 45; background: var(--bg); overflow-y: auto; padding: 10px 16px 30px; text-align: center; }
   #albumPanel[hidden] { display: none; }
   #albumArt { width: 220px; height: 220px; object-fit: cover; border-radius: 12px; margin: 8px auto; display: block; border: 1px solid #333; }
@@ -240,7 +252,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.1</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.2</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <div class="homeBlock">
@@ -264,6 +276,14 @@
         <button class="btn small secondary" id="allReleasesSeeAllBtn">See all</button>
       </div>
       <div class="hscroll" id="allReleases" style="margin-top:8px"><p style="color:#999">Loading…</p></div>
+    </div>
+    <!-- v2.2.2: top singles across all genres. -->
+    <div class="homeBlock">
+      <div class="row" style="align-items:center;justify-content:space-between">
+        <h2 style="margin:0">Top singles</h2>
+        <button class="btn small secondary" id="allSinglesSeeAllBtn">See all</button>
+      </div>
+      <div class="hscroll" id="allSingles" style="margin-top:8px"><p style="color:#999">Loading…</p></div>
     </div>
     <div class="homeBlock">
       <div class="row" style="align-items:center;justify-content:space-between">
@@ -2268,6 +2288,29 @@ function updateSleepBtn(){
   b.classList.toggle("active", state.sleepMinutes > 0);
   b.setAttribute("aria-label", state.sleepMinutes > 0 ? ("Sleep timer: " + state.sleepMinutes + " minutes. Tap to change.") : "Sleep timer off. Tap to set.");
 }
+/* ================= v2.2.2: in-app dialog (replaces prompt()) ================= */
+function showDialog(title, bodyHTML, buttons){
+  /* buttons: [{label, fn, primary}] */
+  var d = $("lmDialog");
+  $("lmDialogTitle").textContent = title;
+  $("lmDialogBody").innerHTML = bodyHTML;
+  var bb = $("lmDialogBtns");
+  bb.innerHTML = "";
+  (buttons || []).forEach(function(b){
+    var btn = document.createElement("button");
+    btn.textContent = b.label;
+    btn.className = "btn small" + (b.primary ? "" : " secondary");
+    btn.addEventListener("click", function(){
+      d.hidden = true;
+      if(b.fn) b.fn();
+    });
+    bb.appendChild(btn);
+  });
+  d.hidden = false;
+  var firstInput = $("lmDialogBody").querySelector("input");
+  if(firstInput) firstInput.focus();
+}
+function hideDialog(){ $("lmDialog").hidden = true; }
 /* ---- v2.2.0: player overflow menu (YouTube Music style) ---- */
 function fpMenuItems(){
   var v = state.queue[state.qi];
@@ -2291,8 +2334,8 @@ function fpMenuItems(){
   items.push({ label: "Fix song info", fn: function(){ fixSongInfo(v); }});
   items.push({ label: "Share", fn: function(){
     var url = v.videoId ? ("https://www.youtube.com/watch?v=" + v.videoId) : "";
-    if(url && navigator.clipboard){ navigator.clipboard.writeText(url).then(function(){ say("Link copied."); }); }
-    else if(url){ prompt("Copy this link:", url); }
+    if(url && navigator.clipboard){ navigator.clipboard.writeText(url).then(function(){ say("Link copied."); }).catch(function(){ say("Couldn't copy the link."); }); }
+    else if(url){ say("Link: " + url); }
     else say("No link available yet.");
   }});
   items.push({ label: state.sleepMinutes > 0 ? ("Sleep timer: " + state.sleepMinutes + " min (tap to change)") : "Sleep timer",
@@ -2328,74 +2371,112 @@ document.addEventListener("click", function(e){
   var m = $("fpMenu");
   if(!m.hidden && !m.contains(e.target) && e.target.id !== "fpMenuBtn") m.hidden = true;
 });
-/* Quick "add to playlist" without leaving the player. */
+/* Quick "add to playlist" without leaving the player. v2.2.2: uses in-app
+   dialog with tappable playlist buttons (no typing, no prompt()). */
 function quickAddToPlaylist(v){
   var pls = getPlaylists();
   var names = Object.keys(pls);
-  if(!names.length){
-    var n = prompt("Name your new playlist:");
-    if(n && n.trim()){
-      n = n.trim(); pls[n] = []; savePlaylists(pls);
-      pls[n].push({ videoId: v.videoId || "", title: v.title, channel: v.channel,
-        thumb: v.thumb || "", art: v.art || "",
-        resolveQuery: v.resolveQuery || "", fallbackQuery: v.fallbackQuery || "" });
-      savePlaylists(pls);
-      say("Created " + n + " and added " + v.title + ".");
+  function doAdd(name){
+    if(!pls[name]) pls[name] = [];
+    var entry = { videoId: v.videoId || "", title: v.title, channel: v.channel,
+      thumb: v.thumb || "", art: v.art || "",
+      resolveQuery: v.resolveQuery || "", fallbackQuery: v.fallbackQuery || "" };
+    if(pls[name].some(function(x){ return (x.videoId && x.videoId === entry.videoId) || (x.title === entry.title && x.channel === entry.channel); })){
+      say("Already in " + name + ".");
+    } else {
+      pls[name].push(entry); savePlaylists(pls);
+      say("Added to " + name + ".");
     }
+  }
+  if(!names.length){
+    showDialog("New playlist",
+      '<label for="lmNewPlName">Playlist name:</label>' +
+      '<input type="text" id="lmNewPlName" placeholder="My playlist">',
+      [
+        { label: "Cancel", fn: null },
+        { label: "Create and add", primary: true, fn: function(){
+          var n = ($("lmNewPlName").value || "").trim();
+          if(n){ doAdd(n); } else { say("Name it first."); }
+        }}
+      ]);
     return;
   }
-  var choice = prompt("Add to which playlist?\n" + names.map(function(n, i){ return (i + 1) + ". " + n; }).join("\n") + "\n(Or type a new name to create one)");
-  if(choice === null) return;
-  choice = choice.trim();
-  var idx = parseInt(choice, 10) - 1;
-  var name = (idx >= 0 && idx < names.length) ? names[idx] : choice;
-  if(!name) return;
-  if(!pls[name]) pls[name] = [];
-  var entry = { videoId: v.videoId || "", title: v.title, channel: v.channel,
-    thumb: v.thumb || "", art: v.art || "",
-    resolveQuery: v.resolveQuery || "", fallbackQuery: v.fallbackQuery || "" };
-  if(pls[name].some(function(x){ return (x.videoId && x.videoId === entry.videoId) || (x.title === entry.title && x.channel === entry.channel); })){
-    say("Already in " + name + ".");
-  } else {
-    pls[name].push(entry); savePlaylists(pls);
-    say("Added to " + name + ".");
-  }
+  var bodyHTML = names.map(function(n){
+    return '<button class="plbtn" data-plname="' + esc(n) + '">' + esc(n) + ' (' + pls[n].length + ')</button>';
+  }).join("") +
+    '<button class="plbtn" data-plname="__new__" style="border-color:#d4af37">+ New playlist</button>';
+  showDialog("Add to playlist", bodyHTML, [{ label: "Cancel", fn: null }]);
+  $("lmDialogBody").querySelectorAll("[data-plname]").forEach(function(b){
+    b.addEventListener("click", function(){
+      var n = b.getAttribute("data-plname");
+      hideDialog();
+      if(n === "__new__"){
+        showDialog("New playlist",
+          '<label for="lmNewPlName2">Playlist name:</label>' +
+          '<input type="text" id="lmNewPlName2" placeholder="My playlist">',
+          [
+            { label: "Cancel", fn: null },
+            { label: "Create and add", primary: true, fn: function(){
+              var nn = ($("lmNewPlName2").value || "").trim();
+              if(nn){ doAdd(nn); } else { say("Name it first."); }
+            }}
+          ]);
+      } else {
+        doAdd(n);
+      }
+    });
+  });
 }
 /* v2.2.0: fix a wrong title/artist (e.g. "12:00 a.m." by "5" that's really
-   "5:12 AM" by "Novelists"). Re-resolves the song after the fix. */
+   "5:12 AM" by "Novelists"). Re-resolves the song after the fix.
+   v2.2.2: uses in-app dialog (prompt() doesn't work in the WebView). */
 function fixSongInfo(v){
   if(!v) return;
   var oldTitle = v.title || "", oldArtist = v.channel || "";
-  var newTitle = prompt("Song title:", oldTitle);
-  if(newTitle === null) return;
-  var newArtist = prompt("Artist:", oldArtist);
-  if(newArtist === null) return;
-  newTitle = newTitle.trim(); newArtist = newArtist.trim();
-  if(!newTitle){ say("Title can't be empty."); return; }
-  v.title = newTitle;
-  if(newArtist) v.channel = newArtist;
-  v.videoId = ""; v.candidates = null; v.candIdx = 0; v._recSearched = false;
-  v.resolveQuery = (newArtist ? newArtist + " " : "") + newTitle + " official audio";
-  v.fallbackQuery = (newArtist ? newArtist + " " : "") + newTitle;
-  /* Persist the fix into his saved albums too. */
-  try {
-    var albums = getAlbums(), changed = false;
-    albums.forEach(function(a){
-      (a.tracks || []).forEach(function(t){
-        if(t.title === oldTitle && (t.channel || "") === oldArtist){
-          t.title = newTitle; if(newArtist) t.channel = newArtist;
-          t.videoId = ""; t.candidates = null;
-          t.resolveQuery = v.resolveQuery; t.fallbackQuery = v.fallbackQuery;
-          changed = true;
-        }
-      });
-    });
-    if(changed) saveAlbums(albums);
-  } catch(e){}
-  say("Fixed. Finding " + newTitle + ".");
-  resolveTrack(v).then(function(){
-    if(state.queue[state.qi] === v) playQueueIndex(state.qi, true);
-  });
+  showDialog("Fix song info",
+    '<label for="lmFixTitle">Song title:</label>' +
+    '<input type="text" id="lmFixTitle" value="' + esc(oldTitle) + '">' +
+    '<label for="lmFixArtist">Artist:</label>' +
+    '<input type="text" id="lmFixArtist" value="' + esc(oldArtist) + '">',
+    [
+      { label: "Cancel", fn: null },
+      { label: "Save", primary: true, fn: function(){
+        var newTitle = ($("lmFixTitle").value || "").trim();
+        var newArtist = ($("lmFixArtist").value || "").trim();
+        if(!newTitle){ say("Title can't be empty."); return; }
+        v.title = newTitle;
+        if(newArtist) v.channel = newArtist;
+        v.videoId = ""; v.candidates = null; v.candIdx = 0; v._recSearched = false;
+        v.resolveQuery = (newArtist ? newArtist + " " : "") + newTitle + " official audio";
+        v.fallbackQuery = (newArtist ? newArtist + " " : "") + newTitle;
+        /* Persist the fix into his saved albums too. */
+        try {
+          var albums = getAlbums(), changed = false;
+          albums.forEach(function(a){
+            (a.tracks || []).forEach(function(t){
+              if(t.title === oldTitle && (t.channel || "") === oldArtist){
+                t.title = newTitle; if(newArtist) t.channel = newArtist;
+                t.videoId = ""; t.candidates = null;
+                t.resolveQuery = v.resolveQuery; t.fallbackQuery = v.fallbackQuery;
+                changed = true;
+              }
+            });
+          });
+          if(changed) saveAlbums(albums);
+        } catch(e){}
+        say("Fixed. Finding " + newTitle + ".");
+        /* Update the player display right away. */
+        try {
+          if(state.queue[state.qi] === v){
+            $("fpTitle").textContent = newTitle;
+            $("fpArtist").textContent = newArtist || v.channel || "";
+          }
+        } catch(e){}
+        resolveTrack(v).then(function(){
+          if(state.queue[state.qi] === v) playQueueIndex(state.qi, true);
+        });
+      }}
+    ]);
 }
 $("fpSleepBtn").addEventListener("click", function(){
   var i = (SLEEP_STEPS.indexOf(state.sleepMinutes) + 1) % SLEEP_STEPS.length;
@@ -2979,7 +3060,56 @@ function renderHome(){
   renderRecentPlayed();
   loadForYouReleases();
   loadAllReleases();
+  loadAllSingles();
 }
+/* v2.2.2: top singles across all genres (daily Apple feed). */
+var allSinglesCache = null;
+function loadAllSingles(){
+  var box = $("allSingles");
+  if(!box) return;
+  if(allSinglesCache){ renderAllSingles(allSinglesCache); return; }
+  fetch("https://itunes.apple.com/us/rss/topsongs/limit=30/json")
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      var entries = (d.feed && d.feed.entry) || [];
+      allSinglesCache = entries.map(function(e){
+        return {
+          name: (e["im:name"] || {}).label || "",
+          artist: (e["im:artist"] || {}).label || "",
+          art: (((e["im:image"] || [])[2] || {}).label || "").replace("170x170bb", "300x300bb")
+        };
+      }).filter(function(x){ return x.name && x.artist; });
+      renderAllSingles(allSinglesCache);
+    })
+    .catch(function(){
+      box.innerHTML = "<p style='color:#999'>Couldn't load singles.</p>";
+    });
+}
+function renderAllSingles(items){
+  var box = $("allSingles");
+  if(!box) return;
+  var tracks = items.map(function(x){
+    return { videoId: "", title: x.name, channel: x.artist,
+      thumb: x.art, art: x.art,
+      resolveQuery: x.artist + " " + x.name + " official audio",
+      fallbackQuery: x.artist + " " + x.name };
+  });
+  box.innerHTML = tracks.map(function(t, i){ return trackRow(t, i); }).join("");
+  bindTrackButtons(box, tracks);
+}
+$("allSinglesSeeAllBtn").addEventListener("click", function(){
+  if(!allSinglesCache || !allSinglesCache.length){ say("Singles are still loading."); return; }
+  var tracks = allSinglesCache.map(function(x){
+    return { videoId: "", title: x.name, channel: x.artist,
+      thumb: x.art, art: x.art,
+      resolveQuery: x.artist + " " + x.name + " official audio",
+      fallbackQuery: x.artist + " " + x.name };
+  });
+  openSeeAll("Top singles", function(grid){
+    grid.innerHTML = '<div id="seeAllSinglesList">' + tracks.map(function(t, i){ return trackRow(t, i); }).join("") + "</div>";
+    bindTrackButtons($("seeAllSinglesList"), tracks);
+  });
+});
 /* v2.2.1: new releases across all genres. The "newreleases" RSS feed doesn't
    exist (Apple returns "Invalid RSS channel name"), so use the daily-updated
    top-albums feed instead — it's what's hot right now across every genre. */
@@ -3611,5 +3741,13 @@ renderRecentSearches();
 updateSleepBtn();
 renderHome();
 </script>
+<!-- v2.2.2: in-app dialog (WebView prompt() is not wired, so prompt() silently fails). -->
+<div id="lmDialog" hidden role="dialog" aria-modal="true" aria-label="Dialog">
+  <div id="lmDialogCard">
+    <h3 id="lmDialogTitle"></h3>
+    <div id="lmDialogBody"></div>
+    <div class="row" id="lmDialogBtns" style="margin-top:12px"></div>
+  </div>
+</div>
 </body>
 </html>
