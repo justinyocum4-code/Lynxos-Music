@@ -233,7 +233,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.1.6</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.1.7</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <div class="homeBlock">
@@ -343,7 +343,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.1.6. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.1.7. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -704,6 +704,25 @@ function isOfficialMusic(v){ return /official\s+(music\s+video|audio|video|lyric
 function isMusicVideo(v){ return /official\s+(music\s+video|video)/i.test(v.title || ""); }
 /* Scrape YouTube search results directly (no API key, no quota). Falls back
    to the Data API if scraping fails. */
+/* v2.1.7: parse "3:42" style durations so previews/samples can be filtered. */
+function parseDur(s){
+  var p = String(s || "").split(":"), sec = 0;
+  if(!p.length) return 0;
+  for(var i = 0; i < p.length; i++){
+    var n = parseInt(p[i], 10);
+    if(isNaN(n)) return 0;
+    sec = sec * 60 + n;
+  }
+  return sec;
+}
+function isoDur(s){
+  var m = String(s || "").match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  if(!m) return 0;
+  return (+m[1] || 0) * 3600 + (+m[2] || 0) * 60 + (+m[3] || 0);
+}
+/* v2.1.7: alternate versions of a song (reimagined, remixes, live cuts) are
+   never the album recording — rank them as a last resort. */
+var ALT_VERSION_RE = /reimagined|remix|acoustic|unplugged|\blive\b|cover|sped ?up|slowed|nightcore/i;
 function ytScrapeSearch(q){
   var url = "https://www.youtube.com/results?search_query=" + encodeURIComponent(q);
   return fetchWithTimeout(url, { headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" } }, 15000)
@@ -726,9 +745,10 @@ function ytScrapeSearch(q){
             var thumbs = (vr.thumbnail || {}).thumbnails || [];
             var thumbUrl = thumbs.length ? thumbs[thumbs.length - 1].url : "";
             if(title){
+              var durText = ((vr.lengthText || {}).simpleText) || "";
               videos.push({
                 videoId: vr.videoId, title: title, channel: channel,
-                thumb: thumbUrl, art: thumbUrl
+                thumb: thumbUrl, art: thumbUrl, dur: parseDur(durText)
               });
             }
           }
@@ -763,9 +783,18 @@ function ytSearch(q, preferAlbum, artist){
         var th = it.snippet.thumbnails || {};
         return { videoId: it.id.videoId, title: it.snippet.title, channel: it.snippet.channelTitle,
           thumb: th.medium ? th.medium.url : (th.default ? th.default.url : ""),
-          art: th.high ? th.high.url : (th.medium ? th.medium.url : "") };
+          art: th.high ? th.high.url : (th.medium ? th.medium.url : ""), dur: 0 };
       });
-      return videos;
+      /* v2.1.7: one cheap batch call for durations (needed to drop previews). */
+      var ids = videos.map(function(v){ return v.videoId; }).filter(Boolean).join(",");
+      if(!ids) return videos;
+      return ytFetch("https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id=" + encodeURIComponent(ids) + "&key=" + encodeURIComponent(key))
+        .then(function(d2){
+          var dm = {};
+          (d2.items || []).forEach(function(it){ dm[it.id] = isoDur((it.contentDetails || {}).duration); });
+          videos.forEach(function(v){ v.dur = dm[v.videoId] || 0; });
+          return videos;
+        }).catch(function(){ return videos; });
     });
   }).then(function(videos){
     /* Strictly music: drop talk/documentary/review-style videos. */
@@ -773,14 +802,20 @@ function ytSearch(q, preferAlbum, artist){
     if(preferAlbum){
       /* Album audio first: the song's own artist's Topic upload is the real
          album recording. Karaoke/instrumental uploads (no vocals) are
-         dropped; official music videos go last. */
+         dropped, as are previews/samples under a minute. Official music
+         videos outrank random uploads (they're the full song); alternate
+         versions (reimagined, remixes, live) go last. */
       videos = videos.filter(function(v){ return !NO_VOCALS_RE.test(v.title || ""); });
+      videos = videos.filter(function(v){ return !v.dur || v.dur >= 60; });
       videos.sort(function(a, b){
         function rank(v){
-          if(topicArtistMatch(v, artist)) return 0;
-          if(isOfficialMusic(v) && !isMusicVideo(v)) return 1;
-          if(isMusicVideo(v)) return 3;
-          return 2;
+          var r;
+          if(topicArtistMatch(v, artist)) r = 0;
+          else if(isOfficialMusic(v) && !isMusicVideo(v)) r = 1;
+          else if(isMusicVideo(v)) r = 2;
+          else r = 3;
+          if(ALT_VERSION_RE.test(v.title || "")) r += 10;
+          return r;
         }
         return rank(a) - rank(b);
       });
@@ -1430,13 +1465,16 @@ function openLocalAlbum(idx){
    MusicBrainz is the primary source (the iTunes search API often misses real
    albums entirely — e.g. Korn's Follow the Leader); iTunes is the fallback.
    Runs once per album; the order is saved. */
+/* v2.1.7: bump when the ordering logic changes so albums get re-checked
+   with the new logic instead of trusting an old (possibly wrong) order. */
+var ORDER_VER = "2.1.7";
 function orderLocalAlbum(a, idx){
-  if(!a || a.ordered || !a.tracks || a.tracks.length < 2) return;
+  if(!a || a.orderVer === ORDER_VER || !a.tracks || a.tracks.length < 2) return;
   /* Albums saved from the app's album pages are already in order. */
-  if(a.tracks[0].resolveQuery){ a.ordered = true; return; }
+  if(a.tracks[0].resolveQuery){ a.orderVer = ORDER_VER; return; }
   var artist = String(a.artist || "").trim(), name = String(a.name || "").trim();
   if(!artist || !name) return;
-  a.ordered = true; /* one attempt — misses keep the current order */
+  a.orderVer = ORDER_VER; /* one attempt — misses keep the current order */
   function normTitle(s){
     return String(s || "").toLowerCase().replace(/\(.*?\)/g, "").replace(/\[.*?\]/g, "").replace(/[^a-z0-9]/g, "");
   }
