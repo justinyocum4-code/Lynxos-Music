@@ -6,11 +6,11 @@ on:
       version_name:
         description: 'Version name (e.g. 1.0)'
         required: false
-        default: '2.1.5'
+        default: '2.1.6'
       version_code:
         description: 'Version code (whole number, bump every build)'
         required: false
-        default: '59'
+        default: '60'
       release_notes:
         description: 'Release notes'
         required: false
@@ -686,8 +686,12 @@ jobs:
 
               private final Runnable progressTick = new Runnable() {
                   @Override public void run() {
-                      pushProgress();
-                      main.postDelayed(this, 1000);
+                      boolean playing = false;
+                      try { playing = player != null && player.isPlaying(); } catch (Exception ignored) {}
+                      /* v2.1.6: don't churn the CPU every second when paused or
+                         idle — tick rarely just to keep the UI honest. */
+                      if (playing) pushProgress();
+                      main.postDelayed(this, playing ? 1000 : 5000);
                   }
               };
 
