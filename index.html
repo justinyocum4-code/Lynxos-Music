@@ -232,7 +232,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.1.2</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.1.3</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <div class="homeBlock">
@@ -342,7 +342,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.1.2. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.1.3. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -693,6 +693,10 @@ function ytFetch(url, tries){
   return attempt(tries);
 }
 function isOfficialMusic(v){ return /official\s+(music\s+video|audio|video|lyric)/i.test(v.title); }
+/* v2.1.3: YouTube's auto-generated "Artist - Topic" uploads are the actual
+   album recordings. Official music videos are the opposite of that. */
+function isTopicChannel(v){ return / - Topic$/.test(v.channel || ""); }
+function isMusicVideo(v){ return /official\s+(music\s+video|video)/i.test(v.title || ""); }
 /* Scrape YouTube search results directly (no API key, no quota). Falls back
    to the Data API if scraping fails. */
 function ytScrapeSearch(q){
@@ -729,7 +733,7 @@ function ytScrapeSearch(q){
       return videos;
     });
 }
-function ytSearch(q){
+function ytSearch(q, preferAlbum){
   /* Try scraping first (no quota); fall back to Data API on failure. */
   return ytScrapeSearch(q).catch(function(){
     var key = getKey();
@@ -745,10 +749,24 @@ function ytSearch(q){
       return videos;
     });
   }).then(function(videos){
-    /* Strictly music: drop talk/documentary/review-style videos, then float
-       official music videos and official audio to the top. */
+    /* Strictly music: drop talk/documentary/review-style videos. */
     videos = videos.filter(function(v){ return !NON_MUSIC_RE.test(v.title); });
-    videos.sort(function(a, b){ return (isOfficialMusic(b) ? 1 : 0) - (isOfficialMusic(a) ? 1 : 0); });
+    if(preferAlbum){
+      /* Album audio first: Topic-channel uploads are the real album
+         recordings; official music videos go last. */
+      videos.sort(function(a, b){
+        function rank(v){
+          if(isTopicChannel(v)) return 0;
+          if(isOfficialMusic(v) && !isMusicVideo(v)) return 1;
+          if(isMusicVideo(v)) return 3;
+          return 2;
+        }
+        return rank(a) - rank(b);
+      });
+    } else {
+      /* Float official music videos and official audio to the top. */
+      videos.sort(function(a, b){ return (isOfficialMusic(b) ? 1 : 0) - (isOfficialMusic(a) ? 1 : 0); });
+    }
     return videos.slice(0, 20);
   });
 }
@@ -979,7 +997,7 @@ function playVideo(v, list, idx){
 function resolveTrack(v){
   if(v.videoId) return Promise.resolve(v);
   var q = v.resolveQuery || ((v.channel || "") + " " + (v.title || ""));
-  return ytSearch(q).then(function(videos){
+  return ytSearch(q, true).then(function(videos){
     if(videos.length){
       v.videoId = videos[0].videoId;
       if(!v.thumb) v.thumb = videos[0].thumb;
@@ -988,7 +1006,7 @@ function resolveTrack(v){
     }
     /* Fallback: retry without the "official audio" tail. */
     if(v.resolveQuery && v.fallbackQuery && q !== v.fallbackQuery){
-      return ytSearch(v.fallbackQuery).then(function(vs2){
+      return ytSearch(v.fallbackQuery, true).then(function(vs2){
         if(vs2.length){
           v.videoId = vs2[0].videoId;
           if(!v.thumb) v.thumb = vs2[0].thumb;
@@ -1248,11 +1266,13 @@ function saveAlbums(a){ setJSON("lm_albums", a); }
 function renderAlbums(){
   var box = $("albumList");
   var albums = getAlbums();
+  box.innerHTML = '<div class="row"><button class="btn secondary small" id="organizeAlbumsBtn">Organize albums</button></div>' +
+    '<p class="hint">Sweeps your songs for album info and moves full albums here, out of your Songs list.</p>';
+  $("organizeAlbumsBtn").addEventListener("click", organizeAlbums);
   if(!albums.length){
-    box.innerHTML = '<div class="empty">No albums yet. Import your Google Takeout music library and full albums will appear here, separate from your liked songs.</div>';
+    box.innerHTML += '<div class="empty">No albums yet. Import your Google Takeout music library and full albums will appear here, separate from your liked songs.</div>';
     return;
   }
-  box.innerHTML = "";
   albums.forEach(function(a, idx){
     var b = document.createElement("button");
     b.className = "albumCard";
@@ -1263,6 +1283,44 @@ function renderAlbums(){
     b.addEventListener("click", function(){ openLocalAlbum(idx); });
     box.appendChild(b);
   });
+}
+/* v2.1.3: one-tap pass that groups Liked songs carrying album info into
+   albums and removes them from the Songs list. */
+function organizeAlbums(){
+  var liked = getLiked();
+  var groups = {}, order = [];
+  liked.forEach(function(t){
+    var alb = String(t.album || "").trim();
+    if(!alb) return;
+    var key = alb.toLowerCase() + "  " + String(t.channel || "").toLowerCase();
+    if(!groups[key]){ groups[key] = { name: alb, artist: String(t.channel || "").trim(), tracks: [], art: t.art }; order.push(key); }
+    groups[key].tracks.push(t);
+  });
+  var albums = getAlbums();
+  var haveAlb = {};
+  albums.forEach(function(a){ haveAlb[a.name.toLowerCase() + "  " + String(a.artist || "").toLowerCase()] = a; });
+  var moved = 0, newAlbums = 0, movedIds = {};
+  order.forEach(function(key){
+    var g = groups[key];
+    if(g.tracks.length < 2) return;
+    var ex = haveAlb[key];
+    if(ex){
+      var haveT = {};
+      ex.tracks.forEach(function(t){ haveT[t.videoId] = 1; });
+      g.tracks.forEach(function(t){ if(!haveT[t.videoId]){ haveT[t.videoId] = 1; ex.tracks.push(t); } });
+    } else {
+      albums.push({ name: g.name, artist: g.artist, tracks: g.tracks.slice(), art: g.art });
+      haveAlb[key] = albums[albums.length - 1];
+      newAlbums++;
+    }
+    g.tracks.forEach(function(t){ movedIds[t.videoId] = 1; moved++; });
+  });
+  if(!moved){ say("No album groups found in your songs."); return; }
+  setJSON("lm_liked", liked.filter(function(v){ return !movedIds[v.videoId]; }));
+  saveAlbums(albums);
+  renderAlbums();
+  renderLiked();
+  say("Moved " + moved + " songs into albums. " + newAlbums + " new albums created.");
 }
 function openLocalAlbum(idx){
   var a = getAlbums()[idx];
@@ -1499,11 +1557,12 @@ function takeoutPlaylistName(filename){
 function takeoutValidId(id){
   return /^[A-Za-z0-9_-]{11}$/.test(String(id || "").trim());
 }
-function takeoutTrack(id, title, channel){
+function takeoutTrack(id, title, channel, album){
   id = String(id || "").trim();
   return { videoId: id,
     title: (title || "").trim() || id,
     channel: (channel || "").trim(),
+    album: (album || "").trim(),
     thumb: "https://i.ytimg.com/vi/" + id + "/hqdefault.jpg",
     art: "https://i.ytimg.com/vi/" + id + "/hqdefault.jpg" };
 }
@@ -1573,7 +1632,7 @@ $("takeoutImportBtn").addEventListener("click", function(){
           if(!takeoutValidId(id)){ skipped++; continue; }
           var albTitle = String(rows[i][2] || "").trim();
           var albArtist = rows[i][3];
-          var tr = takeoutTrack(id, rows[i][1], albArtist);
+          var tr = takeoutTrack(id, rows[i][1], albArtist, albTitle);
           if(albTitle){
             var key = albTitle.toLowerCase() + "  " + String(albArtist || "").toLowerCase();
             if(!albumGroups[key]) albumGroups[key] = { name: albTitle, artist: String(albArtist || "").trim(), tracks: [] };
@@ -1626,6 +1685,7 @@ $("takeoutImportBtn").addEventListener("click", function(){
       var haveAlb = {};
       albums.forEach(function(a){ haveAlb[a.name.toLowerCase() + "  " + String(a.artist || "").toLowerCase()] = a; });
       var addedAlbums = 0, addedAlbTracks = 0;
+      var albumedIds = {};
       Object.keys(albumGroups).forEach(function(key){
         var g = albumGroups[key];
         if(g.tracks.length < 2){ g.tracks.forEach(function(t){ pushLiked(t); }); return; }
@@ -1643,8 +1703,12 @@ $("takeoutImportBtn").addEventListener("click", function(){
           addedAlbums++;
           addedAlbTracks += g.tracks.length;
         }
+        /* v2.1.3: a song that lives in an album leaves Liked Songs — no more
+           albums mixed in with the songs. */
+        g.tracks.forEach(function(t){ albumedIds[t.videoId] = 1; });
       });
       likedTracks.forEach(function(t){ pushLiked(t); });
+      liked = liked.filter(function(v){ return !albumedIds[v.videoId]; });
       setJSON("lm_liked", liked);
       setJSON("lm_albums", albums);
       var pls = getPlaylists();
@@ -1940,7 +2004,7 @@ function buildLastFmGenreStation(genreName){
        avoid tripping YouTube's rate limiting. */
     function processBatch(batch){
       var promises = batch.map(function(t){
-        return ytSearch(t.artist + " " + t.title + " official audio")
+        return ytSearch(t.artist + " " + t.title + " official audio", true)
           .then(function(videos){
             if(videos && videos.length){
               var v = videos[0];
@@ -2437,7 +2501,10 @@ function playDiscoverMix(){
    "Album", so singles are detected by the " - Single" name suffix.
    Exact-artist matches outrank collabs, tribute/karaoke junk is skipped. */
 var forYouCache = null;
-function pickArtistReleases(artist, results){
+/* v2.1.3: score every release per artist; the loader pools the top few from
+   each artist and sorts newest-first globally, so current-year releases
+   surface instead of one stale pick per artist. */
+function scoreArtistReleases(artist, results){
   var q = String(artist).toLowerCase();
   var scored = [];
   (results || []).forEach(function(r){
@@ -2452,20 +2519,21 @@ function pickArtistReleases(artist, results){
     if(/tribute|karaoke|piano covers|lullaby|8-bit|chipmunk|music box/i.test(cn)) return;
     scored.push({ r: r, score: score, single: /\s+-\s+single$/i.test(cn) });
   });
-  function newest(wantSingle){
+  function ranked(wantSingle){
     var f = scored.filter(function(x){ return wantSingle ? x.single : !x.single; });
     f.sort(function(a, b){
       if(b.score !== a.score) return b.score - a.score;
       var da = a.r.releaseDate || "", db = b.r.releaseDate || "";
       return db < da ? -1 : (db > da ? 1 : 0);
     });
-    var r = f.length ? f[0].r : null;
-    if(!r) return null;
-    return { name: r.collectionName, artist: r.artistName,
-      art: (r.artworkUrl100 || "").replace("100x100bb", "300x300bb"),
-      date: (r.releaseDate || "").slice(0, 10), colId: r.collectionId };
+    return f.slice(0, 3).map(function(x){
+      var r = x.r;
+      return { name: r.collectionName, artist: r.artistName,
+        art: (r.artworkUrl100 || "").replace("100x100bb", "300x300bb"),
+        date: (r.releaseDate || "").slice(0, 10), colId: r.collectionId };
+    });
   }
-  return { album: newest(false), single: newest(true) };
+  return { albums: ranked(false), singles: ranked(true) };
 }
 function loadForYouReleases(){
   var aBox = $("forYouReleases"), sBox = $("forYouSingles");
@@ -2487,10 +2555,11 @@ function loadForYouReleases(){
   })).then(function(res){
     var seenA = {}, seenS = {}, albums = [], singles = [];
     res.forEach(function(r){
-      var p = pickArtistReleases(r.artist, r.results);
-      if(p.album && !seenA[p.album.colId]){ seenA[p.album.colId] = 1; albums.push(p.album); }
-      if(p.single && !seenS[p.single.colId]){ seenS[p.single.colId] = 1; singles.push(p.single); }
+      var all = scoreArtistReleases(r.artist, r.results);
+      all.albums.forEach(function(p){ if(p.colId && !seenA[p.colId]){ seenA[p.colId] = 1; albums.push(p); } });
+      all.singles.forEach(function(p){ if(p.colId && !seenS[p.colId]){ seenS[p.colId] = 1; singles.push(p); } });
     });
+    /* v2.1.3: newest first across ALL your artists — 2026 releases float up. */
     albums.sort(function(a, b){ return a.date < b.date ? 1 : -1; });
     singles.sort(function(a, b){ return a.date < b.date ? 1 : -1; });
     forYouCache = { albums: albums.slice(0, 8), singles: singles.slice(0, 8) };
