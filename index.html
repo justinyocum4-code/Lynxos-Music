@@ -232,16 +232,22 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.0</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.1</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <div class="homeBlock">
-      <h2>Mixed for you</h2>
-      <div class="mixRow" id="mixRow"></div>
+      <div class="row" style="align-items:center;justify-content:space-between">
+        <h2 style="margin:0">Mixed for you</h2>
+        <button class="btn small secondary" id="mixesSeeAllBtn">See all</button>
+      </div>
+      <div class="mixRow" id="mixRow" style="margin-top:8px"></div>
     </div>
     <div class="homeBlock">
-      <h2>New releases for you</h2>
-      <div class="hscroll" id="forYouReleases"><p style="color:#999">Loading…</p></div>
+      <div class="row" style="align-items:center;justify-content:space-between">
+        <h2 style="margin:0">New releases for you</h2>
+        <button class="btn small secondary" id="releasesSeeAllBtn">See all</button>
+      </div>
+      <div class="hscroll" id="forYouReleases" style="margin-top:8px"><p style="color:#999">Loading…</p></div>
     </div>
     <div class="homeBlock">
       <h2>Recently played</h2>
@@ -253,6 +259,11 @@
       <h2>Browse genres</h2>
       <div class="row" id="genreRow" role="group" aria-label="Music genres"></div>
     </div>
+  </section>
+  <section id="seeAllView" role="tabpanel" aria-labelledby="seeAllTitle" hidden>
+    <button class="backBtn" id="seeAllBackBtn" aria-label="Back">‹ Back</button>
+    <h2 id="seeAllTitle" style="color:var(--gold)"></h2>
+    <div id="seeAllGrid" style="display:flex;flex-wrap:wrap;gap:12px"></div>
   </section>
   <section id="searchView" role="tabpanel" aria-labelledby="tab-search" hidden>
     <button class="backBtn" id="searchBackBtn" aria-label="Back to home">‹ Back</button><br>
@@ -324,7 +335,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.0. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.1. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -420,6 +431,7 @@
   <div class="row" style="justify-content:center">
     <button class="btn" id="albumPlayBtn">▶ Play</button>
     <button class="btn secondary" id="albumShuffleBtn">🔀 Shuffle</button>
+    <button class="btn secondary" id="albumSaveBtn">💾 Save album</button>
   </div>
   <div id="albumTracks"></div>
 </div>
@@ -514,6 +526,7 @@ function showTab(name){
   });
   $("searchView").hidden = true;
   $("settingsView").hidden = true;
+  $("seeAllView").hidden = true;
   var label = "";
   TABS.forEach(function(t){ if(t[0] === "tab-" + name) label = t[2]; });
   say(label + " tab.");
@@ -531,6 +544,7 @@ function openSettings(){
     $(t[1]).hidden = true;
   });
   $("searchView").hidden = true;
+  $("seeAllView").hidden = true;
   $("settingsView").hidden = false;
   say("Settings tab.");
 }
@@ -608,6 +622,7 @@ window.lmHandleBack = function(){
     var pd = $("playlistDetail");
     if(pd && pd.innerHTML.trim() !== ""){ pd.innerHTML = ""; say("Back to playlists."); return "handled"; }
     if(state.searchOpen){ closeSearch(); return "handled"; }
+    if(!$("seeAllView").hidden){ closeSeeAll(); return "handled"; }
     if(state.tab && state.tab !== "home"){ showTab("home"); return "handled"; }
   } catch(e){}
   return "exit";
@@ -1243,12 +1258,12 @@ function openLocalAlbum(idx){
   var a = getAlbums()[idx];
   if(!a || !a.tracks.length){ say("That album is empty."); return; }
   var box = $("albumList");
-  box.innerHTML = '<button class="btn secondary small" id="albumBackBtn">‹ Back to albums</button>' +
+  box.innerHTML = '<button class="btn secondary small" id="localAlbumBackBtn">‹ Back to albums</button>' +
     '<h3>' + esc(a.name) + '</h3><p class="hint">' + esc(a.artist) + ' • ' + a.tracks.length + ' songs</p>' +
-    '<div class="row"><button class="btn small" id="albumPlayAllBtn">Play all</button></div>' +
+    '<div class="row"><button class="btn small" id="localAlbumPlayAllBtn">Play all</button></div>' +
     '<div id="albumTrackList"></div>';
-  $("albumBackBtn").addEventListener("click", renderAlbums);
-  $("albumPlayAllBtn").addEventListener("click", function(){
+  $("localAlbumBackBtn").addEventListener("click", renderAlbums);
+  $("localAlbumPlayAllBtn").addEventListener("click", function(){
     playVideo(a.tracks[0], a.tracks, 0);
     say("Playing album " + a.name + ".");
   });
@@ -2290,24 +2305,59 @@ function renderGenres(){
     box.appendChild(b);
   });
 }
-function renderMixes(){
-  var box = $("mixRow");
-  if(!box) return;
-  box.innerHTML = "";
-  var mixes = [
+function mixDefs(){
+  return [
     { icon: "❤️", name: "Liked Mix", sub: getLiked().length + " songs", go: playLikedMix },
     { icon: "🕘", name: "Replay Mix", sub: getHistory().length + " songs", go: playReplayMix },
     { icon: "🎲", name: "Discover Mix", sub: "fresh songs for you", go: playDiscoverMix }
   ];
-  mixes.forEach(function(m){
-    var b = document.createElement("button");
-    b.className = "mixCard";
-    b.setAttribute("aria-label", m.name + ", " + m.sub);
-    b.innerHTML = m.icon + "<br>" + m.name + "<small>" + esc(m.sub) + "</small>";
-    b.addEventListener("click", m.go);
-    box.appendChild(b);
+}
+function mixCard(m){
+  var b = document.createElement("button");
+  b.className = "mixCard";
+  b.setAttribute("aria-label", m.name + ", " + m.sub);
+  b.innerHTML = m.icon + "<br>" + m.name + "<small>" + esc(m.sub) + "</small>";
+  b.addEventListener("click", m.go);
+  return b;
+}
+function renderMixes(){
+  var box = $("mixRow");
+  if(!box) return;
+  box.innerHTML = "";
+  mixDefs().forEach(function(m){ box.appendChild(mixCard(m)); });
+}
+/* See all: open a full vertical list for a Home row, so everything can be
+   browsed by scrolling up and down instead of swiping sideways. */
+function openSeeAll(title, build){
+  $("seeAllTitle").textContent = title;
+  var grid = $("seeAllGrid");
+  grid.innerHTML = "";
+  build(grid);
+  TABS.forEach(function(t){ $(t[1]).hidden = true; $(t[0]).setAttribute("aria-selected", "false"); });
+  $("searchView").hidden = true;
+  $("settingsView").hidden = true;
+  $("seeAllView").hidden = false;
+  state.tab = "seeall";
+  say(title + ". Full list — scroll up and down.");
+}
+function closeSeeAll(){
+  $("seeAllView").hidden = true;
+  showTab("home");
+}
+function openMixesSeeAll(){
+  openSeeAll("Mixed for you", function(grid){
+    mixDefs().forEach(function(m){ grid.appendChild(mixCard(m)); });
   });
 }
+function openReleasesSeeAll(){
+  if(!forYouCache || !forYouCache.length){ say("New releases are still loading. Try again in a moment."); return; }
+  openSeeAll("New releases for you", function(grid){
+    forYouCache.forEach(function(it){ grid.appendChild(releaseCard(it, "album")); });
+  });
+}
+$("mixesSeeAllBtn").addEventListener("click", openMixesSeeAll);
+$("releasesSeeAllBtn").addEventListener("click", openReleasesSeeAll);
+$("seeAllBackBtn").addEventListener("click", closeSeeAll);
 function playLikedMix(){
   if(!getLiked().length){ say("You have not liked any songs yet. Tap the heart on a song to like it."); return; }
   var q = getLiked().slice();
@@ -2501,6 +2551,36 @@ $("albumShuffleBtn").addEventListener("click", function(){
   playQueueIndex(0);
   say("Shuffling the album.");
 });
+/* Save the open album (from New releases or an artist page) into
+   Library → Albums. Tracks keep their resolve queries, so they play
+   on demand exactly like Takeout albums. */
+function saveCurrentAlbum(){
+  var name = $("albumName").textContent || "";
+  var artist = $("albumArtist").textContent || "";
+  if(!name || !albumTracks.length){ say("Open an album first, then save it."); return; }
+  var albums = getAlbums();
+  var key = name.toLowerCase() + "  " + artist.toLowerCase();
+  for(var i = 0; i < albums.length; i++){
+    if(albums[i].name.toLowerCase() + "  " + String(albums[i].artist || "").toLowerCase() === key){
+      say("That album is already in your library.");
+      return;
+    }
+  }
+  var art = "";
+  try { art = $("albumArt").src || ""; } catch(e){}
+  if(!art && albumTracks[0].art) art = albumTracks[0].art;
+  albums.push({
+    name: name, artist: artist, art: art,
+    tracks: albumTracks.map(function(t){
+      return { videoId: t.videoId || "", title: t.title, channel: t.channel,
+        thumb: t.thumb, art: t.art, resolveQuery: t.resolveQuery, fallbackQuery: t.fallbackQuery };
+    })
+  });
+  saveAlbums(albums);
+  renderAlbums();
+  say("Saved " + name + " to your albums.");
+}
+$("albumSaveBtn").addEventListener("click", saveCurrentAlbum);
 function renderRecentPlayed(){
   var box = $("recentPlayed");
   if(!box) return;
