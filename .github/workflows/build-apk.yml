@@ -6,11 +6,11 @@ on:
       version_name:
         description: 'Version name (e.g. 1.0)'
         required: false
-        default: '2.1'
+        default: '2.1.1'
       version_code:
         description: 'Version code (whole number, bump every build)'
         required: false
-        default: '54'
+        default: '55'
       release_notes:
         description: 'Release notes'
         required: false
@@ -302,6 +302,14 @@ jobs:
                   @JavascriptInterface public void playAt(final int index) {
                       withService(new Runnable() {
                           @Override public void run() { musicService.playAt(index); }
+                      });
+                  }
+                  /* v2.1.1: album tracks are resolved on demand in JS, so the
+                     service's copy of the queue can hold a blank videoId.
+                     Sync the resolved id before playing. */
+                  @JavascriptInterface public void playTrackAt(final int index, final String videoId) {
+                      withService(new Runnable() {
+                          @Override public void run() { musicService.playTrackAt(index, videoId); }
                       });
                   }
                   @JavascriptInterface public void toggle() {
@@ -763,6 +771,19 @@ jobs:
               }
 
               public void playAt(int index) { playAtInternal(index); }
+
+              /* v2.1.1: sync a JS-resolved videoId into the service queue
+                 before playing (album tracks resolve on demand). */
+              public void playTrackAt(final int index, final String videoId) {
+                  mainHandler.post(new Runnable() {
+                      @Override public void run() {
+                          if (index >= 0 && index < queue.size() && videoId != null && !videoId.isEmpty()) {
+                              queue.get(index).videoId = videoId;
+                          }
+                          playAtInternal(index);
+                      }
+                  });
+              }
 
               public void toggle() { toggleInternal(); }
 
