@@ -4,7 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Lynxos Music</title>
-<script src="https://www.youtube.com/iframe_api"></script>
+<!-- v2.1.6: the iframe API is loaded dynamically only when the native player
+     is unavailable — loading it always wastes CPU/battery. -->
 <style>
   :root { --gold: #d4af37; --gold-dim: #9a7b1e; --bg: #0a0a0a; --surface: #1a1a1a; --surface2: #242424; --text: #ffffff; --muted: #aaaaaa; }
   body.light { --gold: #8a6d00; --gold-dim: #6e5600; --bg: #f7f5ef; --surface: #ffffff; --surface2: #ece8dc; --text: #1a1a1a; --muted: #5a5a5a; }
@@ -232,7 +233,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.1.5</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.1.6</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <div class="homeBlock">
@@ -342,7 +343,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.1.5. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.1.6. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -469,6 +470,13 @@ var state = {
    playing with the screen off. In a plain browser the bridge is absent
    and the YouTube iframe player is used exactly as before. */
 var NATIVE_AUDIO = (typeof LynxosPlayer !== "undefined");
+/* v2.1.6: the iframe API is only needed in a plain browser. Loading it in
+   the app wastes CPU and warms the phone for nothing. */
+if(!NATIVE_AUDIO){
+  var _ytTag = document.createElement("script");
+  _ytTag.src = "https://www.youtube.com/iframe_api";
+  document.head.appendChild(_ytTag);
+}
 var nativeState = { playing: false, pos: 0, dur: 0 };
 function nativeQueueJson(){
   return JSON.stringify(state.queue.map(function(v){
@@ -693,9 +701,6 @@ function ytFetch(url, tries){
   return attempt(tries);
 }
 function isOfficialMusic(v){ return /official\s+(music\s+video|audio|video|lyric)/i.test(v.title); }
-/* v2.1.3: YouTube's auto-generated "Artist - Topic" uploads are the actual
-   album recordings. Official music videos are the opposite of that. */
-function isTopicChannel(v){ return / - Topic$/.test(v.channel || ""); }
 function isMusicVideo(v){ return /official\s+(music\s+video|video)/i.test(v.title || ""); }
 /* Scrape YouTube search results directly (no API key, no quota). Falls back
    to the Data API if scraping fails. */
@@ -736,7 +741,18 @@ function ytScrapeSearch(q){
 /* v2.1.5: karaoke/instrumental uploads have no vocals — never auto-pick one
    when the app is choosing the album version of a song. */
 var NO_VOCALS_RE = /karaoke|instrumental|backing track|no vocals|minus one|play-?along/i;
-function ytSearch(q, preferAlbum){
+/* v2.1.6: only trust a " - Topic" upload when its artist matches the song's
+   artist — otherwise a Topic channel with a similar song name (wrong artist)
+   would win over the real recording. */
+function topicArtistMatch(v, artist){
+  var ch = v.channel || "";
+  if(!/ - Topic$/.test(ch)) return false;
+  var ta = ch.replace(/ - Topic$/, "").toLowerCase().trim();
+  var wa = String(artist || "").toLowerCase().trim();
+  if(!ta || !wa) return false;
+  return ta === wa || ta.indexOf(wa) === 0 || wa.indexOf(ta) === 0;
+}
+function ytSearch(q, preferAlbum, artist){
   /* Try scraping first (no quota); fall back to Data API on failure. */
   return ytScrapeSearch(q).catch(function(){
     var key = getKey();
@@ -755,13 +771,13 @@ function ytSearch(q, preferAlbum){
     /* Strictly music: drop talk/documentary/review-style videos. */
     videos = videos.filter(function(v){ return !NON_MUSIC_RE.test(v.title); });
     if(preferAlbum){
-      /* Album audio first: Topic-channel uploads are the real album
-         recordings; karaoke/instrumental uploads (no vocals) are dropped;
-         official music videos go last. */
+      /* Album audio first: the song's own artist's Topic upload is the real
+         album recording. Karaoke/instrumental uploads (no vocals) are
+         dropped; official music videos go last. */
       videos = videos.filter(function(v){ return !NO_VOCALS_RE.test(v.title || ""); });
       videos.sort(function(a, b){
         function rank(v){
-          if(isTopicChannel(v)) return 0;
+          if(topicArtistMatch(v, artist)) return 0;
           if(isOfficialMusic(v) && !isMusicVideo(v)) return 1;
           if(isMusicVideo(v)) return 3;
           return 2;
@@ -1011,11 +1027,11 @@ function resolveTrack(v){
     if(!v.thumb) v.thumb = videos[0].thumb;
     if(!v.art) v.art = videos[0].art;
   }
-  return ytSearch(q, true).then(function(videos){
+  return ytSearch(q, true, v.channel).then(function(videos){
     if(videos.length){ takeCands(videos); return v; }
     /* Fallback: retry without the "official audio" tail. */
     if(v.resolveQuery && v.fallbackQuery && q !== v.fallbackQuery){
-      return ytSearch(v.fallbackQuery, true).then(function(vs2){
+      return ytSearch(v.fallbackQuery, true, v.channel).then(function(vs2){
         if(vs2.length) takeCands(vs2);
         return v;
       });
@@ -1051,7 +1067,7 @@ window.lmNativeResolveFailed = function(i){
     /* Takeout tracks carry a known id but no candidates: find another copy. */
     v._recSearched = true;
     say("Looking for another copy of " + v.title + ".");
-    ytSearch((v.channel || "") + " " + (v.title || ""), true).then(function(videos){
+    ytSearch((v.channel || "") + " " + (v.title || ""), true, v.channel).then(function(videos){
       if(state.queue[i] !== v) return;
       var bad = v.videoId, alt = null, k;
       for(k = 0; k < videos.length; k++){
@@ -1410,60 +1426,109 @@ function openLocalAlbum(idx){
      album tracklist when opened. */
   orderLocalAlbum(a, idx);
 }
-/* v2.1.5: put a Takeout album's songs in the original album order using the
-   iTunes tracklist. Runs once per album; the order is saved. */
+/* v2.1.6: put a Takeout album's songs in the original album order.
+   MusicBrainz is the primary source (the iTunes search API often misses real
+   albums entirely — e.g. Korn's Follow the Leader); iTunes is the fallback.
+   Runs once per album; the order is saved. */
 function orderLocalAlbum(a, idx){
   if(!a || a.ordered || !a.tracks || a.tracks.length < 2) return;
   /* Albums saved from the app's album pages are already in order. */
   if(a.tracks[0].resolveQuery){ a.ordered = true; return; }
-  var q = ((a.artist || "") + " " + (a.name || "")).trim();
-  if(!q) return;
-  a.ordered = true; /* one attempt — network misses keep the current order */
+  var artist = String(a.artist || "").trim(), name = String(a.name || "").trim();
+  if(!artist || !name) return;
+  a.ordered = true; /* one attempt — misses keep the current order */
   function normTitle(s){
     return String(s || "").toLowerCase().replace(/\(.*?\)/g, "").replace(/\[.*?\]/g, "").replace(/[^a-z0-9]/g, "");
   }
-  fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(q) + "&entity=album&limit=10")
-    .then(function(r){ return r.json(); })
-    .then(function(d){
-      var aq = String(a.artist || "").toLowerCase(), nq = String(a.name || "").toLowerCase();
-      var best = null, bestScore = -1;
-      (d.results || []).forEach(function(r){
-        if(!r.collectionId) return;
-        var ra = String(r.artistName || "").toLowerCase(), rn = String(r.collectionName || "").toLowerCase();
-        var as = (ra === aq) ? 2 : ((ra.indexOf(aq) === 0 || aq.indexOf(ra) === 0) ? 1 : 0);
-        var ns = (rn === nq) ? 2 : ((rn.indexOf(nq) === 0 || nq.indexOf(rn) === 0) ? 1 : 0);
-        if(as > 0 && ns > 0 && as + ns > bestScore){ bestScore = as + ns; best = r; }
+  function applyOrder(order){
+    if(!order || !Object.keys(order).length) return false;
+    var withPos = a.tracks.map(function(t, i){
+      var p = order[normTitle(t.title)];
+      return { t: t, p: (p === undefined) ? 1e9 + i : p };
+    });
+    withPos.sort(function(x, y){ return x.p - y.p; });
+    a.tracks = withPos.map(function(x){ return x.t; });
+    var albums = getAlbums();
+    if(albums[idx]){ albums[idx] = a; saveAlbums(albums); }
+    try {
+      var h = document.querySelector("#albumList h3");
+      if(h && h.textContent === a.name){
+        openLocalAlbum(idx);
+        say("Put " + a.name + " in album order.");
+      }
+    } catch(e){}
+    return true;
+  }
+  function mbOrder(){
+    var q = 'artist:"' + artist.replace(/"/g, "") + '" AND release:"' + name.replace(/"/g, "") + '"';
+    return fetch("https://musicbrainz.org/ws/2/release/?query=" + encodeURIComponent(q) + "&fmt=json&limit=8")
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        var aq = artist.toLowerCase(), nq = normTitle(name);
+        var best = null, bestScore = -1;
+        (d.releases || []).forEach(function(r){
+          var ra = String((((r['artist-credit'] || [])[0] || {}).name) || "").toLowerCase();
+          if(ra !== aq || normTitle(r.title) !== nq) return;
+          /* Prefer the edition whose track count matches his album. */
+          var score = 100 - Math.abs((r['track-count'] || 0) - a.tracks.length);
+          if(score > bestScore){ bestScore = score; best = r; }
+        });
+        if(!best) throw new Error("no mb match");
+        /* MusicBrainz asks for ~1 request per second. */
+        return new Promise(function(res){ setTimeout(res, 1100); }).then(function(){
+          return fetch("https://musicbrainz.org/ws/2/release/" + best.id + "?fmt=json&inc=recordings")
+            .then(function(r){ return r.json(); });
+        });
+      })
+      .then(function(d){
+        var order = {};
+        (d.media || []).forEach(function(med, di){
+          (med.tracks || []).forEach(function(t){
+            var key = normTitle((t.recording || {}).title);
+            if(key && !(key in order)) order[key] = (di + 1) * 1000 + (t.position || 0);
+          });
+        });
+        return order;
       });
-      if(!best) throw new Error("no match");
-      return fetch("https://itunes.apple.com/lookup?id=" + best.collectionId + "&entity=song&limit=200")
-        .then(function(r){ return r.json(); });
-    })
-    .then(function(d){
-      var order = {};
-      (d.results || []).forEach(function(r){
-        if(r.wrapperType !== "track") return;
-        var key = normTitle(r.trackName);
-        if(key && !(key in order)) order[key] = (r.discNumber || 1) * 1000 + (r.trackNumber || 0);
+  }
+  function itunesOrder(){
+    var q = (artist + " " + name).trim();
+    return fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(q) + "&entity=album&limit=10")
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        var aq = artist.toLowerCase(), nq = name.toLowerCase();
+        var best = null, bestScore = -1;
+        (d.results || []).forEach(function(r){
+          if(!r.collectionId) return;
+          var ra = String(r.artistName || "").toLowerCase(), rn = String(r.collectionName || "").toLowerCase();
+          var as = (ra === aq) ? 2 : ((ra.indexOf(aq) === 0 || aq.indexOf(ra) === 0) ? 1 : 0);
+          var ns = (rn === nq) ? 2 : ((rn.indexOf(nq) === 0 || nq.indexOf(rn) === 0) ? 1 : 0);
+          if(as > 0 && ns > 0 && as + ns > bestScore){ bestScore = as + ns; best = r; }
+        });
+        if(!best) throw new Error("no match");
+        return fetch("https://itunes.apple.com/lookup?id=" + best.collectionId + "&entity=song&limit=200")
+          .then(function(r){ return r.json(); });
+      })
+      .then(function(d){
+        var order = {};
+        (d.results || []).forEach(function(r){
+          if(r.wrapperType !== "track") return;
+          var key = normTitle(r.trackName);
+          if(key && !(key in order)) order[key] = (r.discNumber || 1) * 1000 + (r.trackNumber || 0);
+        });
+        return order;
       });
-      if(!Object.keys(order).length) return;
-      var withPos = a.tracks.map(function(t, i){
-        var key = normTitle(t.title), p = order[key];
-        return { t: t, p: (p === undefined) ? 1e9 + i : p };
-      });
-      withPos.sort(function(x, y){ return x.p - y.p; });
-      a.tracks = withPos.map(function(x){ return x.t; });
-      var albums = getAlbums();
-      if(albums[idx]){ albums[idx] = a; saveAlbums(albums); }
-      /* Re-render only if he is still looking at this album. */
-      try {
-        var h = document.querySelector("#albumList h3");
-        if(h && h.textContent === a.name){
-          openLocalAlbum(idx);
-          say("Put " + a.name + " in album order.");
-        }
-      } catch(e){}
-    })
-    .catch(function(){ /* keep the existing order quietly */ });
+  }
+  mbOrder().then(function(order){
+    if(applyOrder(order)) return;
+    throw new Error("empty mb");
+  }).catch(function(){
+    itunesOrder().then(function(order){
+      if(!applyOrder(order)) say("Couldn't find the official tracklist for " + name + ".");
+    }).catch(function(){
+      say("Couldn't find the official tracklist for " + name + ".");
+    });
+  });
 }
 /* ---- artists (derived from your library) ---- */
 function renderArtists(){
@@ -2130,7 +2195,7 @@ function buildLastFmGenreStation(genreName){
        avoid tripping YouTube's rate limiting. */
     function processBatch(batch){
       var promises = batch.map(function(t){
-        return ytSearch(t.artist + " " + t.title + " official audio", true)
+        return ytSearch(t.artist + " " + t.title + " official audio", true, t.artist)
           .then(function(videos){
             if(videos && videos.length){
               var v = videos[0];
