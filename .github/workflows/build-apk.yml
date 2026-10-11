@@ -6,11 +6,11 @@ on:
       version_name:
         description: 'Version name (e.g. 1.0)'
         required: false
-        default: '2.1.3'
+        default: '2.1.4'
       version_code:
         description: 'Version code (whole number, bump every build)'
         required: false
-        default: '57'
+        default: '58'
       release_notes:
         description: 'Release notes'
         required: false
@@ -264,6 +264,11 @@ jobs:
                   }
                   @Override public void onTrackError(String msg) {
                       js("window.lmNativeError&&window.lmNativeError(" + JSONObject.quote(msg == null ? "" : msg) + ")");
+                  }
+                  @Override public boolean onTrackResolveFailed(final int index) {
+                      if (!pageAlive) return false;
+                      js("window.lmNativeResolveFailed&&window.lmNativeResolveFailed(" + index + ")");
+                      return true;
                   }
                   @Override public void onTrackEnded() {
                       js("window.lmNativeEnded&&window.lmNativeEnded()");
@@ -643,6 +648,10 @@ jobs:
                   void onProgress(int posSec, int durSec, boolean playing);
                   void onTrackError(String msg);
                   void onTrackEnded();
+                  /* v2.1.4: the extractor failed on this videoId. Return true
+                     when the web page supplies another candidate upload;
+                     false to fall back to the plain skip path. */
+                  boolean onTrackResolveFailed(int index);
                   // Notification buttons. Return true when the web page handled it
                   // (its own shuffle/repeat/radio policy); false for simple fallback.
                   boolean onNotifToggle();
@@ -839,8 +848,14 @@ jobs:
                                   if (player == null || wantIndex != currentIndex) return;
                                   if (fUrl == null || fUrl.isEmpty()) {
                                       UiListener l = ui;
-                                      if (l != null) { try { l.onTrackError(fErr); } catch (Exception ignored) {} }
-                                      else { playAtInternal(currentIndex + 1); }
+                                      /* v2.1.4: let the web page try another upload
+                                         of the same song before skipping it. */
+                                      boolean consumed = false;
+                                      if (l != null) { try { consumed = l.onTrackResolveFailed(wantIndex); } catch (Exception ignored) {} }
+                                      if (!consumed) {
+                                          if (l != null) { try { l.onTrackError(fErr); } catch (Exception ignored) {} }
+                                          else playAtInternal(currentIndex + 1);
+                                      }
                                       return;
                                   }
                                   try {
