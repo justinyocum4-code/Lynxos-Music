@@ -6,11 +6,11 @@ on:
       version_name:
         description: 'Version name (e.g. 1.0)'
         required: false
-        default: '2.1.1'
+        default: '2.1.2'
       version_code:
         description: 'Version code (whole number, bump every build)'
         required: false
-        default: '55'
+        default: '56'
       release_notes:
         description: 'Release notes'
         required: false
@@ -895,7 +895,12 @@ jobs:
                           t.title = o.optString("title", t.videoId);
                           t.channel = o.optString("channel", "");
                           t.thumb = o.optString("thumb", "");
-                          if (t.videoId != null && !t.videoId.isEmpty()) out.add(t);
+                          /* v2.1.2: keep every track, even ones whose videoId
+                             is not resolved yet. Dropping them misaligns the
+                             service queue with the JS queue, so Next/Previous
+                             hit the wrong song (or nothing). A blank id fails
+                             cleanly into the skip path. */
+                          out.add(t);
                       }
                   } catch (Exception ignored) {}
                   return out;
