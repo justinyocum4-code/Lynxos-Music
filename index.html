@@ -250,6 +250,13 @@
       <div class="hscroll" id="forYouReleases" style="margin-top:8px"><p style="color:#999">Loading…</p></div>
     </div>
     <div class="homeBlock">
+      <div class="row" style="align-items:center;justify-content:space-between">
+        <h2 style="margin:0">New singles for you</h2>
+        <button class="btn small secondary" id="singlesSeeAllBtn">See all</button>
+      </div>
+      <div class="hscroll" id="forYouSingles" style="margin-top:8px"><p style="color:#999">Loading…</p></div>
+    </div>
+    <div class="homeBlock">
       <h2>Recently played</h2>
       <div id="recentPlayed"></div>
     </div>
@@ -2353,13 +2360,20 @@ function openMixesSeeAll(){
   });
 }
 function openReleasesSeeAll(){
-  if(!forYouCache || !forYouCache.length){ say("New releases are still loading. Try again in a moment."); return; }
+  if(!forYouCache || !forYouCache.albums.length){ say("New releases are still loading. Try again in a moment."); return; }
   openSeeAll("New releases for you", function(grid){
-    forYouCache.forEach(function(it){ grid.appendChild(releaseCard(it, "album")); });
+    forYouCache.albums.forEach(function(it){ grid.appendChild(releaseCard(it, "album")); });
+  });
+}
+function openSinglesSeeAll(){
+  if(!forYouCache || !forYouCache.singles.length){ say("New singles are still loading. Try again in a moment."); return; }
+  openSeeAll("New singles for you", function(grid){
+    forYouCache.singles.forEach(function(it){ grid.appendChild(releaseCard(it, "single")); });
   });
 }
 $("mixesSeeAllBtn").addEventListener("click", openMixesSeeAll);
 $("releasesSeeAllBtn").addEventListener("click", openReleasesSeeAll);
+$("singlesSeeAllBtn").addEventListener("click", openSinglesSeeAll);
 $("seeAllBackBtn").addEventListener("click", closeSeeAll);
 function playLikedMix(){
   if(!getLiked().length){ say("You have not liked any songs yet. Tap the heart on a song to like it."); return; }
@@ -2418,48 +2432,81 @@ function playDiscoverMix(){
   }).catch(function(){ say("Couldn't build your Discover Mix. Check your connection."); });
 }
 /* New releases for you: the latest album from each of your top artists. */
+/* New releases + new singles for you: the latest album and latest single
+   from each of your top artists. iTunes marks singles as collectionType
+   "Album", so singles are detected by the " - Single" name suffix.
+   Exact-artist matches outrank collabs, tribute/karaoke junk is skipped. */
 var forYouCache = null;
+function pickArtistReleases(artist, results){
+  var q = String(artist).toLowerCase();
+  var scored = [];
+  (results || []).forEach(function(r){
+    if(!r.collectionName || !r.collectionId) return;
+    var al = String(r.artistName || "").toLowerCase();
+    var score = -1;
+    if(al === q) score = 2;
+    else if(al.indexOf(q) === 0) score = 1;
+    else if(al.indexOf(q) >= 0) score = 0;
+    if(score < 0) return;
+    var cn = String(r.collectionName);
+    if(/tribute|karaoke|piano covers|lullaby|8-bit|chipmunk|music box/i.test(cn)) return;
+    scored.push({ r: r, score: score, single: /\s+-\s+single$/i.test(cn) });
+  });
+  function newest(wantSingle){
+    var f = scored.filter(function(x){ return wantSingle ? x.single : !x.single; });
+    f.sort(function(a, b){
+      if(b.score !== a.score) return b.score - a.score;
+      var da = a.r.releaseDate || "", db = b.r.releaseDate || "";
+      return db < da ? -1 : (db > da ? 1 : 0);
+    });
+    var r = f.length ? f[0].r : null;
+    if(!r) return null;
+    return { name: r.collectionName, artist: r.artistName,
+      art: (r.artworkUrl100 || "").replace("100x100bb", "300x300bb"),
+      date: (r.releaseDate || "").slice(0, 10), colId: r.collectionId };
+  }
+  return { album: newest(false), single: newest(true) };
+}
 function loadForYouReleases(){
-  var box = $("forYouReleases");
-  if(!box) return;
+  var aBox = $("forYouReleases"), sBox = $("forYouSingles");
+  if(!aBox || !sBox) return;
   if(forYouCache){ renderForYou(forYouCache); return; }
-  var artists = topArtists(5);
+  var artists = topArtists(8);
   if(!artists.length){
-    box.innerHTML = "<p style='color:#999'>Like some songs and I'll show new releases from your favorite artists here.</p>";
+    var msg = "<p style='color:#999'>Like some songs and I'll show new releases from your favorite artists here.</p>";
+    aBox.innerHTML = msg; sBox.innerHTML = msg;
     return;
   }
-  box.innerHTML = "<p style='color:#999'>Loading…</p>";
+  aBox.innerHTML = "<p style='color:#999'>Loading…</p>";
+  sBox.innerHTML = "";
   Promise.all(artists.map(function(a){
-    return fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(a) + "&entity=album&limit=10")
+    return fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(a) + "&entity=album&limit=50")
       .then(function(r){ return r.json(); })
       .then(function(d){ return { artist: a, results: d.results || [] }; })
       .catch(function(){ return { artist: a, results: [] }; });
   })).then(function(res){
-    var seen = {}, out = [];
+    var seenA = {}, seenS = {}, albums = [], singles = [];
     res.forEach(function(r){
-      var list = r.results.filter(function(x){ return x.collectionName && itunesMatches(r.artist, x.artistName); });
-      list.sort(function(a, b){ return (a.releaseDate || "") < (b.releaseDate || "") ? 1 : -1; });
-      if(list[0] && !seen[list[0].collectionId]){
-        seen[list[0].collectionId] = 1;
-        out.push({
-          name: list[0].collectionName, artist: list[0].artistName,
-          art: (list[0].artworkUrl100 || "").replace("100x100bb", "300x300bb"),
-          date: (list[0].releaseDate || "").slice(0, 10), colId: list[0].collectionId
-        });
-      }
+      var p = pickArtistReleases(r.artist, r.results);
+      if(p.album && !seenA[p.album.colId]){ seenA[p.album.colId] = 1; albums.push(p.album); }
+      if(p.single && !seenS[p.single.colId]){ seenS[p.single.colId] = 1; singles.push(p.single); }
     });
-    forYouCache = out;
-    renderForYou(out);
+    albums.sort(function(a, b){ return a.date < b.date ? 1 : -1; });
+    singles.sort(function(a, b){ return a.date < b.date ? 1 : -1; });
+    forYouCache = { albums: albums.slice(0, 8), singles: singles.slice(0, 8) };
+    renderForYou(forYouCache);
   }).catch(function(){
-    box.innerHTML = "<p style='color:#999'>Couldn't load new releases.</p>";
+    aBox.innerHTML = "<p style='color:#999'>Couldn't load new releases.</p>";
   });
 }
-function renderForYou(items){
-  var box = $("forYouReleases");
-  if(!box) return;
-  box.innerHTML = "";
-  if(!items.length){ box.innerHTML = "<p style='color:#999'>Nothing right now.</p>"; return; }
-  items.forEach(function(it){ box.appendChild(releaseCard(it, "album")); });
+function renderForYou(c){
+  var aBox = $("forYouReleases"), sBox = $("forYouSingles");
+  if(!aBox || !sBox) return;
+  aBox.innerHTML = ""; sBox.innerHTML = "";
+  c.albums.forEach(function(it){ aBox.appendChild(releaseCard(it, "album")); });
+  c.singles.forEach(function(it){ sBox.appendChild(releaseCard(it, "single")); });
+  if(!c.albums.length) aBox.innerHTML = "<p style='color:#999'>Nothing right now.</p>";
+  if(!c.singles.length) sBox.innerHTML = "<p style='color:#999'>Nothing right now.</p>";
 }
 function releaseCard(item, kind){
   var d = document.createElement("button");
