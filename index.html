@@ -240,7 +240,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.0</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.1</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <div class="homeBlock">
@@ -593,6 +593,8 @@ function openSettings(){
 function openArtistPage(artistName){
   artistName = String(artistName || "").trim();
   if(!artistName){ say("No artist name."); return; }
+  /* v2.2.1: collapse the player — the artist page opens behind it otherwise. */
+  try { if(!$("fullPlayer").hidden) collapsePlayer(); } catch(e){}
   /* Hide other views. */
   TABS.forEach(function(t){ $(t[1]).hidden = true; });
   $("searchView").hidden = true;
@@ -698,6 +700,8 @@ function closeArtistPage(){
 }
 /* Open an iTunes album by collectionId (from artist page). */
 function openITunesAlbum(collectionId){
+  /* v2.2.1: collapse the player so the album isn't hidden behind it. */
+  try { if(!$("fullPlayer").hidden) collapsePlayer(); } catch(e){}
   fetch("https://itunes.apple.com/lookup?id=" + collectionId + "&entity=song&limit=200")
     .then(function(r){ return r.json(); })
     .then(function(d){
@@ -1256,6 +1260,9 @@ function resolveTrack(v){
   addQ(artist + " " + title);
   addQ(title);
   addQ(artist + " " + title + " audio");
+  /* v2.2.1: lyric videos are full vocal recordings and plentiful — try them. */
+  addQ(artist + " " + title + " lyrics");
+  addQ(title + " lyrics");
   /* v2.1.9: keep 5 candidates — more uploads to try before skipping the song. */
   function takeCands(videos){
     v.candidates = videos.slice(0, 5).map(function(x){ return x.videoId; });
@@ -2973,22 +2980,25 @@ function renderHome(){
   loadForYouReleases();
   loadAllReleases();
 }
-/* v2.2.0: new releases across all genres (iTunes RSS), not just his artists. */
+/* v2.2.1: new releases across all genres. The "newreleases" RSS feed doesn't
+   exist (Apple returns "Invalid RSS channel name"), so use the daily-updated
+   top-albums feed instead — it's what's hot right now across every genre. */
 var allReleasesCache = null;
 function loadAllReleases(){
   var box = $("allReleases");
   if(!box) return;
   if(allReleasesCache){ renderAllReleases(allReleasesCache); return; }
-  fetch("https://itunes.apple.com/us/rss/newreleases/limit=30/json")
+  fetch("https://itunes.apple.com/us/rss/topalbums/limit=30/json")
     .then(function(r){ return r.json(); })
     .then(function(d){
       var entries = (d.feed && d.feed.entry) || [];
       allReleasesCache = entries.map(function(e){
+        var link = (e.link || {}).attributes || {};
         return {
           name: (e["im:name"] || {}).label || "",
           artist: (e["im:artist"] || {}).label || "",
           art: (((e["im:image"] || [])[2] || {}).label || "").replace("170x170bb", "300x300bb"),
-          id: (e.id || {}).attributes ? e.id.attributes["im:id"] : ""
+          id: ((e.id || {}).attributes || {})["im:id"] || ""
         };
       }).filter(function(x){ return x.name && x.id; });
       renderAllReleases(allReleasesCache);
@@ -3231,8 +3241,18 @@ function loadForYouReleases(){
       all.singles.forEach(function(p){ if(p.colId && !seenS[p.colId]){ seenS[p.colId] = 1; singles.push(p); } });
     });
     /* v2.1.3: newest first across ALL your artists — 2026 releases float up. */
-    albums.sort(function(a, b){ return a.date < b.date ? 1 : -1; });
-    singles.sort(function(a, b){ return a.date < b.date ? 1 : -1; });
+    /* v2.2.1: "new" means new — releases older than 2 years go last, so the
+       section actually feels up to date. */
+    var twoYearsAgo = new Date();
+    twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+    function recencySort(a, b){
+      var da = new Date(a.date || 0), db = new Date(b.date || 0);
+      var ra = da >= twoYearsAgo ? 1 : 0, rb = db >= twoYearsAgo ? 1 : 0;
+      if(rb !== ra) return rb - ra;
+      return a.date < b.date ? 1 : -1;
+    }
+    albums.sort(recencySort);
+    singles.sort(recencySort);
     forYouCache = { albums: albums.slice(0, 8), singles: singles.slice(0, 8) };
     renderForYou(forYouCache);
   }).catch(function(){
