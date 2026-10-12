@@ -252,7 +252,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.3</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.4</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <div class="homeBlock">
@@ -637,11 +637,16 @@ function openArtistPage(artistName){
       });
       if(!best) throw new Error("no artist");
       var aid = best.artistId;
+      var mbQuery = 'artist:"' + best.artistName.replace(/"/g, "") + '"';
       return Promise.all([
         fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(artistName) + "&entity=song&limit=25").then(function(r){ return r.json(); }),
-        fetch("https://itunes.apple.com/lookup?id=" + aid + "&entity=album&limit=100").then(function(r){ return r.json(); })
+        fetch("https://itunes.apple.com/lookup?id=" + aid + "&entity=album&limit=200").then(function(r){ return r.json(); }),
+        /* v2.2.4: MusicBrainz supplements iTunes — catches albums iTunes lacks. */
+        fetch("https://musicbrainz.org/ws/2/release-group/?query=" + encodeURIComponent(mbQuery) + "&fmt=json&limit=100")
+          .then(function(r){ return r.json(); }).catch(function(){ return { "release-groups": [] }; })
       ]).then(function(res){
-        return { artist: best.artistName, songs: res[0].results || [], albums: res[1].results || [] };
+        return { artist: best.artistName, songs: res[0].results || [], albums: res[1].results || [],
+                 mbGroups: (res[2]["release-groups"] || []) };
       });
     })
     .then(function(data){
@@ -657,6 +662,24 @@ function renderArtistPage(data){
   var songs = (data.songs || []).filter(function(s){ return s.wrapperType === "track"; }).slice(0, 10);
   var albums = (data.albums || []).filter(function(a){ return a.wrapperType === "collection" && a.collectionType === "Album"; });
   var singles = (data.albums || []).filter(function(a){ return a.wrapperType === "collection" && a.collectionType === "Single"; }).slice(0, 10);
+  /* v2.2.4: merge MusicBrainz release-groups iTunes missed (dedup by name). */
+  var seenNames = {};
+  albums.forEach(function(a){ seenNames[normTitle(a.collectionName)] = true; });
+  (data.mbGroups || []).forEach(function(g){
+    if(g["primary-type"] !== "Album") return;
+    var title = g.title || "";
+    var key = normTitle(title);
+    if(!key || seenNames[key]) return;
+    seenNames[key] = true;
+    albums.push({
+      collectionName: title,
+      artistName: data.artist,
+      releaseDate: g["first-release-date"] || "",
+      artworkUrl100: "",
+      collectionId: null,
+      _mb: true
+    });
+  });
   /* Sort albums by release date, newest first. */
   albums.sort(function(a, b){ return new Date(b.releaseDate) - new Date(a.releaseDate); });
   var html = "";
@@ -676,10 +699,18 @@ function renderArtistPage(data){
     html += "<h3>Albums</h3><div class='row' style='flex-wrap:wrap'>";
     html += albums.map(function(a){
       var art = (a.artworkUrl100 || "").replace("100x100bb", "300x300bb");
-      return "<div class='card' style='width:150px'><img src='" + esc(art) + "' alt='' style='width:100%;border-radius:8px'>" +
+      var btn;
+      if(a.collectionId){
+        btn = "<button class='btn small' data-artalbum='" + a.collectionId + "'>View</button>";
+      } else {
+        /* v2.2.4: MusicBrainz-only album — search for it. */
+        btn = "<button class='btn small' data-mbalbum='" + esc(a.collectionName) + "' data-mbartist='" + esc(a.artistName || "") + "'>Search</button>";
+      }
+      return "<div class='card' style='width:150px'>" +
+        (art ? "<img src='" + esc(art) + "' alt='' style='width:100%;border-radius:8px'>" : "") +
         "<div style='font-weight:bold;font-size:14px'>" + esc(a.collectionName) + "</div>" +
-        "<div class='hint'>" + new Date(a.releaseDate).getFullYear() + "</div>" +
-        "<button class='btn small' data-artalbum='" + a.collectionId + "'>View</button></div>";
+        "<div class='hint'>" + (a.releaseDate ? new Date(a.releaseDate).getFullYear() : "") + "</div>" +
+        btn + "</div>";
     }).join("");
     html += "</div>";
   }
@@ -708,6 +739,16 @@ function renderArtistPage(data){
   box.querySelectorAll("[data-artalbum]").forEach(function(b){
     b.addEventListener("click", function(){
       openITunesAlbum(b.getAttribute("data-artalbum"));
+    });
+  });
+  /* v2.2.4: MusicBrainz-only albums — search YouTube for the album. */
+  box.querySelectorAll("[data-mbalbum]").forEach(function(b){
+    b.addEventListener("click", function(){
+      var aname = b.getAttribute("data-mbalbum");
+      var artist = b.getAttribute("data-mbartist");
+      $("searchBox").value = artist + " " + aname + " full album";
+      doSearch();
+      say("Searching for " + aname + ".");
     });
   });
 }
@@ -3418,7 +3459,8 @@ function loadForYouReleases(){
     }
     albums.sort(recencySort);
     singles.sort(recencySort);
-    forYouCache = { albums: albums.slice(0, 8), singles: singles.slice(0, 8) };
+    /* v2.2.4: cache plenty so "See all" shows everything, not just 8. */
+    forYouCache = { albums: albums.slice(0, 40), singles: singles.slice(0, 40) };
     renderForYou(forYouCache);
   }).catch(function(){
     aBox.innerHTML = "<p style='color:#999'>Couldn't load new releases.</p>";
@@ -3428,8 +3470,9 @@ function renderForYou(c){
   var aBox = $("forYouReleases"), sBox = $("forYouSingles");
   if(!aBox || !sBox) return;
   aBox.innerHTML = ""; sBox.innerHTML = "";
-  c.albums.forEach(function(it){ aBox.appendChild(releaseCard(it, "album")); });
-  c.singles.forEach(function(it){ sBox.appendChild(releaseCard(it, "single")); });
+  /* v2.2.4: home row shows 10, "See all" shows the full cache. */
+  c.albums.slice(0, 10).forEach(function(it){ aBox.appendChild(releaseCard(it, "album")); });
+  c.singles.slice(0, 10).forEach(function(it){ sBox.appendChild(releaseCard(it, "single")); });
   if(!c.albums.length) aBox.innerHTML = "<p style='color:#999'>Nothing right now.</p>";
   if(!c.singles.length) sBox.innerHTML = "<p style='color:#999'>Nothing right now.</p>";
 }
