@@ -6,11 +6,11 @@ on:
       version_name:
         description: 'Version name (e.g. 1.0)'
         required: false
-        default: '2.2.11'
+        default: '2.2.12'
       version_code:
         description: 'Version code (whole number, bump every build)'
         required: false
-        default: '75'
+        default: '76'
       release_notes:
         description: 'Release notes'
         required: false
@@ -781,22 +781,7 @@ jobs:
                                           });
                                           return SessionResult.RESULT_SUCCESS;
                                       }
-                                      if (playerCommand == Player.COMMAND_PLAY) {
-                                          main.post(new Runnable() {
-                                              @Override public void run() {
-                                                  if (player != null) player.play();
-                                              }
-                                          });
-                                          return SessionResult.RESULT_SUCCESS;
-                                      }
-                                      if (playerCommand == Player.COMMAND_PAUSE) {
-                                          main.post(new Runnable() {
-                                              @Override public void run() {
-                                                  if (player != null) player.pause();
-                                              }
-                                          });
-                                          return SessionResult.RESULT_SUCCESS;
-                                      }
+
                                       if (playerCommand == Player.COMMAND_SEEK_TO_NEXT) {
                                           main.post(new Runnable() {
                                               @Override public void run() {
