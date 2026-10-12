@@ -6,11 +6,11 @@ on:
       version_name:
         description: 'Version name (e.g. 1.0)'
         required: false
-        default: '2.2.6'
+        default: '2.2.7'
       version_code:
         description: 'Version code (whole number, bump every build)'
         required: false
-        default: '70'
+        default: '71'
       release_notes:
         description: 'Release notes'
         required: false
@@ -121,6 +121,8 @@ jobs:
               // NewPipe extractor resolves YouTube audio streams. Both are
               // established open-source libraries.
               implementation 'androidx.media3:media3-exoplayer:1.4.1'
+              /* v2.2.7: media session for Bluetooth headset buttons. */
+              implementation 'androidx.media3:media3-session:1.4.1'
               implementation 'com.github.TeamNewPipe:NewPipeExtractor:v0.26.5'
           }
           EOF
@@ -618,6 +620,8 @@ jobs:
           import androidx.media3.common.PlaybackException;
           import androidx.media3.common.Player;
           import androidx.media3.exoplayer.ExoPlayer;
+          /* v2.2.7: Bluetooth headset buttons via media session. */
+          import androidx.media3.session.MediaSession;
           import java.io.BufferedReader;
           import java.io.IOException;
           import java.io.InputStream;
@@ -684,6 +688,8 @@ jobs:
 
               private final IBinder binder = new LocalBinder();
               private ExoPlayer player;
+              /* v2.2.7: media session for Bluetooth headset buttons. */
+              private MediaSession mediaSession;
               private final Handler main = new Handler(Looper.getMainLooper());
               private final ExecutorService bg = Executors.newSingleThreadExecutor();
               private final List<Track> queue = new ArrayList<>();
@@ -714,6 +720,42 @@ jobs:
                   super.onCreate();
                   try { NewPipe.init(new ExtractorDownloader()); } catch (Exception ignored) {}
                   player = new ExoPlayer.Builder(this).build();
+                  /* v2.2.7: media session — routes Bluetooth headset play/pause/next/prev.
+                     Next/prev go to the app queue (the player holds one item at a time). */
+                  try {
+                      mediaSession = new MediaSession.Builder(this, player)
+                          .setCallback(new MediaSession.Callback() {
+                              @Override
+                              public int onPlayerCommandRequest(MediaSession session, MediaSession.ControllerInfo controller, int playerCommand) {
+                                  try {
+                                      if (playerCommand == Player.COMMAND_SEEK_TO_NEXT) {
+                                          main.post(new Runnable() {
+                                              @Override public void run() {
+                                                  UiListener l = ui;
+                                                  boolean consumed = false;
+                                                  if (l != null) { try { consumed = l.onNotifNext(); } catch (Exception ignored) {} }
+                                                  if (!consumed) playAtInternal(currentIndex + 1);
+                                              }
+                                          });
+                                          return MediaSession.Callback.super.onPlayerCommandRequest(session, controller, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM);
+                                      }
+                                      if (playerCommand == Player.COMMAND_SEEK_TO_PREVIOUS) {
+                                          main.post(new Runnable() {
+                                              @Override public void run() {
+                                                  UiListener l = ui;
+                                                  boolean consumed = false;
+                                                  if (l != null) { try { consumed = l.onNotifPrev(); } catch (Exception ignored) {} }
+                                                  if (!consumed) playAtInternal(currentIndex - 1);
+                                              }
+                                          });
+                                          return MediaSession.Callback.super.onPlayerCommandRequest(session, controller, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM);
+                                      }
+                                  } catch (Exception ignored) {}
+                                  return MediaSession.Callback.super.onPlayerCommandRequest(session, controller, playerCommand);
+                              }
+                          })
+                          .build();
+                  } catch (Exception ignored) {}
                   try {
                       player.setAudioAttributes(
                           new AudioAttributes.Builder()
@@ -789,6 +831,9 @@ jobs:
               public void onDestroy() {
                   try { main.removeCallbacks(progressTick); } catch (Exception ignored) {}
                   try { bg.shutdownNow(); } catch (Exception ignored) {}
+                  /* v2.2.7: release the media session. */
+                  try { if (mediaSession != null) mediaSession.release(); } catch (Exception ignored) {}
+                  mediaSession = null;
                   try { if (player != null) player.release(); } catch (Exception ignored) {}
                   player = null;
                   super.onDestroy();
