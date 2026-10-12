@@ -252,7 +252,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.8</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.9</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <div class="homeBlock">
@@ -568,8 +568,8 @@ window.lmNativeError = function(msg){
 /* Called by Java when the native player reaches the end of a track.
    Queue policy (shuffle / repeat / radio) stays here in JS. */
 window.lmNativeEnded = function(){
-  if(state.repeat === 2){ playQueueIndex(state.qi); }
-  else { playNext(true); }
+  /* v2.2.9: native service advances the queue itself now (reliable with
+     screen off). JS just syncs its index when onTrackChanged fires. */
 };
 var BUILTIN_KEY = "AIzaSyBlRExgehSNPYhBoVol3BToThbNIB3I0Ns";
 function getKey(){ try { var k = (localStorage.getItem("lm_api_key") || "").trim(); return k || BUILTIN_KEY; } catch(e){ return BUILTIN_KEY; } }
