@@ -6,11 +6,11 @@ on:
       version_name:
         description: 'Version name (e.g. 1.0)'
         required: false
-        default: '2.2.4'
+        default: '2.2.5'
       version_code:
         description: 'Version code (whole number, bump every build)'
         required: false
-        default: '68'
+        default: '69'
       release_notes:
         description: 'Release notes'
         required: false
@@ -340,6 +340,12 @@ jobs:
                   @JavascriptInterface public void truncateAfter(final int index) {
                       withService(new Runnable() {
                           @Override public void run() { musicService.truncateAfter(index); }
+                      });
+                  }
+                  /* v2.2.5: web page tells the service the repeat mode for screen-off advancing. */
+                  @JavascriptInterface public void setRepeatMode(final int mode) {
+                      withService(new Runnable() {
+                          @Override public void run() { musicService.setRepeatMode(mode); }
                       });
                   }
               }
@@ -686,6 +692,8 @@ jobs:
               private final java.util.Map<String, String> urlCache = new java.util.HashMap<String, String>();
               private int currentIndex = -1;
               private UiListener ui;
+              /* v2.2.5: native repeat mode (0=off, 1=all, 2=one), set by the web page. */
+              private int repeatMode = 0;
 
               private final Runnable progressTick = new Runnable() {
                   @Override public void run() {
@@ -717,9 +725,24 @@ jobs:
                   player.addListener(new Player.Listener() {
                       @Override public void onPlaybackStateChanged(int state) {
                           if (state == Player.STATE_ENDED) {
+                              final int endedIndex = currentIndex;
+                              final int endedRepeat = repeatMode;
                               UiListener l = ui;
                               if (l != null) { try { l.onTrackEnded(); } catch (Exception ignored) {} }
-                              else { playAtInternal(currentIndex + 1); }
+                              /* v2.2.5: screen-off fallback. The WebView's JS may be
+                                 suspended with the screen off, so if it didn't advance
+                                 the queue within 3s, advance natively. */
+                              main.postDelayed(new Runnable() {
+                                  @Override public void run() {
+                                      try {
+                                          if (player != null && player.getPlaybackState() == Player.STATE_ENDED
+                                              && currentIndex == endedIndex) {
+                                              advanceAfterEnded(endedIndex, endedRepeat);
+                                          }
+                                      } catch (Exception ignored) {}
+                                  }
+                              }, 3000);
+                              if (l == null) { advanceAfterEnded(endedIndex, endedRepeat); }
                           } else if (state == Player.STATE_READY) {
                               updateNotification();
                           }
@@ -772,6 +795,15 @@ jobs:
               }
 
               public void setUiListener(UiListener l) { ui = l; }
+              /* v2.2.5: the web page sets this when the user changes repeat mode. */
+              public void setRepeatMode(int mode) { repeatMode = mode; }
+              /* v2.2.5: advance the queue natively (screen-off safe). */
+              private void advanceAfterEnded(int endedIndex, int repeat) {
+                  if (player == null) return;
+                  if (repeat == 2) { playAtInternal(endedIndex); return; }
+                  if (endedIndex + 1 < queue.size()) { playAtInternal(endedIndex + 1); return; }
+                  if (repeat == 1 && !queue.isEmpty()) { playAtInternal(0); }
+              }
 
               // ---- public API: call on the main thread ----
 
