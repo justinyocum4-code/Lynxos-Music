@@ -6,11 +6,11 @@ on:
       version_name:
         description: 'Version name (e.g. 1.0)'
         required: false
-        default: '2.2.8'
+        default: '2.2.10'
       version_code:
         description: 'Version code (whole number, bump every build)'
         required: false
-        default: '72'
+        default: '74'
       release_notes:
         description: 'Release notes'
         required: false
@@ -623,6 +623,7 @@ jobs:
           /* v2.2.7: Bluetooth headset buttons via media session. */
           import androidx.media3.session.MediaSession;
           import androidx.media3.session.SessionResult;
+          import com.google.common.collect.ImmutableList;
           import java.io.BufferedReader;
           import java.io.IOException;
           import java.io.InputStream;
@@ -738,13 +739,43 @@ jobs:
                                           .addAll(result.availablePlayerCommands);
                                       b.add(Player.COMMAND_SEEK_TO_NEXT);
                                       b.add(Player.COMMAND_SEEK_TO_PREVIOUS);
+                                      /* v2.2.8: media3 1.4.1 needs the 6-arg constructor. */
                                       return new MediaSession.ConnectionResult(
-                                          result.availableSessionCommands, b.build());
+                                          false,
+                                          result.availableSessionCommands,
+                                          b.build(),
+                                          ImmutableList.of(),
+                                          null,
+                                          null);
                                   } catch (Exception ignored) { return result; }
                               }
                               @Override
                               public int onPlayerCommandRequest(MediaSession session, MediaSession.ControllerInfo controller, int playerCommand) {
                                   try {
+                                      /* v2.2.9: route play/pause explicitly through the
+                                         service so they work even with no UI bound. */
+                                      if (playerCommand == Player.COMMAND_PLAY_PAUSE) {
+                                          main.post(new Runnable() {
+                                              @Override public void run() { toggleInternal(); }
+                                          });
+                                          return SessionResult.RESULT_SUCCESS;
+                                      }
+                                      if (playerCommand == Player.COMMAND_PLAY) {
+                                          main.post(new Runnable() {
+                                              @Override public void run() {
+                                                  if (player != null) player.play();
+                                              }
+                                          });
+                                          return SessionResult.RESULT_SUCCESS;
+                                      }
+                                      if (playerCommand == Player.COMMAND_PAUSE) {
+                                          main.post(new Runnable() {
+                                              @Override public void run() {
+                                                  if (player != null) player.pause();
+                                              }
+                                          });
+                                          return SessionResult.RESULT_SUCCESS;
+                                      }
                                       if (playerCommand == Player.COMMAND_SEEK_TO_NEXT) {
                                           main.post(new Runnable() {
                                               @Override public void run() {
@@ -784,24 +815,13 @@ jobs:
                   player.addListener(new Player.Listener() {
                       @Override public void onPlaybackStateChanged(int state) {
                           if (state == Player.STATE_ENDED) {
-                              final int endedIndex = currentIndex;
-                              final int endedRepeat = repeatMode;
+                              /* v2.2.9: advance natively IMMEDIATELY. The 3s delayed
+                                 fallback wasn't reliable — the WebView can partially
+                                 wake and confuse the state check. Native is now the
+                                 single source of truth for advancing; JS just syncs UI. */
+                              advanceAfterEnded(currentIndex, repeatMode);
                               UiListener l = ui;
                               if (l != null) { try { l.onTrackEnded(); } catch (Exception ignored) {} }
-                              /* v2.2.5: screen-off fallback. The WebView's JS may be
-                                 suspended with the screen off, so if it didn't advance
-                                 the queue within 3s, advance natively. */
-                              main.postDelayed(new Runnable() {
-                                  @Override public void run() {
-                                      try {
-                                          if (player != null && player.getPlaybackState() == Player.STATE_ENDED
-                                              && currentIndex == endedIndex) {
-                                              advanceAfterEnded(endedIndex, endedRepeat);
-                                          }
-                                      } catch (Exception ignored) {}
-                                  }
-                              }, 3000);
-                              if (l == null) { advanceAfterEnded(endedIndex, endedRepeat); }
                           } else if (state == Player.STATE_READY) {
                               updateNotification();
                           }
