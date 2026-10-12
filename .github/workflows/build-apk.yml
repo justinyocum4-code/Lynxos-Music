@@ -6,11 +6,11 @@ on:
       version_name:
         description: 'Version name (e.g. 1.0)'
         required: false
-        default: '2.2.7'
+        default: '2.2.8'
       version_code:
         description: 'Version code (whole number, bump every build)'
         required: false
-        default: '71'
+        default: '72'
       release_notes:
         description: 'Release notes'
         required: false
@@ -622,6 +622,7 @@ jobs:
           import androidx.media3.exoplayer.ExoPlayer;
           /* v2.2.7: Bluetooth headset buttons via media session. */
           import androidx.media3.session.MediaSession;
+          import androidx.media3.session.SessionResult;
           import java.io.BufferedReader;
           import java.io.IOException;
           import java.io.InputStream;
@@ -721,10 +722,26 @@ jobs:
                   try { NewPipe.init(new ExtractorDownloader()); } catch (Exception ignored) {}
                   player = new ExoPlayer.Builder(this).build();
                   /* v2.2.7: media session — routes Bluetooth headset play/pause/next/prev.
-                     Next/prev go to the app queue (the player holds one item at a time). */
+                     Next/prev go to the app queue (the player holds one item at a time).
+                     v2.2.8: advertise next/prev commands — the single-item player
+                     doesn't offer them by default, so headsets never send them. */
                   try {
                       mediaSession = new MediaSession.Builder(this, player)
                           .setCallback(new MediaSession.Callback() {
+                              @Override
+                              public MediaSession.ConnectionResult onConnect(
+                                      MediaSession session, MediaSession.ControllerInfo controller) {
+                                  MediaSession.ConnectionResult result =
+                                      MediaSession.Callback.super.onConnect(session, controller);
+                                  try {
+                                      Player.Commands.Builder b = new Player.Commands.Builder()
+                                          .addAll(result.availablePlayerCommands);
+                                      b.add(Player.COMMAND_SEEK_TO_NEXT);
+                                      b.add(Player.COMMAND_SEEK_TO_PREVIOUS);
+                                      return new MediaSession.ConnectionResult(
+                                          result.availableSessionCommands, b.build());
+                                  } catch (Exception ignored) { return result; }
+                              }
                               @Override
                               public int onPlayerCommandRequest(MediaSession session, MediaSession.ControllerInfo controller, int playerCommand) {
                                   try {
@@ -737,7 +754,7 @@ jobs:
                                                   if (!consumed) playAtInternal(currentIndex + 1);
                                               }
                                           });
-                                          return MediaSession.Callback.super.onPlayerCommandRequest(session, controller, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM);
+                                          return SessionResult.RESULT_SUCCESS;
                                       }
                                       if (playerCommand == Player.COMMAND_SEEK_TO_PREVIOUS) {
                                           main.post(new Runnable() {
@@ -748,7 +765,7 @@ jobs:
                                                   if (!consumed) playAtInternal(currentIndex - 1);
                                               }
                                           });
-                                          return MediaSession.Callback.super.onPlayerCommandRequest(session, controller, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM);
+                                          return SessionResult.RESULT_SUCCESS;
                                       }
                                   } catch (Exception ignored) {}
                                   return MediaSession.Callback.super.onPlayerCommandRequest(session, controller, playerCommand);
