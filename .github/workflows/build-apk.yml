@@ -6,11 +6,11 @@ on:
       version_name:
         description: 'Version name (e.g. 1.0)'
         required: false
-        default: '2.2.12'
+        default: '2.2.13'
       version_code:
         description: 'Version code (whole number, bump every build)'
         required: false
-        default: '76'
+        default: '77'
       release_notes:
         description: 'Release notes'
         required: false
@@ -137,6 +137,8 @@ jobs:
               <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
               <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
               <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+              <!-- v2.2.13: allow asking the system to exempt the app from battery optimization so screen-off playback isn't killed after 10-15 min -->
+              <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
               <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
               <uses-feature android:name="android.software.leanback" android:required="false" />
               <application
@@ -358,6 +360,16 @@ jobs:
                   super.onCreate(savedInstanceState);
                   installCrashCapture();
                   showLastCrashIfAny();
+                  /* v2.2.13: prompt to disable battery optimization so screen-off
+                     playback isn't killed after 10-15 minutes. */
+                  try {
+                      android.os.PowerManager pm = (android.os.PowerManager) getSystemService(Context.POWER_SERVICE);
+                      if (pm != null && !pm.isIgnoringBatteryOptimizations(getPackageName())) {
+                          Intent battIntent = new Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                          battIntent.setData(android.net.Uri.parse("package:" + getPackageName()));
+                          try { startActivity(battIntent); } catch (Exception ignored) {}
+                      }
+                  } catch (Exception ignored) {}
                   webView = new WebView(this);
                   WebSettings s = webView.getSettings();
                   s.setJavaScriptEnabled(true);
@@ -728,7 +740,18 @@ jobs:
                      v2.2.8: advertise next/prev commands — the single-item player
                      doesn't offer them by default, so headsets never send them. */
                   try {
-                      mediaSession = new MediaSession.Builder(this, player)
+                      /* v2.2.13: set a session activity so the system keeps the
+                         media session alive and routes Bluetooth buttons reliably. */
+                      PendingIntent sessionActivity = null;
+                      try {
+                          Intent launchIntent = new Intent(this, MainActivity.class);
+                          launchIntent.setAction(Intent.ACTION_MAIN);
+                          launchIntent.addCategory(Intent.CATEGORY_LAUNCHER);
+                          int sessFlags = PendingIntent.FLAG_UPDATE_CURRENT;
+                          if (Build.VERSION.SDK_INT >= 23) sessFlags |= PendingIntent.FLAG_IMMUTABLE;
+                          sessionActivity = PendingIntent.getActivity(this, 0, launchIntent, sessFlags);
+                      } catch (Exception ignored) {}
+                      MediaSession.Builder sessionBuilder = new MediaSession.Builder(this, player)
                           .setCallback(new MediaSession.Callback() {
                               @Override
                               public boolean onMediaButtonEvent(
@@ -807,8 +830,11 @@ jobs:
                                   } catch (Exception ignored) {}
                                   return MediaSession.Callback.super.onPlayerCommandRequest(session, controller, playerCommand);
                               }
-                          })
-                          .build();
+                          });
+                      if (sessionActivity != null) {
+                          try { sessionBuilder.setSessionActivity(sessionActivity); } catch (Exception ignored) {}
+                      }
+                      mediaSession = sessionBuilder.build();
                   } catch (Exception ignored) {}
                   try {
                       player.setAudioAttributes(
