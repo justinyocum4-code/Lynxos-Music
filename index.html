@@ -256,7 +256,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.21</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.22</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <div class="homeBlock">
@@ -420,7 +420,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.21. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.22. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -2796,8 +2796,8 @@ function fetchYouTubeRadio(videoId){
    playlist (reliable endpoint, no search). Multiple seeds per genre for
    variety — merged, deduped, filtered to core artists, shuffled. */
 /* Core artists per genre from Last.fm tag.getTopArtists (verified 2026-10-04).
-   Genre radio keeps ONLY videos from these artists — guarantees the correct
-   genre plays, no matter how much YouTube's recommendations bleed. */
+   v2.2.22: used for lenient genre check — only rejects artists clearly in a
+   different genre, doesn't require presence in the list. */
 var GENRE_ARTISTS = {
   "metal": ["Slipknot", "System of a Down", "Deftones", "Korn", "Metallica", "Rammstein", "Disturbed", "BABYMETAL", "Rob Zombie", "Avenged Sevenfold", "Bullet for My Valentine", "Iron Maiden", "Kittie", "Slayer", "Pantera"],
   "rock": ["Radiohead", "Paramore", "Linkin Park", "My Chemical Romance", "Coldplay", "Red Hot Chili Peppers", "The Cranberries", "Weezer", "The Beatles", "Fleetwood Mac", "Foo Fighters", "Panic! at the Disco", "Queen", "Maroon 5", "Harry Styles"],
@@ -3070,15 +3070,23 @@ function filterRefillVideos(videos, r, qCounts){
   return fresh;
 }
 function genrePure(genre, ownerChannel){
-  var artists = GENRE_ARTISTS[String(genre || "").toLowerCase()];
-  if(!artists || !artists.length) return true;
+  /* v2.2.21: lenient genre check — only REJECT if the artist is clearly in a
+     DIFFERENT genre's list. Absence from the list doesn't mean wrong genre
+     (the list only has 15 artists per genre, but YouTube returns hundreds). */
+  var g = String(genre || "").toLowerCase();
   var c = normArtist(ownerChannel);
-  if(!c) return false;
-  for(var i = 0; i < artists.length; i++){
-    var a = normArtist(artists[i]);
-    if(a && (c.indexOf(a) !== -1 || a.indexOf(c) !== -1)) return true;
+  if(!c) return true;
+  var otherGenres = Object.keys(GENRE_ARTISTS).filter(function(k){ return k !== g; });
+  for(var i = 0; i < otherGenres.length; i++){
+    var artists = GENRE_ARTISTS[otherGenres[i]];
+    for(var j = 0; j < artists.length; j++){
+      var a = normArtist(artists[j]);
+      if(a && a.length > 3 && (c === a || c.indexOf(a) !== -1)){
+        return false;
+      }
+    }
   }
-  return false;
+  return true;
 }
 function startRadio(artist){
   var v = currentVideo();
