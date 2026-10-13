@@ -256,7 +256,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.17</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.18</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <div class="homeBlock">
@@ -419,7 +419,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.17. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.18. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -1116,6 +1116,16 @@ function parseTrack(title, channel){
     var left = m[1].trim(), right = m[2].trim();
     /* "Song - Live ..." means the left side is the song, not the artist. */
     if(left && right && !/^(live|official|audio|video|lyric|acoustic|unplugged|remix|remaster\w*|demo|cover|instrumental)\b/i.test(right)){
+      /* v2.2.18: check if the channel name matches one side to determine
+         which is artist vs title. Prevents swapped title/artist. */
+      var normChan = normArtist(channel);
+      var normLeft = normArtist(left);
+      var normRight = normArtist(right);
+      if(normChan && normRight && (normRight.indexOf(normChan) !== -1 || normChan.indexOf(normRight) !== -1)){
+        /* Right side matches channel = right is artist, left is title. */
+        return { artist: right, title: cleanTrackTitle(left) };
+      }
+      /* Default: left is artist, right is title. */
       return { artist: left, title: cleanTrackTitle(right) };
     }
   }
@@ -2966,9 +2976,10 @@ function isMusicVideoOnly(title){
   if(t.indexOf("audio") !== -1) return false;
   return t.indexOf("music video") !== -1;
 }
-/* Balance: cap songs per artist so one artist can't dominate the station.
-   Without this, 80% of Metal was just SOAD/Metallica/Slipknot on repeat. */
+/* v2.2.18: strict per-artist cap (max 2) so no artist dominates a station.
+   Applied to initial load AND refills. */
 function capPerArtist(videos, maxPer){
+  maxPer = maxPer || 2;
   var counts = {}, out = [];
   for(var i = 0; i < videos.length; i++){
     var v = videos[i];
@@ -2995,7 +3006,7 @@ function filterRefillVideos(videos, r, qCounts){
     /* Skip music-video-only versions, live versions, non-English, and songs
        already in queue. No purity filter on refills — the branch song already
        keeps it on-genre, and we want to WIDEN the station, not narrow it. */
-    if(!r.seenIds[sv.videoId] && !queueSongs[songKey] && !isMusicVideoOnly(sv.title) && !isLiveVersion(sv.title) && !isNonEnglish(sv.title, sv.ownerChannel || sv.channel) && (qCounts[a] || 0) < 6){
+    if(!r.seenIds[sv.videoId] && !queueSongs[songKey] && !isMusicVideoOnly(sv.title) && !isLiveVersion(sv.title) && !isNonEnglish(sv.title, sv.ownerChannel || sv.channel) && (qCounts[a] || 0) < 2){
       r.seenIds[sv.videoId] = true; qCounts[a] = (qCounts[a] || 0) + 1; fresh.push(sv);
     }
   });
@@ -3035,6 +3046,8 @@ function startRadio(artist){
           all = all.filter(function(sv){
             return !isMusicVideoOnly(sv.title) && !isLiveVersion(sv.title);
           });
+          /* v2.2.18: cap per artist on initial load too (max 2 per artist). */
+          all = capPerArtist(all, 2);
           shuffleList(all);
           /* Diversify: ensure first 10 are from different artists. */
           all = diversifyStart(all, 10);
