@@ -116,8 +116,12 @@
   .homeBlock { margin: 4px 0 20px; }
   .homeBlock h2 { color: var(--gold); font-size: 18px; margin: 0 0 8px; }
   .mixRow { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 6px; }
-  .mixCard { min-width: 140px; flex: 1; background: #161616; border: 1px solid var(--gold); border-radius: 12px; padding: 16px 10px; color: var(--gold); text-align: center; font-size: 16px; font-weight: bold; }
+  .mixCard { min-width: 140px; flex: 1 1 0; background: #161616; border: 1px solid var(--gold); border-radius: 12px; padding: 16px 10px; color: var(--gold); text-align: center; font-size: 16px; font-weight: bold; }
   .mixCard small { display: block; color: #ccc; font-size: 12px; font-weight: normal; margin-top: 6px; }
+  /* v2.2.17: visual genre/mood cards with artwork */
+  .visualCard { min-width: 120px; max-width: 140px; background: #161616; border: 1px solid var(--gold); border-radius: 12px; overflow: hidden; padding: 0; color: #fff; text-align: center; cursor: pointer; }
+  .visualCard img { width: 100%; height: 120px; object-fit: cover; display: block; }
+  .visualCard .vlabel { padding: 8px 6px; font-size: 14px; font-weight: bold; color: var(--gold); }
   .hscroll { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 6px; }
   .albumCard { min-width: 132px; max-width: 132px; background: #111; border: 1px solid #3a3a3a; border-radius: 10px; overflow: hidden; color: #fff; padding: 0 0 8px; text-align: left; }
   .albumCard img { width: 132px; height: 132px; object-fit: cover; display: block; }
@@ -252,7 +256,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.16</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.17</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <div class="homeBlock">
@@ -415,7 +419,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.16. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.17. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -3027,6 +3031,10 @@ function startRadio(artist){
             });
           });
           if(!all.length) throw new Error("no videos from YouTube");
+          /* v2.2.17: filter out music video versions from the initial load. */
+          all = all.filter(function(sv){
+            return !isMusicVideoOnly(sv.title) && !isLiveVersion(sv.title);
+          });
           shuffleList(all);
           /* Diversify: ensure first 10 are from different artists. */
           all = diversifyStart(all, 10);
@@ -3384,9 +3392,9 @@ function renderDecades(){
   box.innerHTML = "";
   DECADES.forEach(function(d){
     var b = document.createElement("button");
-    b.className = "btn secondary";
+    b.className = "visualCard";
     b.setAttribute("aria-label", "Play " + d[1]);
-    b.textContent = d[0] + " " + d[1];
+    b.innerHTML = "<div style='font-size:48px;padding:16px 0 8px'>" + d[0] + "</div><div class='vlabel'>" + d[1] + "</div>";
     b.addEventListener("click", function(){ startRadio(d[2]); });
     box.appendChild(b);
   });
@@ -3403,9 +3411,9 @@ function renderMoods(){
   box.innerHTML = "";
   MOODS.forEach(function(m){
     var b = document.createElement("button");
-    b.className = "btn secondary";
+    b.className = "visualCard";
     b.setAttribute("aria-label", "Play " + m[1] + " station");
-    b.textContent = m[0] + " " + m[1];
+    b.innerHTML = "<div style='font-size:48px;padding:16px 0 8px'>" + m[0] + "</div><div class='vlabel'>" + m[1] + "</div>";
     b.addEventListener("click", function(){ startRadio(m[2]); });
     box.appendChild(b);
   });
@@ -3422,9 +3430,9 @@ function renderGenres(){
   box.innerHTML = "";
   GENRES.forEach(function(g){
     var b = document.createElement("button");
-    b.className = "btn secondary small";
+    b.className = "visualCard";
     b.setAttribute("aria-label", "Start " + g[1] + " radio");
-    b.textContent = g[0] + " " + g[1];
+    b.innerHTML = "<div style='font-size:48px;padding:16px 0 8px'>" + g[0] + "</div><div class='vlabel'>" + g[1] + "</div>";
     b.addEventListener("click", function(){ startRadio(g[1]); });
     box.appendChild(b);
   });
