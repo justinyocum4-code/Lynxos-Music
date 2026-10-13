@@ -6,11 +6,11 @@ on:
       version_name:
         description: 'Version name (e.g. 1.0)'
         required: false
-        default: '2.2.16'
+        default: '2.2.17'
       version_code:
         description: 'Version code (whole number, bump every build)'
         required: false
-        default: '80'
+        default: '81'
       release_notes:
         description: 'Release notes'
         required: false
