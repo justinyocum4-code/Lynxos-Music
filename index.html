@@ -256,7 +256,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.25</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.26</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <div class="homeBlock">
@@ -420,7 +420,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.25. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.26. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -2799,8 +2799,8 @@ function fetchYouTubeRadio(videoId){
    v2.2.22: used for lenient genre check — only rejects artists clearly in a
    different genre, doesn't require presence in the list. */
 var GENRE_ARTISTS = {
-  "metal": ["Slipknot", "System of a Down", "Deftones", "Korn", "Metallica", "Rammstein", "Disturbed", "BABYMETAL", "Rob Zombie", "Avenged Sevenfold", "Bullet for My Valentine", "Iron Maiden", "Kittie", "Slayer", "Pantera"],
-  "rock": ["Radiohead", "Paramore", "Linkin Park", "My Chemical Romance", "Coldplay", "Red Hot Chili Peppers", "The Cranberries", "Weezer", "The Beatles", "Fleetwood Mac", "Foo Fighters", "Panic! at the Disco", "Queen", "Maroon 5", "Harry Styles"],
+  "metal": ["Slipknot", "System of a Down", "Deftones", "Korn", "Metallica", "Rammstein", "Disturbed", "BABYMETAL", "Rob Zombie", "Avenged Sevenfold", "Bullet for My Valentine", "Iron Maiden", "Kittie", "Slayer", "Pantera", "Judas Priest", "Black Sabbath", "Megadeth", "Anthrax", "Sepultura", "Lamb of God", "Mastodon", "Gojira", "Tool", "Dream Theater", "Opeth", "Meshuggah", "Killswitch Engage", "Trivium", "Machine Head", "Amon Amarth", "Children of Bodom", "In Flames", "Soilwork", "Arch Enemy", "Kreator", "Testament", "Exodus", "Overkill", "Death Angel", "Cannibal Corpse", "Morbid Angel", "Deicide", "Obituary", "Suffocation", "Behemoth", "Dimmu Borgir", "Cradle of Filth", "Emperor", "Mayhem", "Darkthrone", "Immortal", "Satyricon", "Watain", "Marduk", "Gorgoroth", "Burzum", "Ulver", "Enslaved", "Ihsahn"],
+  "rock": ["Radiohead", "Paramore", "Linkin Park", "My Chemical Romance", "Coldplay", "Red Hot Chili Peppers", "The Cranberries", "Weezer", "The Beatles", "Fleetwood Mac", "Foo Fighters", "Panic! at the Disco", "Queen", "Maroon 5", "Harry Styles", "Led Zeppelin", "Pink Floyd", "The Rolling Stones", "The Who", "Deep Purple", "AC/DC", "Guns N Roses", "Aerosmith", "Bon Jovi", "Def Leppard", "Journey", "Foreigner", "Boston", "Kansas", "Styx", "REO Speedwagon", "Tom Petty", "Bruce Springsteen", "Bob Dylan", "Neil Young", "The Doors", "Jimi Hendrix", "Cream", "The Kinks", "The Clash", "U2", "R.E.M.", "The Cure", "Depeche Mode", "INXS", "Duran Duran", "The Police", "Genesis", "Yes", "Rush", "Pearl Jam", "Stone Temple Pilots", "Soundgarden", "Alice in Chains", "Nirvana", "Smashing Pumpkins", "Green Day", "The Offspring", "Blink-182"],
   "grunge": ["Nirvana", "Alice in Chains", "Pearl Jam", "Soundgarden", "Hole", "The Smashing Pumpkins", "Superheaven", "Stone Temple Pilots", "Temple of the Dog", "Foo Fighters", "Bush", "Kurt Cobain", "Local H", "Silverchair", "Dinosaur Jr."],
   "pop": ["Ariana Grande", "Sabrina Carpenter", "Olivia Rodrigo", "ADÉLA", "Michael Jackson", "Lady Gaga", "Katy Perry", "Britney Spears", "Rihanna", "Madonna", "Miley Cyrus", "Dua Lipa", "Bruno Mars", "Justin Bieber", "KATSEYE"],
   "alternative": ["Gorillaz", "Radiohead", "Deftones", "Twenty One Pilots", "My Chemical Romance", "Coldplay", "Panic! at the Disco", "The Cranberries", "bôa", "Pixies", "Paramore", "sombr", "Weezer", "Linkin Park", "Beck"],
@@ -3070,23 +3070,18 @@ function filterRefillVideos(videos, r, qCounts){
   return fresh;
 }
 function genrePure(genre, ownerChannel){
-  /* v2.2.21: lenient genre check — only REJECT if the artist is clearly in a
-     DIFFERENT genre's list. Absence from the list doesn't mean wrong genre
-     (the list only has 15 artists per genre, but YouTube returns hundreds). */
-  var g = String(genre || "").toLowerCase();
+  /* v2.2.26: strict genre check — the artist MUST be in this genre's list.
+     The lists are now comprehensive (50+ artists per major genre) so valid
+     bands aren't filtered out, but off-genre content is blocked. */
+  var artists = GENRE_ARTISTS[String(genre || "").toLowerCase()];
+  if(!artists || !artists.length) return true;
   var c = normArtist(ownerChannel);
-  if(!c) return true;
-  var otherGenres = Object.keys(GENRE_ARTISTS).filter(function(k){ return k !== g; });
-  for(var i = 0; i < otherGenres.length; i++){
-    var artists = GENRE_ARTISTS[otherGenres[i]];
-    for(var j = 0; j < artists.length; j++){
-      var a = normArtist(artists[j]);
-      if(a && a.length > 3 && (c === a || c.indexOf(a) !== -1)){
-        return false;
-      }
-    }
+  if(!c) return false;
+  for(var i = 0; i < artists.length; i++){
+    var a = normArtist(artists[i]);
+    if(a && (c === a || c.indexOf(a) !== -1 || a.indexOf(c) !== -1)) return true;
   }
-  return true;
+  return false;
 }
 function startRadio(artist){
   var v = currentVideo();
@@ -3372,12 +3367,10 @@ function loadAllSingles(){
           });
         });
       });
-      allSinglesCache = merged.filter(function(x){ return x.name && x.artist && isRecentRelease(x.releaseDate); });
-      allSinglesCache.sort(function(a, b){
-        try {
-          return new Date(b.releaseDate).getTime() - new Date(a.releaseDate).getTime();
-        } catch(e){ return 0; }
-      });
+      /* v2.2.26: "Top singles" = popular now across genres. Don't filter by
+         date — the topsongs feed is popularity-based, and date-filtering it
+         leaves almost nothing (metal/rock tops are all old classics). */
+      allSinglesCache = merged.filter(function(x){ return x.name && x.artist; });
       renderAllSingles(allSinglesCache);
     })
     .catch(function(){
