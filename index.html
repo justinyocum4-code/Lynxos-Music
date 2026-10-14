@@ -256,7 +256,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.24</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.25</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <div class="homeBlock">
@@ -420,7 +420,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.24. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.25. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -3342,7 +3342,7 @@ function isRecentRelease(dateStr){
   try {
     var d = new Date(dateStr);
     if(isNaN(d.getTime())) return true;
-    var cutoff = Date.now() - (90 * 24 * 60 * 60 * 1000);
+    var cutoff = Date.now() - (180 * 24 * 60 * 60 * 1000);
     return d.getTime() >= cutoff;
   } catch(e){ return true; }
 }
@@ -3353,7 +3353,7 @@ function loadAllSingles(){
   if(allSinglesCache){ renderAllSingles(allSinglesCache); return; }
   box.innerHTML = "<p style='color:#999'>Loading new singles…</p>";
   Promise.all(RELEASE_GENRES.map(function(g){
-    return fetch("https://itunes.apple.com/us/rss/topsongs/limit=10/genre=" + g.id + "/json")
+    return fetch("https://itunes.apple.com/us/rss/topsongs/limit=100/genre=" + g.id + "/json")
       .then(function(r){ return r.json(); })
       .then(function(d){ return (d.feed && d.feed.entry) || []; })
       .catch(function(){ return []; });
@@ -3424,7 +3424,11 @@ var RELEASE_GENRES = [
   { id: "6", name: "Country" },
   { id: "20", name: "Alternative" },
   { id: "15", name: "R&B" },
-  { id: "11", name: "Jazz" }
+  { id: "11", name: "Jazz" },
+  { id: "17", name: "Dance" },
+  { id: "50", name: "Latin" },
+  { id: "10", name: "Blues" },
+  { id: "5", name: "Classical" }
 ];
 function loadAllReleases(){
   var box = $("allReleases");
@@ -3432,7 +3436,7 @@ function loadAllReleases(){
   if(allReleasesCache){ renderAllReleases(allReleasesCache); return; }
   box.innerHTML = "<p style='color:#999'>Loading new releases…</p>";
   Promise.all(RELEASE_GENRES.map(function(g){
-    return fetch("https://itunes.apple.com/us/rss/topalbums/limit=10/genre=" + g.id + "/json")
+    return fetch("https://itunes.apple.com/us/rss/topalbums/limit=100/genre=" + g.id + "/json")
       .then(function(r){ return r.json(); })
       .then(function(d){ return (d.feed && d.feed.entry) || []; })
       .catch(function(){ return []; });
@@ -3761,7 +3765,7 @@ function loadForYouReleases(){
       all.singles.forEach(function(p){ if(p.colId && !seenS[p.colId]){ seenS[p.colId] = 1; singles.push(p); } });
     });
     /* v2.2.23: only show releases from the last 90 days — "new" means new. */
-    var cutoff = Date.now() - (90 * 24 * 60 * 60 * 1000);
+    var cutoff = Date.now() - (180 * 24 * 60 * 60 * 1000);
     albums = albums.filter(function(p){
       try { return new Date(p.date || 0).getTime() >= cutoff; } catch(e){ return true; }
     });
