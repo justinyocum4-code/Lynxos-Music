@@ -4204,16 +4204,24 @@ function closeAlbumPanel(){
   }
 }
 $("albumBackBtn").addEventListener("click", closeAlbumPanel);
+/* v2.2.60: Use state.albumTracks fallback for Python albums */
+function getCurrentAlbumTracks(){
+  if(albumTracks && albumTracks.length) return albumTracks;
+  if(state.albumTracks && state.albumTracks.length) return state.albumTracks;
+  return [];
+}
 $("albumPlayBtn").addEventListener("click", function(){
-  if(!albumTracks.length){ say("Tracks are still loading."); return; }
+  var tracks = getCurrentAlbumTracks();
+  if(!tracks.length){ say("Tracks are still loading."); return; }
   state.radio = null; /* an album replaces any radio station */
-  state.queue = albumTracks.slice();
+  state.queue = tracks.slice();
   playQueueIndex(0, true);
 });
 $("albumShuffleBtn").addEventListener("click", function(){
-  if(!albumTracks.length){ say("Tracks are still loading."); return; }
+  var tracks = getCurrentAlbumTracks();
+  if(!tracks.length){ say("Tracks are still loading."); return; }
   state.radio = null;
-  var q = albumTracks.slice();
+  var q = tracks.slice();
   shuffleList(q);
   state.queue = q;
   playQueueIndex(0, true);
