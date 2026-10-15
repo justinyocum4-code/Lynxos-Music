@@ -2204,12 +2204,21 @@ function openLocalAlbum(idx){
   var box = $("albumList");
   box.innerHTML = '<button class="btn secondary small" id="localAlbumBackBtn">‹ Back to albums</button>' +
     '<h3>' + esc(a.name) + '</h3><p class="hint">' + esc(a.artist) + ' • ' + a.tracks.length + ' songs</p>' +
-    '<div class="row"><button class="btn small" id="localAlbumPlayAllBtn">Play all</button></div>' +
+    '<div class="row"><button class="btn small" id="localAlbumPlayAllBtn">Play all</button>' +
+    '<button class="btn small secondary" id="localAlbumDeleteBtn">Remove album</button></div>' +
     '<div id="albumTrackList"></div>';
   $("localAlbumBackBtn").addEventListener("click", renderAlbums);
   $("localAlbumPlayAllBtn").addEventListener("click", function(){
     playVideo(a.tracks[0], a.tracks, 0);
     say("Playing album " + a.name + ".");
+  });
+  /* v2.2.57: Remove album button */
+  $("localAlbumDeleteBtn").addEventListener("click", function(){
+    var albums = getAlbums();
+    albums.splice(idx, 1);
+    saveAlbums(albums);
+    renderAlbums();
+    say("Removed " + a.name + " from your albums.");
   });
   var tl = $("albumTrackList");
   tl.innerHTML = a.tracks.map(function(t, i){ return trackRow(t, i); }).join("");
