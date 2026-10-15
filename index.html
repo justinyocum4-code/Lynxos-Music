@@ -56,7 +56,8 @@
   nav.tabs button .ticon { font-size: 20px; }
   nav.tabs button[aria-selected="true"] { color: var(--gold); }
   /* mini player */
-  #miniPlayer { position: fixed; left: 0; right: 0; bottom: 62px; z-index: 25; display: flex; align-items: center; gap: 10px; background: var(--surface2); border-top: 1px solid #2a2a2a; padding: 6px 8px; }
+  /* v2.2.51: Mini player above album panel (z-45) */
+  #miniPlayer { position: fixed; left: 0; right: 0; bottom: 62px; z-index: 50; display: flex; align-items: center; gap: 10px; background: var(--surface2); border-top: 1px solid #2a2a2a; padding: 6px 8px; }
   #miniPlayer[hidden] { display: none; }
   #miniPlayer img { width: 48px; height: 48px; border-radius: 4px; object-fit: cover; background: #333; }
   #miniPlayer .mpinfo { flex: 1; min-width: 0; background: none; border: none; color: var(--text); text-align: left; padding: 6px 0; cursor: pointer; }
