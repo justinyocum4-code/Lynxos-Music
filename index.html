@@ -727,6 +727,29 @@ function openPythonAlbum(browseId, title, artist, thumb){
       var anEl = $("albumName"); if(anEl) anEl.textContent = title || "";
       var arEl = $("albumArtist"); if(arEl) arEl.textContent = artist || "";
     } catch(e2){}
+    /* v2.2.61: Deep fix - bind Play/Shuffle directly to these tracks */
+    try {
+      var playBtn = $("albumPlayBtn");
+      var shuffleBtn = $("albumShuffleBtn");
+      if(playBtn){
+        playBtn.onclick = function(){
+          state.radio = null;
+          state.queue = tracks.slice();
+          playQueueIndex(0, true);
+          say("Playing " + title + ".");
+        };
+      }
+      if(shuffleBtn){
+        shuffleBtn.onclick = function(){
+          state.radio = null;
+          var q = tracks.slice();
+          shuffleList(q);
+          state.queue = q;
+          playQueueIndex(0, true);
+          say("Shuffling " + title + ".");
+        };
+      }
+    } catch(e3){}
     say(title + " loaded with " + tracks.length + " tracks.");
   }).catch(function(){
     $("albumTracks").innerHTML = "<p class='hint'>Couldn't load album.</p>";
@@ -4204,29 +4227,12 @@ function closeAlbumPanel(){
   }
 }
 $("albumBackBtn").addEventListener("click", closeAlbumPanel);
-/* v2.2.60: Use state.albumTracks fallback for Python albums */
+/* v2.2.61: Album buttons are bound per-album in openPythonAlbum (deep fix) */
 function getCurrentAlbumTracks(){
-  if(albumTracks && albumTracks.length) return albumTracks;
   if(state.albumTracks && state.albumTracks.length) return state.albumTracks;
+  if(typeof albumTracks !== "undefined" && albumTracks && albumTracks.length) return albumTracks;
   return [];
 }
-$("albumPlayBtn").addEventListener("click", function(){
-  var tracks = getCurrentAlbumTracks();
-  if(!tracks.length){ say("Tracks are still loading."); return; }
-  state.radio = null; /* an album replaces any radio station */
-  state.queue = tracks.slice();
-  playQueueIndex(0, true);
-});
-$("albumShuffleBtn").addEventListener("click", function(){
-  var tracks = getCurrentAlbumTracks();
-  if(!tracks.length){ say("Tracks are still loading."); return; }
-  state.radio = null;
-  var q = tracks.slice();
-  shuffleList(q);
-  state.queue = q;
-  playQueueIndex(0, true);
-  say("Shuffling the album.");
-});
 /* Save the open album (from New releases or an artist page) into
    Library → Albums. Tracks keep their resolve queries, so they play
    on demand exactly like Takeout albums. */
