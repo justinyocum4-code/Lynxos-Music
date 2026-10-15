@@ -684,6 +684,43 @@ function openArtistPage(artistName){
       say("Couldn't load the artist page.");
     });
 }
+/* v2.2.49: Open an album from Python - shows tracks, allows playback. */
+function openPythonAlbum(browseId, title, artist, thumb){
+  if(!browseId){ say("No album ID."); return; }
+  /* Hide other views, show album panel */
+  TABS.forEach(function(t){ $(t[1]).hidden = true; });
+  $("searchView").hidden = true;
+  $("seeAllView").hidden = true;
+  $("settingsView").hidden = true;
+  $("artistView").hidden = true;
+  var panel = $("albumPanel");
+  if(panel) panel.hidden = false;
+  $("albumArt").src = thumb || "";
+  $("albumArt").alt = title + " cover";
+  $("albumName").textContent = title || "Album";
+  $("albumArtist").textContent = artist || "";
+  $("albumTracks").innerHTML = "<p style='color:#999'>Loading tracks...</p>";
+  say("Loading " + title + ".");
+  ytmGetAlbum(browseId).then(function(tracks){
+    tracks = tracks || [];
+    if(!tracks.length){
+      $("albumTracks").innerHTML = "<p class='hint'>No tracks found.</p>";
+      say("No tracks found.");
+      return;
+    }
+    var html = "<div class='trackList'>";
+    tracks.forEach(function(t, i){ html += trackRow(t, i); });
+    html += "</div>";
+    $("albumTracks").innerHTML = html;
+    bindTrackButtons($("albumTracks"), tracks);
+    /* Store for queue playback */
+    state.albumTracks = tracks;
+    say(title + " loaded with " + tracks.length + " tracks.");
+  }).catch(function(){
+    $("albumTracks").innerHTML = "<p class='hint'>Couldn't load album.</p>";
+    say("Couldn't load the album.");
+  });
+}
 /* v2.2.46: Render artist page from Python data - filtered to ONLY this artist. */
 function renderArtistPagePython(data){
   var box = $("artistContent");
@@ -724,15 +761,16 @@ function renderArtistPagePython(data){
     html += "<div class='row' style='align-items:center;justify-content:space-between'><h3 style='margin:0'>Albums</h3>";
     if(albums.length > 10) html += "<button class='btn small secondary' id='artistAlbumsSeeAll'>See all</button>";
     html += "</div><div class='hscroll'>";
-    albumsPreview.forEach(function(a){
+    albumsPreview.forEach(function(a, idx){
       var aname = a.title || a.name || "Unknown";
       var aartist = a.artist || data.artist || "";
       var aart = a.thumb || a.art || "";
       var ayear = a.year || a.date || "";
-      html += '<div class="albumCard" aria-label="Album ' + esc(aname) + ' by ' + esc(aartist) + '">' +
+      var abid = a.browseId || "";
+      html += '<button class="albumCard" data-album-idx="' + idx + '" aria-label="Open album ' + esc(aname) + ' by ' + esc(aartist) + '">' +
         (aart ? '<img src="' + esc(aart) + '" alt="">' : "") +
         '<div class="an">' + esc(aname) + '</div><div class="aa">' + esc(aartist) + '</div>' +
-        (ayear ? '<div class="ad">' + esc(ayear) + "</div>" : "") + "</div>";
+        (ayear ? '<div class="ad">' + esc(ayear) + "</div>" : "") + "</button>";
     });
     html += "</div>";
   }
@@ -740,21 +778,37 @@ function renderArtistPagePython(data){
     html += "<div class='row' style='align-items:center;justify-content:space-between'><h3 style='margin:0'>Singles</h3>";
     if(singles.length > 10) html += "<button class='btn small secondary' id='artistSinglesSeeAll'>See all</button>";
     html += "</div><div class='hscroll'>";
-    singlesPreview.forEach(function(a){
+    singlesPreview.forEach(function(a, idx){
       var aname = a.title || a.name || "Unknown";
       var aartist = a.artist || data.artist || "";
       var aart = a.thumb || a.art || "";
       var ayear = a.year || a.date || "";
-      html += '<div class="albumCard" aria-label="Single ' + esc(aname) + ' by ' + esc(aartist) + '">' +
+      var abid = a.browseId || "";
+      html += '<button class="albumCard" data-single-idx="' + idx + '" aria-label="Open single ' + esc(aname) + ' by ' + esc(aartist) + '">' +
         (aart ? '<img src="' + esc(aart) + '" alt="">' : "") +
         '<div class="an">' + esc(aname) + '</div><div class="aa">' + esc(aartist) + '</div>' +
-        (ayear ? '<div class="ad">' + esc(ayear) + "</div>" : "") + "</div>";
+        (ayear ? '<div class="ad">' + esc(ayear) + "</div>" : "") + "</button>";
     });
     html += "</div>";
   }
   if(!html) html = "<p class='hint'>No results for " + esc(data.artist) + ".</p>";
   box.innerHTML = html;
   if(state.artistSongs) bindTrackButtons(box, state.artistSongs);
+  /* v2.2.49: Album/single card click handlers */
+  box.querySelectorAll("[data-album-idx]").forEach(function(btn){
+    btn.addEventListener("click", function(){
+      var idx = parseInt(btn.getAttribute("data-album-idx"), 10);
+      var a = albumsPreview[idx];
+      if(a) openPythonAlbum(a.browseId, a.title || a.name, data.artist, a.thumb || a.art);
+    });
+  });
+  box.querySelectorAll("[data-single-idx]").forEach(function(btn){
+    btn.addEventListener("click", function(){
+      var idx = parseInt(btn.getAttribute("data-single-idx"), 10);
+      var a = singlesPreview[idx];
+      if(a) openPythonAlbum(a.browseId, a.title || a.name, data.artist, a.thumb || a.art);
+    });
+  });
   /* v2.2.48: See All handlers for albums and singles */
   var albumsBtn = $("artistAlbumsSeeAll");
   if(albumsBtn) albumsBtn.addEventListener("click", function(){
@@ -1202,6 +1256,17 @@ function ytmGetArtistInfo(artistId){
     }
   } catch (e) { }
   return Promise.resolve({});
+}
+function ytmGetAlbum(browseId){
+  try {
+    if (typeof LynxosYTM !== "undefined" && LynxosYTM.getAlbum) {
+      var jsonStr = LynxosYTM.getAlbum(browseId, 50);
+      var parsed = JSON.parse(jsonStr);
+      if (parsed && parsed.error) throw new Error(parsed.error);
+      return Promise.resolve(parsed || []);
+    }
+  } catch (e) { }
+  return Promise.resolve([]);
 }
 function ytmGetArtistAlbums(artistId){
   try {
