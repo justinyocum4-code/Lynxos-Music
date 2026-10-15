@@ -664,10 +664,14 @@ function openArtistPage(artistName){
     var artistId = best.browseId || best.artistId || best.id;
     if(!artistId) throw new Error("no artist id");
     return Promise.all([
+      ytmGetArtistInfo(artistId),
       ytmGetArtistTopSongs(artistId),
       ytmSearchAlbums(artistName)
     ]).then(function(res){
-      return { artist: best.artist || best.name || artistName, songs: res[0] || [], albums: res[1] || [] };
+      return { artist: best.artist || best.name || artistName,
+               info: res[0] || {},
+               songs: res[1] || [],
+               albums: res[2] || [] };
     });
   })
     .then(function(data){
@@ -705,6 +709,18 @@ function renderArtistPagePython(data){
   albums = albums.slice(0, 20);
   singles = singles.slice(0, 20);
   var html = "";
+  /* v2.2.47: Band picture at top, About section below it. */
+  var info = data.info || {};
+  var picUrl = info.thumb || "";
+  var bio = String(info.description || "").trim();
+  if(picUrl){
+    html += '<div style="text-align:center;margin-bottom:12px"><img src="' + esc(picUrl) + '" alt="' + esc(data.artist) + '" style="width:160px;height:160px;border-radius:50%;object-fit:cover;border:3px solid var(--gold)"></div>';
+  }
+  if(bio){
+    /* Truncate long bios, screen-reader friendly */
+    var shortBio = bio.length > 600 ? bio.substring(0, 600) + "..." : bio;
+    html += "<h3>About</h3><p style='color:var(--text);line-height:1.5'>" + esc(shortBio) + "</p>";
+  }
   if(songs.length){
     html += "<h3>Top songs</h3><div class='trackList'>";
     songs.forEach(function(s, i){
@@ -1145,6 +1161,17 @@ function ytmSearchArtists(query, maxResults){
     }
   } catch (e) { }
   return Promise.resolve([]);
+}
+function ytmGetArtistInfo(artistId){
+  try {
+    if (typeof LynxosYTM !== "undefined" && LynxosYTM.getArtistInfo) {
+      var jsonStr = LynxosYTM.getArtistInfo(artistId);
+      var parsed = JSON.parse(jsonStr);
+      if (parsed && parsed.error) throw new Error(parsed.error);
+      return Promise.resolve(parsed || {});
+    }
+  } catch (e) { }
+  return Promise.resolve({});
 }
 function ytmGetArtistTopSongs(artistId, maxResults){
   try {
