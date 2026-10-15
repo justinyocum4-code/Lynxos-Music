@@ -1294,7 +1294,7 @@ jobs:
                           } catch (Exception ignored) {}
                           try {
                               if (url == null || url.isEmpty()) {
-                                  url = resolveAudioUrl(t.videoId);
+                                  url = resolveAudioUrl(t.videoId, t.title, t.channel);
                                   try {
                                       synchronized (urlCache) { urlCache.put(t.videoId, url); }
                                   } catch (Exception ignored) {}
@@ -1355,7 +1355,7 @@ jobs:
                       @Override public void run() {
                           try {
                               synchronized (urlCache) { if (urlCache.containsKey(vid)) return; }
-                              String url = resolveAudioUrl(vid);
+                              String url = resolveAudioUrl(vid, "", "");
                               if (url != null && !url.isEmpty()) {
                                   synchronized (urlCache) {
                                       if (urlCache.size() > 100) urlCache.clear();
@@ -1367,15 +1367,20 @@ jobs:
                   });
               }
 
-              /* v2.2.35: Direct Python yt-dlp call, self-contained in MusicService. */
-              private String getStreamUrlViaPythonDirect(String videoId) {
+              /* v2.2.39: Direct Python call with automatic alternatives.
+                 If the primary video ID fails, Python searches for alternative
+                 versions of the same song. This is the permanent skip fix. */
+              private String getStreamUrlViaPythonDirect(String videoId, String title, String artist) {
                   try {
                       if (!com.chaquo.python.Python.isStarted()) {
                           com.chaquo.python.Python.start(new com.chaquo.python.android.AndroidPlatform(MusicService.this));
                       }
                       com.chaquo.python.PyObject mod = com.chaquo.python.Python.getInstance().getModule("ytm_bridge");
                       if (mod != null) {
-                          com.chaquo.python.PyObject r = mod.callAttr("get_stream_url", videoId);
+                          com.chaquo.python.PyObject r = mod.callAttr("get_playable_stream", 
+                              title != null ? title : "", 
+                              artist != null ? artist : "", 
+                              videoId);
                           String json = r.toString();
                           if (json != null && json.contains("\"url\"")) {
                               int start = json.indexOf("\"url\"") + 7;
@@ -1383,23 +1388,26 @@ jobs:
                               if (start > 6 && end > start) {
                                   String url = json.substring(start, end);
                                   if (url != null && !url.isEmpty() && url.startsWith("http")) {
+                                      if (json.contains("\"alternative\"")) {
+                                          android.util.Log.i("LynxosMusic", "Used alternative version for " + title);
+                                      }
                                       return url;
                                   }
                               }
                           } else if (json != null && json.contains("\"error\"")) {
-                              android.util.Log.w("LynxosMusic", "Python yt-dlp error for " + videoId + ": " + json);
+                              android.util.Log.w("LynxosMusic", "Python stream error for " + videoId + ": " + json);
                           }
                       }
                   } catch (Exception e) {
-                      android.util.Log.w("LynxosMusic", "Direct Python yt-dlp failed for " + videoId, e);
+                      android.util.Log.w("LynxosMusic", "Direct Python failed for " + videoId, e);
                   }
                   return null;
               }
               /* v2.2.33: Try Python yt-dlp first (more robust), fall back to NewPipe. */
-              private String resolveAudioUrl(String videoId) throws Exception {
-                  // Try Python yt-dlp directly (self-contained, no Activity dependency)
+              private String resolveAudioUrl(String videoId, String title, String artist) throws Exception {
+                  // Try Python yt-dlp directly with automatic alternatives (v2.2.39)
                   try {
-                      String pyUrl = getStreamUrlViaPythonDirect(videoId);
+                      String pyUrl = getStreamUrlViaPythonDirect(videoId, title, artist);
                       if (pyUrl != null && !pyUrl.isEmpty()) {
                           android.util.Log.i("LynxosMusic", "Got stream URL via Python yt-dlp for " + videoId);
                           return pyUrl;
