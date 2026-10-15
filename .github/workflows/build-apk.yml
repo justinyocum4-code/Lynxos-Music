@@ -6,11 +6,11 @@ on:
       version_name:
         description: 'Version name (e.g. 1.0)'
         required: false
-        default: '2.2.70'
+        default: '2.2.71'
       version_code:
         description: 'Version code (whole number, bump every build)'
         required: false
-        default: '134'
+        default: '135'
       release_notes:
         description: 'Release notes'
         required: false
@@ -530,6 +530,86 @@ jobs:
                       });
                       t.start();
                       try { t.join(20000); } catch (Exception e) {}
+                      return result[0];
+                  }
+                  @JavascriptInterface public String getYtmLiked(final String token, final int limit) {
+                      final String[] result = new String[1];
+                      result[0] = "[]";
+                      Thread t = new Thread(new Runnable() {
+                          @Override public void run() {
+                              try {
+                                  ensurePython();
+                                  if (ytmModule != null) {
+                                      PyObject r = ytmModule.callAttr("get_ytm_liked", token, limit);
+                                      result[0] = r.toString();
+                                  }
+                              } catch (Exception e) {
+                                  android.util.Log.e("LynxosYTM", "getYtmLiked failed", e);
+                              }
+                          }
+                      });
+                      t.start();
+                      try { t.join(30000); } catch (Exception e) {}
+                      return result[0];
+                  }
+                  @JavascriptInterface public String getYtmPlaylists(final String token, final int limit) {
+                      final String[] result = new String[1];
+                      result[0] = "[]";
+                      Thread t = new Thread(new Runnable() {
+                          @Override public void run() {
+                              try {
+                                  ensurePython();
+                                  if (ytmModule != null) {
+                                      PyObject r = ytmModule.callAttr("get_ytm_playlists", token, limit);
+                                      result[0] = r.toString();
+                                  }
+                              } catch (Exception e) {
+                                  android.util.Log.e("LynxosYTM", "getYtmPlaylists failed", e);
+                              }
+                          }
+                      });
+                      t.start();
+                      try { t.join(30000); } catch (Exception e) {}
+                      return result[0];
+                  }
+                  @JavascriptInterface public String getYtmHistory(final String token) {
+                      final String[] result = new String[1];
+                      result[0] = "[]";
+                      Thread t = new Thread(new Runnable() {
+                          @Override public void run() {
+                              try {
+                                  ensurePython();
+                                  if (ytmModule != null) {
+                                      PyObject r = ytmModule.callAttr("get_ytm_history", token);
+                                      result[0] = r.toString();
+                                  }
+                              } catch (Exception e) {
+                                  android.util.Log.e("LynxosYTM", "getYtmHistory failed", e);
+                              }
+                          }
+                      });
+                      t.start();
+                      try { t.join(30000); } catch (Exception e) {}
+                      return result[0];
+                  }
+                  @JavascriptInterface public String getSong(final String videoId) {
+                      final String[] result = new String[1];
+                      result[0] = "{}";
+                      Thread t = new Thread(new Runnable() {
+                          @Override public void run() {
+                              try {
+                                  ensurePython();
+                                  if (ytmModule != null) {
+                                      PyObject r = ytmModule.callAttr("get_song", videoId);
+                                      result[0] = r.toString();
+                                  }
+                              } catch (Exception e) {
+                                  android.util.Log.e("LynxosYTM", "getSong failed", e);
+                              }
+                          }
+                      });
+                      t.start();
+                      try { t.join(15000); } catch (Exception e) {}
                       return result[0];
                   }
                   @JavascriptInterface public String getCharts(final String country, final int limit) {
