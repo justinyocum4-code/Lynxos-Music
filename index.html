@@ -279,7 +279,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.70</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button><button class="iconbtn" id="accountBtn" aria-label="Account">👤</button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings" style="margin-left:auto">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.71</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button><button class="iconbtn" id="accountBtn" aria-label="Account">👤</button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings" style="margin-left:auto">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -402,15 +402,7 @@
   <section id="settingsView" role="tabpanel" aria-labelledby="settingsHeading" hidden>
     <button class="backBtn" id="settingsBackBtn" aria-label="Back to library">‹ Back</button>
     <h2 id="settingsHeading" style="color:var(--gold)">Settings</h2>
-    <div class="card">
-      <h3>API Keys</h3>
-      <p class="hint">A YouTube key is already built in, so search works out of the box.</p>
-      <label for="apiKeyInput">YouTube API key (optional)</label>
-      <input type="text" id="apiKeyInput" placeholder="Your own YouTube API key" autocomplete="off">
-      <button class="btn" id="saveKeyBtn">Save YouTube key</button>
-      <p class="hint" id="keyStatus"></p>
-      <p class="hint" style="margin-top:12px"><b>Note:</b> Amazon Music does not offer a public API key — their API is in closed beta by invitation only. Spotify uses OAuth login, not a simple API key.</p>
-    </div>
+
     <div class="card">
       <h3>Import from Google Takeout</h3>
       <p class="hint">Bring your YouTube Music likes and playlists into this app. Google can't sign in inside apps, so this uses a free export file instead — no password needed here.</p>
@@ -624,8 +616,6 @@ window.lmNativeEnded = function(){
   /* v2.2.9: native service advances the queue itself now (reliable with
      screen off). JS just syncs its index when onTrackChanged fires. */
 };
-var BUILTIN_KEY = "AIzaSyBlRExgehSNPYhBoVol3BToThbNIB3I0Ns";
-function getKey(){ try { var k = (localStorage.getItem("lm_api_key") || "").trim(); return k || BUILTIN_KEY; } catch(e){ return BUILTIN_KEY; } }
 /* ================= tabs ================= */
 var TABS = [["tab-home","homeView","Home"],["tab-explore","exploreView","Explore"],["tab-library","libraryView","Library"]];
 function showTab(name){
@@ -2615,19 +2605,6 @@ $("fpLikeBtn").addEventListener("click", function(){
   toggleLike(v);
 });
 /* ================= settings ================= */
-function refreshKeyStatus(){
-  var custom = "";
-  try { custom = (localStorage.getItem("lm_api_key") || "").trim(); } catch(e){}
-  $("keyStatus").textContent = custom ? "Using your own saved key." : "Using the built-in key.";
-}
-$("saveKeyBtn").addEventListener("click", function(){
-  var k = $("apiKeyInput").value.trim();
-  if(!k){ say("Paste a key first, or leave it empty to keep the built-in key."); return; }
-  try { localStorage.setItem("lm_api_key", k); } catch(e){}
-  $("apiKeyInput").value = "";
-  refreshKeyStatus();
-  say("Your key is saved.");
-});
 /* ================= Google Takeout import (v1.8) ================= */
 function takeoutStatus(msg){ var el = $("takeoutStatus"); if(el) el.textContent = msg; say(msg); }
 /* Minimal CSV parser: handles quoted fields with commas and newlines inside. */
@@ -2679,30 +2656,32 @@ function takeoutTrack(id, title, channel, album){
 /* Resolve video IDs to titles/artists via the Data API, 50 per call.
    Falls back to playable ID-only tracks if the API is unreachable. */
 function takeoutResolveIds(ids, onTick){
+  /* v2.2.71: resolves via Python ytmusicapi - no YouTube API key needed */
   var map = {}, queue = ids.slice(), done = 0, total = ids.length;
   function next(){
     if(!queue.length) return Promise.resolve(map);
-    var batch = queue.splice(0, 50);
-    var url = "https://www.googleapis.com/youtube/v3/videos?part=snippet&id=" +
-      batch.join(",") + "&key=" + encodeURIComponent(getKey());
-    return ytFetch(url).then(function(d){
-      (d.items || []).forEach(function(it){
-        var sn = it.snippet || {}, th = sn.thumbnails || {};
-        map[it.id] = {
-          videoId: it.id, title: sn.title || it.id, channel: sn.channelTitle || "",
-          thumb: th.medium ? th.medium.url : ("https://i.ytimg.com/vi/" + it.id + "/hqdefault.jpg"),
-          art: th.high ? th.high.url : ("https://i.ytimg.com/vi/" + it.id + "/hqdefault.jpg")
-        };
-      });
-      done += batch.length;
-      if(onTick) onTick(done, total);
-      return next();
-    }).catch(function(){
-      batch.forEach(function(id){ if(!map[id]) map[id] = takeoutTrack(id); });
-      done += batch.length;
-      if(onTick) onTick(done, total);
-      return next();
-    });
+    var id = queue.shift();
+    try {
+      if (typeof LynxosYTM !== "undefined" && LynxosYTM.getSong) {
+        var d = JSON.parse(LynxosYTM.getSong(id));
+        if (d && !d.error && d.title) {
+          map[id] = {
+            videoId: id, title: d.title, channel: d.channel || "",
+            thumb: d.thumb || ("https://i.ytimg.com/vi/" + id + "/hqdefault.jpg"),
+            art: d.art || ("https://i.ytimg.com/vi/" + id + "/hqdefault.jpg")
+          };
+        } else {
+          map[id] = takeoutTrack(id);
+        }
+      } else {
+        map[id] = takeoutTrack(id);
+      }
+    } catch(e) {
+      map[id] = takeoutTrack(id);
+    }
+    done++;
+    if(onTick) onTick(done, total);
+    return next();
   }
   return next();
 }
@@ -4687,12 +4666,15 @@ function renderAccount(){
         (avatar ? "<img src='" + esc(avatar) + "' alt='' style='width:80px;height:80px;border-radius:50%'>" : "<div style='font-size:60px'>👤</div>") +
         "<h3 style='color:var(--gold)'>" + esc(name) + "</h3>" +
         "<p style='color:#999'>" + esc(u.email || "") + "</p>" +
-        "<button class='btn' id='signOutBtn'>Sign out</button>" +
+        "<button class='btn' id='importYtmBtn' style='margin-top:8px'>Import from YouTube Music</button>" +
+        "<div id='importStatus' style='margin-top:8px'></div>" +
+        "<button class='btn' id='signOutBtn' style='margin-top:8px'>Sign out</button>" +
         "<p style='color:#666;font-size:13px;margin-top:16px'>Your liked songs and playlists stay on this device for now. Cloud sync is coming.</p>" +
         "</div>";
       $("signOutBtn").addEventListener("click", function(){
         sbClient.auth.signOut().then(function(){ renderAccount(); say("Signed out."); });
       });
+      $("importYtmBtn").addEventListener("click", importFromYouTubeMusic);
       say("Signed in as " + name);
     } else {
       box.innerHTML =
@@ -4711,7 +4693,11 @@ function startGoogleLogin(){
   /* Open OAuth in external browser, app receives the callback via deep link */
   sbClient.auth.signInWithOAuth({
     provider: "google",
-    options: { redirectTo: "com.lynxosmusic.app://auth-callback", skipBrowserRedirect: true }
+    options: {
+      redirectTo: "com.lynxosmusic.app://auth-callback",
+      skipBrowserRedirect: true,
+      scopes: "https://www.googleapis.com/auth/youtube https://www.googleapis.com/auth/youtubepartner"
+    }
   }).then(function(res){
     if(res.data && res.data.url){
       /* Ask Android to open in the system browser */
@@ -4723,6 +4709,50 @@ function startGoogleLogin(){
       say("Opening Google sign-in in your browser. Come back here when done.");
     } else {
       say("Couldn't start sign-in.");
+    }
+  });
+}
+/* v2.2.71: Import liked songs, playlists, history from YouTube Music */
+function importFromYouTubeMusic(){
+  var status = $("importStatus");
+  if(status) status.innerHTML = "<p style='color:#999'>Importing from YouTube Music…</p>";
+  say("Importing your YouTube Music library.");
+  sbClient.auth.getSession().then(function(res){
+    var session = res.data.session;
+    var token = session && session.provider_token;
+    if(!token){
+      if(status) status.innerHTML = "<p style='color:#f66'>No YouTube access. Try signing out and back in.</p>";
+      say("Couldn't access YouTube. Try signing out and back in.");
+      return;
+    }
+    try {
+      if (typeof LynxosYTM === "undefined" || !LynxosYTM.getYtmLiked) {
+        throw new Error("bridge missing");
+      }
+      var imported = 0;
+      /* Liked songs */
+      var liked = JSON.parse(LynxosYTM.getYtmLiked(token, 100));
+      if(liked && !liked.error && liked.length){
+        liked.forEach(function(t){
+          var track = { videoId: t.videoId || "", title: t.title || "", channel: t.channel || "",
+            thumb: t.thumb || t.art || "", art: t.art || t.thumb || "" };
+          if(track.videoId && !isLiked(track.videoId)){ toggleLike(track); imported++; }
+        });
+      }
+      /* History */
+      var hist = JSON.parse(LynxosYTM.getYtmHistory(token));
+      if(hist && !hist.error && hist.length){
+        hist.slice(0, 50).forEach(function(t){
+          logHistory({ videoId: t.videoId || "", title: t.title || "", channel: t.channel || "",
+            thumb: t.thumb || t.art || "", art: t.art || t.thumb || "" });
+        });
+      }
+      if(status) status.innerHTML = "<p style='color:#8f8'>Imported " + imported + " liked songs and recent history.</p>";
+      say("Imported " + imported + " liked songs from YouTube Music.");
+      renderHome();
+    } catch(e){
+      if(status) status.innerHTML = "<p style='color:#f66'>Import failed. Check your connection.</p>";
+      say("Import failed.");
     }
   });
 }
