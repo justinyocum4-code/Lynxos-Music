@@ -687,6 +687,8 @@ function openArtistPage(artistName){
 /* v2.2.49: Open an album from Python - shows tracks, allows playback. */
 function openPythonAlbum(browseId, title, artist, thumb){
   if(!browseId){ say("No album ID."); return; }
+  /* v2.2.50: Remember if we came from artist page for back navigation */
+  state.albumFromArtist = !$("artistView").hidden;
   /* Hide other views, show album panel */
   TABS.forEach(function(t){ $(t[1]).hidden = true; });
   $("searchView").hidden = true;
@@ -4070,7 +4072,17 @@ function renderAlbumTracks(){
   });
   if(!albumTracks.length) box.innerHTML = "<p style='color:#999'>No tracks found.</p>";
 }
-function closeAlbumPanel(){ $("albumPanel").hidden = true; say("Back."); }
+function closeAlbumPanel(){
+  $("albumPanel").hidden = true;
+  /* v2.2.50: Restore artist view if we came from there */
+  if(state.albumFromArtist){
+    state.albumFromArtist = false;
+    $("artistView").hidden = false;
+    say("Back to artist.");
+  } else {
+    say("Back.");
+  }
+}
 $("albumBackBtn").addEventListener("click", closeAlbumPanel);
 $("albumPlayBtn").addEventListener("click", function(){
   if(!albumTracks.length){ say("Tracks are still loading."); return; }
