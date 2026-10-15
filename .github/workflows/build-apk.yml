@@ -1347,12 +1347,12 @@ jobs:
               /* v2.2.35: Direct Python yt-dlp call, self-contained in MusicService. */
               private String getStreamUrlViaPythonDirect(String videoId) {
                   try {
-                      if (!com.chaquopy.python.Python.isStarted()) {
-                          com.chaquopy.python.Python.start(new com.chaquopy.python.android.AndroidPlatform(MusicService.this));
+                      if (!com.chaquo.python.Python.isStarted()) {
+                          com.chaquo.python.Python.start(new com.chaquo.python.android.AndroidPlatform(MusicService.this));
                       }
-                      com.chaquopy.python.PyObject mod = com.chaquopy.python.Python.getInstance().getModule("ytm_bridge");
+                      com.chaquo.python.PyObject mod = com.chaquo.python.Python.getInstance().getModule("ytm_bridge");
                       if (mod != null) {
-                          com.chaquopy.python.PyObject r = mod.callAttr("get_stream_url", videoId);
+                          com.chaquo.python.PyObject r = mod.callAttr("get_stream_url", videoId);
                           String json = r.toString();
                           if (json != null && json.contains("\"url\"")) {
                               int start = json.indexOf("\"url\"") + 7;
