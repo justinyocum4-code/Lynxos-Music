@@ -525,6 +525,26 @@ jobs:
                       try { t.join(15000); } catch (Exception e) {}
                       return result[0];
                   }
+                  @JavascriptInterface public String getNewReleases(final int limit) {
+                      final String[] result = new String[1];
+                      result[0] = "[]";
+                      Thread t = new Thread(new Runnable() {
+                          @Override public void run() {
+                              try {
+                                  ensurePython();
+                                  if (ytmModule != null) {
+                                      PyObject r = ytmModule.callAttr("get_new_releases", limit);
+                                      result[0] = r.toString();
+                                  }
+                              } catch (Exception e) {
+                                  android.util.Log.e("LynxosYTM", "getNewReleases failed", e);
+                              }
+                          }
+                      });
+                      t.start();
+                      try { t.join(20000); } catch (Exception e) {}
+                      return result[0];
+                  }
                   @JavascriptInterface public String getStreamUrl(final String videoId) {
                       final String[] result = new String[1];
                       result[0] = "{\"error\":\"not attempted\"}";
