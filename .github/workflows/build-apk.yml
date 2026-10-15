@@ -6,11 +6,11 @@ on:
       version_name:
         description: 'Version name (e.g. 1.0)'
         required: false
-        default: '2.2.71'
+        default: '2.2.72'
       version_code:
         description: 'Version code (whole number, bump every build)'
         required: false
-        default: '135'
+        default: '136'
       release_notes:
         description: 'Release notes'
         required: false
@@ -337,6 +337,10 @@ jobs:
               public static YTMusicBridge sharedYtmBridge = null;
               public class YTMusicBridge {
                   private PyObject ytmModule = null;
+                  public void warmup() {
+                      /* v2.2.72: Called once at startup to boot Python early. */
+                      ensurePython();
+                  }
                   private void ensurePython() {
                       try {
                           if (!Python.isStarted()) {
@@ -830,6 +834,15 @@ jobs:
                   YTMusicBridge ytmBridgeInstance = new YTMusicBridge();
                   sharedYtmBridge = ytmBridgeInstance;
                   webView.addJavascriptInterface(ytmBridgeInstance, "LynxosYTM");
+                  /* v2.2.72: Pre-warm Python in background so home screen doesn't freeze
+                     waiting for the interpreter to boot on first use. */
+                  new Thread(new Runnable() {
+                      @Override public void run() {
+                          try {
+                              ytmBridgeInstance.warmup();
+                          } catch (Exception ignored) {}
+                      }
+                  }).start();
                   webView.setWebViewClient(new WebViewClient() {
                       @Override
                       public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
