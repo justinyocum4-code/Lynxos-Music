@@ -6,11 +6,11 @@ on:
       version_name:
         description: 'Version name (e.g. 1.0)'
         required: false
-        default: '2.2.68'
+        default: '2.2.69'
       version_code:
         description: 'Version code (whole number, bump every build)'
         required: false
-        default: '132'
+        default: '133'
       release_notes:
         description: 'Release notes'
         required: false
@@ -179,6 +179,13 @@ jobs:
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
                           <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+                      </intent-filter>
+                      <!-- v2.2.69: OAuth deep link for Google sign-in -->
+                      <intent-filter>
+                          <action android:name="android.intent.action.VIEW" />
+                          <category android:name="android.intent.category.DEFAULT" />
+                          <category android:name="android.intent.category.BROWSABLE" />
+                          <data android:scheme="com.lynxosmusic.app" android:host="auth-callback" />
                       </intent-filter>
                   </activity>
                   <service
@@ -542,7 +549,7 @@ jobs:
                           }
                       });
                       t.start();
-                      try { t.join(15000); } catch (Exception e) {}
+                      try { t.join(30000); } catch (Exception e) {}
                       return result[0];
                   }
                   @JavascriptInterface public String searchAlbums(final String query, final int limit) {
@@ -704,6 +711,14 @@ jobs:
                       withService(new Runnable() {
                           @Override public void run() { musicService.setRepeatMode(mode); }
                       });
+                  }
+                  @JavascriptInterface public void openUrl(final String url) {
+                      /* v2.2.69: Open URL in system browser (for OAuth) */
+                      try {
+                          Intent i = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url));
+                          i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                          startActivity(i);
+                      } catch (Exception ignored) {}
                   }
               }
 
@@ -908,6 +923,26 @@ jobs:
               }
 
               @Override
+              @Override
+              protected void onNewIntent(Intent intent) {
+                  super.onNewIntent(intent);
+                  setIntent(intent);
+                  /* v2.2.69: Forward OAuth deep link to JS */
+                  try {
+                      android.net.Uri uri = intent.getData();
+                      if (uri != null && "com.lynxosmusic.app".equals(uri.getScheme())) {
+                          final String url = uri.toString();
+                          final String escaped = url.replace("\\", "\\\\").replace("'", "\\'");
+                          webView.post(new Runnable() {
+                              @Override public void run() {
+                                  webView.evaluateJavascript(
+                                      "(function(){ try { if (window.handleAuthCallback) window.handleAuthCallback('" + escaped + "'); } catch(e){} })()",
+                                      null);
+                              }
+                          });
+                      }
+                  } catch (Exception ignored) {}
+              }
               public void onBackPressed() {
                   // The app is a single page: WebView history is empty, so the
                   // back button must consult the JS UI state (full player,
