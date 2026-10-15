@@ -565,6 +565,27 @@ jobs:
                       try { t.join(15000); } catch (Exception e) {}
                       return result[0];
                   }
+                  /* v2.2.56: Find album browseId by name */
+                  @JavascriptInterface public String findAlbumBrowseId(final String albumName, final String artistName) {
+                      final String[] result = new String[1];
+                      result[0] = "{\"error\":\"not found\"}";
+                      Thread t = new Thread(new Runnable() {
+                          @Override public void run() {
+                              try {
+                                  ensurePython();
+                                  if (ytmModule != null) {
+                                      PyObject r = ytmModule.callAttr("find_album_browse_id", albumName, artistName);
+                                      result[0] = r.toString();
+                                  }
+                              } catch (Exception e) {
+                                  android.util.Log.e("LynxosYTM", "findAlbumBrowseId failed", e);
+                              }
+                          }
+                      });
+                      t.start();
+                      try { t.join(30000); } catch (Exception e) {}
+                      return result[0];
+                  }
                   @JavascriptInterface public String getAlbum(final String browseId, final int limit) {
                       final String[] result = new String[1];
                       result[0] = "[]";
