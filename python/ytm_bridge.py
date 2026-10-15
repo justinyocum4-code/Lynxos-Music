@@ -270,3 +270,68 @@ def get_new_releases(limit=100):
         return json.dumps(albums[:limit])
     except Exception as e:
         return json.dumps({"error": str(e)})
+
+def get_playable_stream(title, artist, video_id, max_alternatives=3):
+    """Get a playable stream URL, trying alternatives if the primary fails.
+    Returns JSON with url and videoId, or error if all fail.
+    This is the permanent fix for skipped tracks."""
+    import yt_dlp
+    
+    def try_video_id(vid):
+        """Try to get stream URL for a video ID. Returns URL or None."""
+        try:
+            url = "https://www.youtube.com/watch?v=" + vid
+            ydl_opts = {
+                'format': 'bestaudio/best',
+                'quiet': True,
+                'no_warnings': True,
+                'extract_flat': False,
+                'noplaylist': True,
+                'socket_timeout': 15,
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+                stream_url = info.get('url', '')
+                if not stream_url:
+                    for f in info.get('formats', []):
+                        if f.get('acodec') != 'none' and f.get('vcodec') == 'none':
+                            stream_url = f.get('url', '')
+                            if stream_url:
+                                break
+                    if not stream_url and info.get('formats'):
+                        stream_url = info['formats'][0].get('url', '')
+                return stream_url if stream_url else None
+        except:
+            return None
+    
+    # Try the primary video ID first
+    url = try_video_id(video_id)
+    if url:
+        return json.dumps({"url": url, "videoId": video_id})
+    
+    # Primary failed - search for alternatives
+    try:
+        ytm = _get_ytm()
+        query = f"{artist} {title}".strip()
+        if not query:
+            return json.dumps({"error": "No query for alternatives"})
+        
+        results = ytm.search(query, filter="songs", limit=10)
+        tried = {video_id}
+        for item in results:
+            vid = item.get("videoId", "")
+            if not vid or vid in tried:
+                continue
+            # Skip music videos
+            if item.get("videoType", "") == "MUSIC_VIDEO_TYPE_OMV":
+                continue
+            tried.add(vid)
+            url = try_video_id(vid)
+            if url:
+                return json.dumps({"url": url, "videoId": vid, "alternative": True})
+            if len(tried) > max_alternatives + 1:
+                break
+    except Exception as e:
+        pass
+    
+    return json.dumps({"error": "All alternatives failed"})
