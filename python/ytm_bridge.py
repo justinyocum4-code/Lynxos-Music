@@ -271,7 +271,7 @@ def get_new_releases(limit=100):
     except Exception as e:
         return json.dumps({"error": str(e)})
 
-def get_playable_stream(title, artist, video_id, max_alternatives=3):
+def get_playable_stream(title, artist, video_id, max_alternatives=2):
     """Get a playable stream URL, trying alternatives if the primary fails.
     Returns JSON with url and videoId, or error if all fail.
     This is the permanent fix for skipped tracks."""
@@ -287,7 +287,7 @@ def get_playable_stream(title, artist, video_id, max_alternatives=3):
                 'no_warnings': True,
                 'extract_flat': False,
                 'noplaylist': True,
-                'socket_timeout': 15,
+                'socket_timeout': 10,
             }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
