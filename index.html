@@ -1153,6 +1153,8 @@ function ytmRadioQueue(videoId){
    (2) browse the genre category for curated playlists, then pull tracks. */
 /* v2.2.32: Python-only genre — uses ytmusicapi via LynxosYTM bridge. */
 /* v2.2.32: Python-only genre tracks — searches YouTube Music for genre. */
+/* v2.2.45: Diversify genre stations by artist - max 3 songs per artist.
+   Prevents stations like '80s Metal' from being all Metallica. */
 function ytmGenreTracks(genreName, limit){
   try {
     if (typeof LynxosYTM !== "undefined" && LynxosYTM.searchSongs) {
@@ -1160,7 +1162,26 @@ function ytmGenreTracks(genreName, limit){
       var jsonStr = LynxosYTM.searchSongs(genreName + " music", limit || 50);
       var parsed = JSON.parse(jsonStr);
       if (parsed && parsed.error) throw new Error(parsed.error);
-      return Promise.resolve(parsed || []);
+      var tracks = parsed || [];
+      /* Diversify: limit each artist to max 3 tracks */
+      var artistCount = {};
+      var diversified = [];
+      var overflow = [];
+      tracks.forEach(function(t){
+        var artist = String(t.artist || t.channel || "").toLowerCase().trim();
+        var count = artistCount[artist] || 0;
+        if(count < 3){
+          diversified.push(t);
+          artistCount[artist] = count + 1;
+        } else {
+          overflow.push(t);
+        }
+      });
+      /* If we filtered too aggressively, add back overflow */
+      while(diversified.length < 20 && overflow.length){
+        diversified.push(overflow.shift());
+      }
+      return Promise.resolve(diversified);
     }
   } catch (e) { }
   return Promise.resolve([]);
