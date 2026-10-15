@@ -279,7 +279,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.69</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button><button class="iconbtn" id="accountBtn" aria-label="Account">👤</button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings" style="margin-left:auto">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.70</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button><button class="iconbtn" id="accountBtn" aria-label="Account">👤</button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings" style="margin-left:auto">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -3735,8 +3735,9 @@ function renderHome(){
   try { renderQuickPicks(); } catch(e){ console.log("quickpicks: " + e.message); }
   try { renderMixes(); } catch(e){ console.log("mixes: " + e.message); }
   try { renderFreshFinds(); } catch(e){ console.log("fresh: " + e.message); }
-  try { loadAllReleases(); } catch(e){ console.log("releases: " + e.message); }
-  try { loadAllSingles(); } catch(e){ console.log("singles: " + e.message); }
+  /* v2.2.70: defer slow Python calls - local UI renders instantly, network fills in */
+  setTimeout(function(){ try { loadAllReleases(); } catch(e){ console.log("releases: " + e.message); } }, 100);
+  setTimeout(function(){ try { loadAllSingles(); } catch(e){ console.log("singles: " + e.message); } }, 200);
 }
 /* v2.2.67: Genre filter chips (YouTube Music style) */
 function renderHomeChips(){
