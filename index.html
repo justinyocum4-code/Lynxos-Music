@@ -121,6 +121,23 @@
   .homeBlock { margin: 4px 0 20px; }
   .homeBlock h2 { color: var(--gold); font-size: 18px; margin: 0 0 8px; }
   .mixRow { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 6px; }
+  /* v2.2.67: YouTube Music-style home */
+  .chipRow { display: flex; gap: 8px; overflow-x: auto; padding: 8px 0 4px; scrollbar-width: none; }
+  .chipRow::-webkit-scrollbar { display: none; }
+  .chip { flex: 0 0 auto; padding: 8px 16px; border-radius: 8px; background: #2a2a2a; color: #fff; border: 1px solid #444; font-size: 15px; }
+  .chip[aria-pressed="true"] { background: var(--gold); color: #000; border-color: var(--gold); font-weight: bold; }
+  .speedDialWrap { overflow: hidden; }
+  .speedDialPages { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; }
+  .speedDialPages::-webkit-scrollbar { display: none; }
+  .speedDialPage { flex: 0 0 100%; scroll-snap-align: start; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 4px 2px; }
+  .speedDialCard { position: relative; aspect-ratio: 1; border-radius: 12px; overflow: hidden; background: #2a2a2a; border: 1px solid #444; padding: 0; }
+  .speedDialCard img { width: 100%; height: 100%; object-fit: cover; }
+  .speedDialCard .sdLabel { position: absolute; left: 0; right: 0; bottom: 0; padding: 4px 6px; background: rgba(0,0,0,0.7); color: #fff; font-size: 12px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .speedDialCard .sdGo { position: absolute; right: 4px; bottom: 4px; color: #fff; font-size: 16px; }
+  .speedDialCard .sdArt { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 40px; background: #333; }
+  .dots { display: flex; gap: 6px; justify-content: center; padding: 8px 0 4px; }
+  .dots span { width: 8px; height: 8px; border-radius: 50%; background: #555; }
+  .dots span.on { background: #fff; }
   .mixCard { min-width: 140px; flex: 1 1 0; background: #161616; border: 1px solid var(--gold); border-radius: 12px; padding: 16px 10px; color: var(--gold); text-align: center; font-size: 16px; font-weight: bold; }
   .mixCard small { display: block; color: #ccc; font-size: 12px; font-weight: normal; margin-top: 6px; }
   /* v2.2.17: visual genre/mood cards with artwork */
@@ -261,21 +278,33 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.30</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings" style="margin-left:auto">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.67</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings" style="margin-left:auto">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
-    <!-- v2.2.16: your top artists -->
+    <!-- v2.2.67: YouTube Music-style home - genre chips -->
+    <div class="chipRow" id="homeChips" role="group" aria-label="Filter by genre"></div>
+    <!-- v2.2.67: Speed dial - 3x3 swipeable grid -->
     <div class="homeBlock">
-      <div class="row" style="align-items:center;justify-content:space-between">
-        <h2 style="margin:0">Your top artists</h2>
-        <button class="btn small secondary" id="topArtistsSeeAllBtn">See all</button>
+      <h2>Speed dial</h2>
+      <div class="speedDialWrap">
+        <div class="speedDialPages" id="speedDialPages"><p style="color:#999">Play some music and your speed dial will fill up.</p></div>
       </div>
-      <div class="hscroll" id="topArtists" style="margin-top:8px"><p style="color:#999">Loading…</p></div>
+      <div class="dots" id="speedDialDots" aria-hidden="true"></div>
     </div>
-    <!-- v2.2.16: jump back in -->
+    <!-- v2.2.67: Quick picks -->
     <div class="homeBlock">
-      <h2>Jump back in</h2>
-      <div id="jumpBackIn"><p style="color:#999">Play something and it'll show up here.</p></div>
+      <h2>Quick picks</h2>
+      <div class="hscroll" id="quickPicks" style="margin-top:8px"><p style="color:#999">Loading…</p></div>
+    </div>
+    <!-- v2.2.67: Your mixes -->
+    <div class="homeBlock">
+      <h2>Your mixes</h2>
+      <div class="mixRow" id="mixRow" style="margin-top:8px"></div>
+    </div>
+    <!-- v2.2.67: Fresh finds, old favorites -->
+    <div class="homeBlock">
+      <h2>Fresh finds, old favorites</h2>
+      <div class="hscroll" id="freshFinds" style="margin-top:8px"><p style="color:#999">Loading…</p></div>
     </div>
     <!-- v2.2.0: new releases across all genres, not just his artists. -->
     <div class="homeBlock">
@@ -293,10 +322,6 @@
       </div>
       <div class="hscroll" id="allSingles" style="margin-top:8px"><p style="color:#999">Loading…</p></div>
     </div>
-    <div class="homeBlock">
-      <h2>Recently played</h2>
-      <div id="recentPlayed"></div>
-    </div>
   </section>
   <section id="exploreView" role="tabpanel" aria-labelledby="tab-explore" hidden>
     <div class="homeBlock">
@@ -310,14 +335,6 @@
         <button class="btn small secondary" id="trendingSeeAllBtn">See all</button>
       </div>
       <div class="hscroll" id="trendingMetal" style="margin-top:8px"><p style="color:#999">Loading…</p></div>
-    </div>
-    <div class="homeBlock">
-      <h2>Top artists</h2>
-      <div class="hscroll" id="topArtistsRow" style="margin-top:8px"><p style="color:#999">Loading…</p></div>
-    </div>
-    <div class="homeBlock">
-      <h2>Mood stations</h2>
-      <div class="row" id="moodRow" role="group" aria-label="Mood stations" style="margin-top:8px"></div>
     </div>
   </section>
   <section id="seeAllView" role="tabpanel" aria-labelledby="seeAllTitle" hidden>
@@ -3702,56 +3719,139 @@ function showSimilar(){
 $("fpSimilarBtn").addEventListener("click", showSimilar);
 /* ================= home screen ================= */
 function renderHome(){
+  renderHomeChips();
+  renderSpeedDial();
+  renderQuickPicks();
   renderMixes();
-  renderRecentPlayed();
-  renderTopArtists();
-  renderJumpBackIn();
-  loadForYouReleases();
+  renderFreshFinds();
   loadAllReleases();
   loadAllSingles();
 }
-/* v2.2.16: top artists from listening history */
-function renderTopArtists(){
-  var box = $("topArtists");
+/* v2.2.67: Genre filter chips (YouTube Music style) */
+function renderHomeChips(){
+  var box = $("homeChips");
   if(!box) return;
-  var hist = getHistory();
-  var counts = {};
-  hist.forEach(function(h){
-    var a = h.artist || h.channel || "Unknown";
-    counts[a] = (counts[a] || 0) + 1;
-  });
-  var sorted = Object.keys(counts).sort(function(a,b){ return counts[b] - counts[a]; }).slice(0, 10);
-  if(!sorted.length){
-    box.innerHTML = "<p style=\"color:#999\">Play some music and your top artists will show up here.</p>";
-    return;
-  }
   box.innerHTML = "";
-  sorted.forEach(function(a){
+  var genres = ["Metal","Rock","Grunge","Alternative","Hip-Hop","Pop","Country","Jazz","Classical","Electronic","R&B","Punk"];
+  genres.forEach(function(g){
     var b = document.createElement("button");
-    b.className = "cardBtn";
-    b.setAttribute("aria-label", "Play " + a);
-    b.innerHTML = "<b>" + esc(a) + "</b><small>" + counts[a] + " plays</small>";
-    b.addEventListener("click", function(){ startRadio(a); });
+    b.className = "chip";
+    b.textContent = g;
+    b.setAttribute("aria-pressed", "false");
+    b.setAttribute("aria-label", "Play " + g + " radio");
+    b.addEventListener("click", function(){ startRadio(g); });
     box.appendChild(b);
   });
 }
-/* v2.2.16: jump back in — resume last queue */
-function renderJumpBackIn(){
-  var box = $("jumpBackIn");
+/* v2.2.67: Speed dial - 3x3 swipeable grid from listening data */
+function renderSpeedDial(){
+  var box = $("speedDialPages");
   if(!box) return;
-  var hist = getHistory();
-  if(!hist.length){
-    box.innerHTML = "<p style=\"color:#999\">Play something and it'll show up here.</p>";
+  var dots = $("speedDialDots");
+  var items = [];
+  var seen = {};
+  function add(it){ if(it && it.key && !seen[it.key]){ seen[it.key] = 1; items.push(it); } }
+  /* Liked songs first */
+  getLiked().slice(0, 9).forEach(function(t){
+    add({ key: "song:" + (t.videoId || t.title), kind: "song", title: t.title, artist: trackArtist(t), art: t.art || t.thumb, track: t });
+  });
+  /* Top artists */
+  topArtists(9).forEach(function(a){
+    add({ key: "artist:" + a, kind: "artist", title: a, artist: "Artist", art: null });
+  });
+  /* Recent history */
+  getHistory().slice(0, 18).forEach(function(t){
+    add({ key: "song:" + (t.videoId || t.title), kind: "song", title: t.title, artist: trackArtist(t), art: t.art || t.thumb, track: t });
+  });
+  items = items.slice(0, 27);
+  if(!items.length){
+    box.innerHTML = "<p style='color:#999'>Play some music and your speed dial will fill up.</p>";
+    if(dots) dots.innerHTML = "";
     return;
   }
-  var last = hist[hist.length - 1];
   box.innerHTML = "";
-  var b = document.createElement("button");
-  b.className = "btn";
-  b.setAttribute("aria-label", "Resume " + (last.title || "last played"));
-  b.textContent = "▶ Resume: " + (last.title || "Unknown") + " — " + (last.artist || last.channel || "");
-  b.addEventListener("click", function(){ startRadio((last.title || "") + " " + (last.artist || last.channel || "")); });
-  box.appendChild(b);
+  if(dots) dots.innerHTML = "";
+  var pages = Math.ceil(items.length / 9);
+  for(var p = 0; p < pages; p++){
+    var page = document.createElement("div");
+    page.className = "speedDialPage";
+    items.slice(p * 9, p * 9 + 9).forEach(function(it){
+      var b = document.createElement("button");
+      b.className = "speedDialCard";
+      var label = it.kind === "artist" ? "Open artist page for " + it.title : "Play " + it.title + " by " + it.artist;
+      b.setAttribute("aria-label", label);
+      var inner = it.art
+        ? "<img src='" + esc(it.art) + "' alt=''>"
+        : "<div class='sdArt'>" + (it.kind === "artist" ? "👤" : "🎵") + "</div>";
+      inner += "<div class='sdLabel'>" + esc(it.title) + (it.kind === "artist" ? "<span class='sdGo'>›</span>" : "") + "</div>";
+      b.innerHTML = inner;
+      (function(item){
+        b.addEventListener("click", function(){
+          if(item.kind === "artist") openArtistPage(item.title);
+          else if(item.track) playVideo(item.track, [item.track], 0);
+        });
+      })(it);
+      page.appendChild(b);
+    });
+    box.appendChild(page);
+    if(dots){
+      var d = document.createElement("span");
+      if(p === 0) d.className = "on";
+      dots.appendChild(d);
+    }
+  }
+  /* Update dots on scroll */
+  box.onscroll = function(){
+    var idx = Math.round(box.scrollLeft / box.clientWidth);
+    if(dots){
+      var ds = dots.children;
+      for(var i = 0; i < ds.length; i++) ds[i].className = (i === idx ? "on" : "");
+    }
+  };
+}
+/* v2.2.67: Quick picks - recent songs, tap to start radio */
+function renderQuickPicks(){
+  var box = $("quickPicks");
+  if(!box) return;
+  var hist = getHistory().slice(0, 20);
+  if(!hist.length){
+    box.innerHTML = "<p style='color:#999'>Play some music and quick picks will appear here.</p>";
+    return;
+  }
+  box.innerHTML = "";
+  var seen = {};
+  hist.forEach(function(t){
+    var key = t.videoId || t.title;
+    if(seen[key]) return;
+    seen[key] = 1;
+    var b = document.createElement("button");
+    b.className = "visualCard";
+    b.setAttribute("aria-label", "Start radio for " + t.title + " by " + trackArtist(t));
+    b.innerHTML = (t.art || t.thumb ? "<img src='" + esc(t.art || t.thumb) + "' alt='' style='width:80px;height:80px;border-radius:8px;object-fit:cover'>" : "<div style='font-size:48px;padding:16px 0 8px'>🎵</div>") +
+      "<div class='vlabel'>" + esc(t.title) + "</div>";
+    (function(tr){ b.addEventListener("click", function(){ startRadio(trackArtist(tr) + " " + tr.title); }); })(t);
+    box.appendChild(b);
+  });
+}
+/* v2.2.67: Fresh finds, old favorites - new releases + liked songs */
+function renderFreshFinds(){
+  var box = $("freshFinds");
+  if(!box) return;
+  var liked = getLiked().slice(0, 10);
+  if(!liked.length){
+    box.innerHTML = "<p style='color:#999'>Like some songs and they'll show up here alongside fresh finds.</p>";
+    return;
+  }
+  box.innerHTML = "";
+  shuffleList(liked.slice()).forEach(function(t){
+    var b = document.createElement("button");
+    b.className = "visualCard";
+    b.setAttribute("aria-label", "Play " + t.title + " by " + trackArtist(t));
+    b.innerHTML = (t.art || t.thumb ? "<img src='" + esc(t.art || t.thumb) + "' alt='' style='width:80px;height:80px;border-radius:8px;object-fit:cover'>" : "<div style='font-size:48px;padding:16px 0 8px'>🎵</div>") +
+      "<div class='vlabel'>" + esc(t.title) + "</div>";
+    (function(tr){ b.addEventListener("click", function(){ playVideo(tr, [tr], 0); }); })(t);
+    box.appendChild(b);
+  });
 }
 /* v2.2.2: top singles across all genres (daily Apple feed). */
 var allSinglesCache = null;
@@ -3903,28 +4003,6 @@ $("allReleasesSeeAllBtn").addEventListener("click", function(){
 function renderExplore(){
   renderGenres();
   renderTrendingMetal();
-  renderTopArtists();
-  renderMoods();
-}
-/* v2.2.66: Top artists row - quick jump to artist pages */
-function renderTopArtists(){
-  var box = $("topArtistsRow");
-  if(!box) return;
-  var artists = topArtists(10);
-  if(!artists.length){
-    box.innerHTML = "<p style='color:#999'>Like some songs and your top artists will appear here.</p>";
-    return;
-  }
-  box.innerHTML = "";
-  artists.forEach(function(a){
-    var b = document.createElement("button");
-    b.className = "visualCard";
-    b.setAttribute("aria-label", "Open artist page for " + a.name);
-    b.innerHTML = (a.art ? "<img src='" + esc(a.art) + "' alt='' style='width:80px;height:80px;border-radius:8px;object-fit:cover'>" : "<div style='font-size:48px;padding:16px 0 8px'>👤</div>") +
-      "<div class='vlabel'>" + esc(a.name) + "</div>";
-    b.addEventListener("click", function(){ openArtistPage(a.name); });
-    box.appendChild(b);
-  });
 }
 /* v2.2.16: trending metal, decades, moods */
 function renderTrendingMetal(){
@@ -3948,25 +4026,6 @@ function renderTrendingMetal(){
     .catch(function(){ box.innerHTML = "<p style=\"color:#999\">Couldn't load trending.</p>"; });
 }
 
-var MOODS = [
-  ["💪", "Workout", "workout metal mix"],
-  ["😌", "Chill", "chill rock acoustic"],
-  ["🔥", "Heavy", "heavy metal brutal"],
-  ["🎸", "Guitar Heroes", "guitar solos"]
-];
-function renderMoods(){
-  var box = $("moodRow");
-  if(!box) return;
-  box.innerHTML = "";
-  MOODS.forEach(function(m){
-    var b = document.createElement("button");
-    b.className = "visualCard";
-    b.setAttribute("aria-label", "Play " + m[1] + " station");
-    b.innerHTML = "<div style='font-size:48px;padding:16px 0 8px'>" + m[0] + "</div><div class='vlabel'>" + m[1] + "</div>";
-    b.addEventListener("click", function(){ startRadio(m[2]); });
-    box.appendChild(b);
-  });
-}
 /* ================= genres ================= */
 var GENRES = [
   ["🤘", "Metal"], ["🎸", "Rock"], ["🌲", "Grunge"], ["🌀", "Alternative"],
