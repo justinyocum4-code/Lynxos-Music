@@ -91,6 +91,23 @@ def get_artist_top_songs(artist_id, limit=20):
     except Exception as e:
         return json.dumps({"error": str(e)})
 
+def get_artist_info(artist_id):
+    """Get artist bio, image, and details. Returns JSON object."""
+    try:
+        ytm = _get_ytm()
+        artist = ytm.get_artist(artist_id)
+        thumbnails = artist.get("thumbnails", [])
+        thumb_url = thumbnails[-1].get("url", "") if thumbnails else ""
+        description = artist.get("description", "")
+        return json.dumps({
+            "name": artist.get("name", ""),
+            "description": description,
+            "thumb": thumb_url,
+            "browseId": artist_id,
+        })
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
 def search_artists(query, limit=10):
     """Search for artists. Returns JSON array."""
     try:
