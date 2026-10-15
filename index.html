@@ -4225,10 +4225,14 @@ $("albumShuffleBtn").addEventListener("click", function(){
 function saveCurrentAlbum(){
   var name = $("albumName").textContent || "";
   var artist = $("albumArtist").textContent || "";
-  if(!name || !albumTracks.length){ say("Open an album first, then save it."); return; }
+  /* v2.2.59: Fall back to state.albumTracks if global is empty */
+  var tracksToSave = (albumTracks && albumTracks.length) ? albumTracks : (state.albumTracks || []);
+  if(!name || !tracksToSave.length){ say("Open an album first, then save it."); return; }
+  /* Use the fallback for the rest of the function */
+  var saveTracks = tracksToSave;
   /* v2.1.4: a single is a song — it belongs in Songs, not the Albums tab. */
-  if(albumTracks.length === 1){
-    var t = albumTracks[0];
+  if(saveTracks.length === 1){
+    var t = saveTracks[0];
     say("Saving " + t.title + ".");
     resolveTrack(t).then(function(rv){
       var liked = getLiked(), k, exists = false;
@@ -4254,13 +4258,13 @@ function saveCurrentAlbum(){
   }
   var art = "";
   try { art = $("albumArt").src || ""; } catch(e){}
-  if(!art && albumTracks[0].art) art = albumTracks[0].art;
+  if(!art && saveTracks[0].art) art = saveTracks[0].art;
   /* v2.2.54: Save browseId so we can re-fetch full track list later */
   var saveBrowseId = "";
   try { saveBrowseId = state.currentAlbumBrowseId || ""; } catch(e){}
   albums.push({
     name: name, artist: artist, art: art, browseId: saveBrowseId,
-    tracks: albumTracks.map(function(t){
+    tracks: saveTracks.map(function(t){
       return { videoId: t.videoId || "", title: t.title, channel: t.channel,
         thumb: t.thumb, art: t.art, resolveQuery: t.resolveQuery, fallbackQuery: t.fallbackQuery };
     })
