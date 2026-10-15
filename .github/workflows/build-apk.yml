@@ -406,12 +406,24 @@ jobs:
                       return result[0];
                   }
                   @JavascriptInterface public String getArtistTopSongs(final String artistId, final int limit) {
-                      try {
-                          Object result = py.get("get_artist_top_songs").call(artistId, limit);
-                          return result != null ? result.toString() : "[]";
-                      } catch (Exception e) {
-                          return "{\"error\":\"" + e.toString().replace("\"", "'") + "\"}";
-                      }
+                      final String[] result = new String[1];
+                      result[0] = "[]";
+                      Thread t = new Thread(new Runnable() {
+                          @Override public void run() {
+                              try {
+                                  ensurePython();
+                                  if (ytmModule != null) {
+                                      PyObject r = ytmModule.callAttr("get_artist_top_songs", artistId, limit);
+                                      result[0] = r.toString();
+                                  }
+                              } catch (Exception e) {
+                                  android.util.Log.e("LynxosYTM", "getArtistTopSongs failed", e);
+                              }
+                          }
+                      });
+                      t.start();
+                      try { t.join(15000); } catch (Exception ignored) {}
+                      return result[0];
                   }
                   @JavascriptInterface public String searchArtists(final String query, final int limit) {
                       final String[] result = new String[1];
