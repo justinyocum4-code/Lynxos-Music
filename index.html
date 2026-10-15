@@ -678,11 +678,32 @@ function openArtistPage(artistName){
       say("Couldn't load the artist page.");
     });
 }
-/* v2.2.43: Render artist page from Python data. */
+/* v2.2.46: Render artist page from Python data - filtered to ONLY this artist. */
 function renderArtistPagePython(data){
   var box = $("artistContent");
+  var artistName = String(data.artist || "").toLowerCase().trim();
   var songs = (data.songs || []).slice(0, 10);
-  var albums = (data.albums || []).slice(0, 20);
+  /* v2.2.46: Filter albums to ONLY this artist - no tribute/compilation/various artists. */
+  var allAlbums = data.albums || [];
+  var albums = [];
+  var singles = [];
+  allAlbums.forEach(function(a){
+    var aartist = String(a.artist || "").toLowerCase().trim();
+    /* Strict match: album artist must contain the requested artist name */
+    if(!aartist || aartist.indexOf(artistName) === -1 && artistName.indexOf(aartist) === -1){
+      return; /* Skip - not by this artist */
+    }
+    /* Skip "various artists" compilations */
+    if(aartist.indexOf("various") !== -1) return;
+    var title = String(a.title || a.name || "").toLowerCase();
+    /* Heuristic: singles are often 1-3 tracks, but we don't have track count.
+       Use title patterns: singles often have "single" in type, or are EPs */
+    var isSingle = title.indexOf("single") !== -1 || a.type === "Single" || a.type === "EP";
+    if(isSingle) singles.push(a);
+    else albums.push(a);
+  });
+  albums = albums.slice(0, 20);
+  singles = singles.slice(0, 20);
   var html = "";
   if(songs.length){
     html += "<h3>Top songs</h3><div class='trackList'>";
@@ -690,28 +711,40 @@ function renderArtistPagePython(data){
       html += trackRow(s, i);
     });
     html += "</div>";
-    /* Store for playback */
     state.artistSongs = songs;
   }
   if(albums.length){
     html += "<h3>Albums</h3><div class='hscroll'>";
     albums.forEach(function(a){
       var aname = a.title || a.name || "Unknown";
-      var aartist = a.artist || "";
+      var aartist = a.artist || data.artist || "";
       var aart = a.thumb || a.art || "";
       var ayear = a.year || a.date || "";
-      html += '<button class="albumCard" aria-label="Album ' + esc(aname) + ' by ' + esc(aartist) + '">' +
+      html += '<div class="albumCard" aria-label="Album ' + esc(aname) + ' by ' + esc(aartist) + '">' +
         (aart ? '<img src="' + esc(aart) + '" alt="">' : "") +
         '<div class="an">' + esc(aname) + '</div><div class="aa">' + esc(aartist) + '</div>' +
-        (ayear ? '<div class="ad">' + esc(ayear) + "</div>" : "") + "</button>";
+        (ayear ? '<div class="ad">' + esc(ayear) + "</div>" : "") + "</div>";
+    });
+    html += "</div>";
+  }
+  if(singles.length){
+    html += "<h3>Singles</h3><div class='hscroll'>";
+    singles.forEach(function(a){
+      var aname = a.title || a.name || "Unknown";
+      var aartist = a.artist || data.artist || "";
+      var aart = a.thumb || a.art || "";
+      var ayear = a.year || a.date || "";
+      html += '<div class="albumCard" aria-label="Single ' + esc(aname) + ' by ' + esc(aartist) + '">' +
+        (aart ? '<img src="' + esc(aart) + '" alt="">' : "") +
+        '<div class="an">' + esc(aname) + '</div><div class="aa">' + esc(aartist) + '</div>' +
+        (ayear ? '<div class="ad">' + esc(ayear) + "</div>" : "") + "</div>";
     });
     html += "</div>";
   }
   if(!html) html = "<p class='hint'>No results for " + esc(data.artist) + ".</p>";
   box.innerHTML = html;
-  /* Bind track buttons */
   if(state.artistSongs) bindTrackButtons(box, state.artistSongs);
-  say("Loaded " + data.artist + ".");
+  say("Loaded " + data.artist + " with " + albums.length + " albums and " + singles.length + " singles.");
 }
 function renderArtistPage(data){
   var box = $("artistContent");
