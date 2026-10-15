@@ -6,11 +6,11 @@ on:
       version_name:
         description: 'Version name (e.g. 1.0)'
         required: false
-        default: '2.2.29'
+        default: '2.2.30'
       version_code:
         description: 'Version code (whole number, bump every build)'
         required: false
-        default: '93'
+        default: '94'
       release_notes:
         description: 'Release notes'
         required: false
@@ -59,8 +59,15 @@ jobs:
             exit 1
           fi
 
-          mkdir -p app/src/main/java/com/lynxosmusic/app app/src/main/assets/www
+          mkdir -p app/src/main/java/com/lynxosmusic/app app/src/main/assets/www app/src/main/python
           cp "$HTML_FILE" app/src/main/assets/www/index.html
+          # v2.2.30: Python bridge for YouTube Music (Chaquopy + ytmusicapi)
+          if [ -f python/ytm_bridge.py ]; then
+            cp python/ytm_bridge.py app/src/main/python/ytm_bridge.py
+            echo "Python bridge installed."
+          else
+            echo "WARNING: python/ytm_bridge.py not found; Python bridge skipped."
+          fi
 
           # TV (Leanback) banner so the app shows in the TV launcher row.
           mkdir -p app/src/main/res/drawable
@@ -81,6 +88,7 @@ jobs:
                   google()
                   mavenCentral()
                   gradlePluginPortal()
+                  maven { url "https://chaquo.com/maven" }
               }
           }
           dependencyResolutionManagement {
@@ -98,12 +106,14 @@ jobs:
           cat > build.gradle <<'EOF'
           plugins {
               id 'com.android.application' version '8.5.2' apply false
+              id 'com.chaquo.python' version '16.1.0' apply false
           }
           EOF
 
           cat > app/build.gradle <<'EOF'
           plugins {
               id 'com.android.application'
+              id 'com.chaquo.python'
           }
           android {
               namespace 'com.lynxosmusic.app'
@@ -114,6 +124,17 @@ jobs:
                   targetSdk 34
                   versionCode __APP_VERSION_CODE__
                   versionName '__APP_VERSION_NAME__'
+                  ndk {
+                      abiFilters "armeabi-v7a", "arm64-v8a"
+                  }
+              }
+          }
+          chaquopy {
+              defaultConfig {
+                  version "3.10"
+                  pip {
+                      install "ytmusicapi==1.12.3"
+                  }
               }
           }
           dependencies {
@@ -198,6 +219,10 @@ jobs:
           import java.io.InputStream;
           import java.io.InputStreamReader;
           import org.json.JSONObject;
+          /* v2.2.30: Chaquopy Python bridge for YouTube Music */
+          import com.chaquo.python.Python;
+          import com.chaquo.python.PyObject;
+          import com.chaquo.python.android.AndroidPlatform;
 
           public class MainActivity extends Activity {
               private WebView webView;
@@ -298,6 +323,84 @@ jobs:
               // Called from JavaScript as LynxosPlayer.* — the native audio engine
               // (v1.9). Plays through ExoPlayer in a foreground service so music
               // keeps going with the screen off.
+              /* v2.2.30: YouTube Music bridge — calls Python ytmusicapi via Chaquopy.
+                 JavaScript calls LynxosYTM.* methods. */
+              public class YTMusicBridge {
+                  private PyObject ytmModule = null;
+                  private void ensurePython() {
+                      try {
+                          if (!Python.isStarted()) {
+                              Python.start(new AndroidPlatform(MainActivity.this));
+                          }
+                          if (ytmModule == null) {
+                              ytmModule = Python.getInstance().getModule("ytm_bridge");
+                          }
+                      } catch (Exception e) {
+                          android.util.Log.e("LynxosYTM", "Python init failed", e);
+                      }
+                  }
+                  @JavascriptInterface public String searchSongs(final String query, final int maxResults) {
+                      final String[] result = new String[1];
+                      result[0] = "[]";
+                      Thread t = new Thread(new Runnable() {
+                          @Override public void run() {
+                              try {
+                                  ensurePython();
+                                  if (ytmModule != null) {
+                                      PyObject r = ytmModule.callAttr("search_songs", query, maxResults);
+                                      result[0] = r.toString();
+                                  }
+                              } catch (Exception e) {
+                                  android.util.Log.e("LynxosYTM", "searchSongs failed", e);
+                              }
+                          }
+                      });
+                      t.start();
+                      try { t.join(15000); } catch (Exception e) {}
+                      return result[0];
+                  }
+                  @JavascriptInterface public String getRadio(final String videoId, final int limit) {
+                      final String[] result = new String[1];
+                      result[0] = "[]";
+                      Thread t = new Thread(new Runnable() {
+                          @Override public void run() {
+                              try {
+                                  ensurePython();
+                                  if (ytmModule != null) {
+                                      PyObject r = ytmModule.callAttr("get_radio", videoId, limit);
+                                      result[0] = r.toString();
+                                  }
+                              } catch (Exception e) {
+                                  android.util.Log.e("LynxosYTM", "getRadio failed", e);
+                              }
+                          }
+                      });
+                      t.start();
+                      try { t.join(15000); } catch (Exception e) {}
+                      return result[0];
+                  }
+                  @JavascriptInterface public String searchArtists(final String query, final int limit) {
+                      final String[] result = new String[1];
+                      result[0] = "[]";
+                      Thread t = new Thread(new Runnable() {
+                          @Override public void run() {
+                              try {
+                                  ensurePython();
+                                  if (ytmModule != null) {
+                                      PyObject r = ytmModule.callAttr("search_artists", query, limit);
+                                      result[0] = r.toString();
+                                  }
+                              } catch (Exception e) {
+                                  android.util.Log.e("LynxosYTM", "searchArtists failed", e);
+                              }
+                          }
+                      });
+                      t.start();
+                      try { t.join(15000); } catch (Exception e) {}
+                      return result[0];
+                  }
+              }
+
               public class AudioBridge {
                   @JavascriptInterface public void playQueue(final String tracksJson, final int index) {
                       withService(new Runnable() {
@@ -379,6 +482,8 @@ jobs:
                   s.setAllowFileAccessFromFileURLs(true);
                   s.setAllowUniversalAccessFromFileURLs(true);
                   webView.addJavascriptInterface(new AudioBridge(), "LynxosPlayer");
+                  /* v2.2.30: YouTube Music Python bridge */
+                  webView.addJavascriptInterface(new YTMusicBridge(), "LynxosYTM");
                   webView.setWebViewClient(new WebViewClient() {
                       @Override
                       public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
