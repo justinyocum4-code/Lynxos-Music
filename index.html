@@ -1419,9 +1419,19 @@ function ytmRadioQueue(videoId){
 /* v2.2.45: Diversify genre stations by artist - max 3 songs per artist.
    Prevents stations like '80s Metal' from being all Metallica. */
 function ytmGenreTracks(genreName, limit){
+  /* v2.2.65: Use genre-pure station builder (artist top songs, not search) */
+  try {
+    if (typeof LynxosYTM !== "undefined" && LynxosYTM.getGenreStation) {
+      var jsonStr = LynxosYTM.getGenreStation(genreName, limit || 100);
+      var parsed = JSON.parse(jsonStr);
+      if (parsed && parsed.error) throw new Error(parsed.error);
+      var tracks = parsed || [];
+      return Promise.resolve(tracks);
+    }
+  } catch (e) { }
   try {
     if (typeof LynxosYTM !== "undefined" && LynxosYTM.searchSongs) {
-      /* Search for the genre to get representative tracks. */
+      /* Fallback: Search for the genre to get representative tracks. */
       var jsonStr = LynxosYTM.searchSongs(genreName + " music", limit || 50);
       var parsed = JSON.parse(jsonStr);
       if (parsed && parsed.error) throw new Error(parsed.error);
