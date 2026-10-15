@@ -1332,7 +1332,10 @@ jobs:
                                   if (l != null) { try { l.onTrackChanged(wantIndex); } catch (Exception ignored) {} }
                                   /* v2.1.7: while this song plays, resolve the
                                      next one in the background so skipping is instant. */
+                                  /* v2.2.38: Prefetch next 3 tracks aggressively for instant skipping. */
                                   prefetchNext(wantIndex + 1);
+                                  prefetchNext(wantIndex + 2);
+                                  prefetchNext(wantIndex + 3);
                               }
                           });
                       }
@@ -1355,7 +1358,7 @@ jobs:
                               String url = resolveAudioUrl(vid);
                               if (url != null && !url.isEmpty()) {
                                   synchronized (urlCache) {
-                                      if (urlCache.size() > 60) urlCache.clear();
+                                      if (urlCache.size() > 100) urlCache.clear();
                                       urlCache.put(vid, url);
                                   }
                               }
