@@ -270,6 +270,27 @@ def search_albums(query, limit=20):
     except Exception as e:
         return json.dumps({"error": str(e)})
 
+def find_album_browse_id(album_name, artist_name=""):
+    """Find album browseId by searching. Returns JSON with browseId or error."""
+    try:
+        ytm = _get_ytm()
+        query = album_name
+        if artist_name:
+            query = artist_name + " " + album_name
+        results = ytm.search(query, filter="albums", limit=5)
+        for r in results:
+            # Check if titles match (fuzzy)
+            rtitle = r.get("title", "").lower()
+            aname = album_name.lower()
+            if aname in rtitle or rtitle in aname:
+                return json.dumps({"browseId": r.get("browseId", "")})
+        # Return first result if no fuzzy match
+        if results:
+            return json.dumps({"browseId": results[0].get("browseId", "")})
+        return json.dumps({"error": "Not found"})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
 def get_album(browse_id, limit=50):
     """Get album tracks. Returns JSON array."""
     try:
