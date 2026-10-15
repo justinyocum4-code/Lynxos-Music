@@ -115,8 +115,9 @@ def get_artist_albums(artist_id):
         artist = ytm.get_artist(artist_id)
         albums = []
         singles = []
-        # Albums section
-        for item in artist.get("albums", {}).get("results", []):
+        # Albums section - try to get full list via browse
+        albums_data = artist.get("albums", {})
+        for item in albums_data.get("results", []):
             thumbnails = item.get("thumbnails", [])
             thumb_url = thumbnails[-1].get("url", "") if thumbnails else ""
             albums.append({
@@ -125,8 +126,29 @@ def get_artist_albums(artist_id):
                 "year": item.get("year", ""),
                 "thumb": thumb_url,
             })
+        # v2.2.52: Try to fetch more albums via the browse endpoint if available
+        try:
+            abid = albums_data.get("browseId", "")
+            aparams = albums_data.get("params", "")
+            if abid and aparams:
+                more = ytm.get_artist_albums(abid, aparams)
+                for item in more if isinstance(more, list) else []:
+                    thumbnails = item.get("thumbnails", [])
+                    thumb_url = thumbnails[-1].get("url", "") if thumbnails else ""
+                    bid = item.get("browseId", "")
+                    # Deduplicate
+                    if bid and not any(a.get("browseId") == bid for a in albums):
+                        albums.append({
+                            "browseId": bid,
+                            "title": item.get("title", ""),
+                            "year": item.get("year", ""),
+                            "thumb": thumb_url,
+                        })
+        except Exception:
+            pass
         # Singles section
-        for item in artist.get("singles", {}).get("results", []):
+        singles_data = artist.get("singles", {})
+        for item in singles_data.get("results", []):
             thumbnails = item.get("thumbnails", [])
             thumb_url = thumbnails[-1].get("url", "") if thumbnails else ""
             singles.append({
@@ -135,6 +157,25 @@ def get_artist_albums(artist_id):
                 "year": item.get("year", ""),
                 "thumb": thumb_url,
             })
+        # v2.2.52: Try to fetch more singles too
+        try:
+            sbid = singles_data.get("browseId", "")
+            sparams = singles_data.get("params", "")
+            if sbid and sparams:
+                more = ytm.get_artist_albums(sbid, sparams)
+                for item in more if isinstance(more, list) else []:
+                    thumbnails = item.get("thumbnails", [])
+                    thumb_url = thumbnails[-1].get("url", "") if thumbnails else ""
+                    bid = item.get("browseId", "")
+                    if bid and not any(s.get("browseId") == bid for s in singles):
+                        singles.append({
+                            "browseId": bid,
+                            "title": item.get("title", ""),
+                            "year": item.get("year", ""),
+                            "thumb": thumb_url,
+                        })
+        except Exception:
+            pass
         return json.dumps({"albums": albums, "singles": singles})
     except Exception as e:
         return json.dumps({"error": str(e)})
