@@ -670,7 +670,7 @@ function openArtistPage(artistName){
   $("artistContent").innerHTML = "<p class='hint'>Loading...</p>";
   say("Artist page for " + artistName + ".");
   /* iTunes: find the artist, then top songs + albums. */
-  fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(artistName) + "&entity=musicArtist&limit=5")
+  fetch("https://disabled.invalid/itunes/search?term=" + encodeURIComponent(artistName) + "&entity=musicArtist&limit=5")
     .then(function(r){ return r.json(); })
     .then(function(d){
       var aq = artistName.toLowerCase();
@@ -684,10 +684,10 @@ function openArtistPage(artistName){
       var aid = best.artistId;
       var mbQuery = 'artist:"' + best.artistName.replace(/"/g, "") + '"';
       return Promise.all([
-        fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(artistName) + "&entity=song&limit=25").then(function(r){ return r.json(); }),
-        fetch("https://itunes.apple.com/lookup?id=" + aid + "&entity=album&limit=200").then(function(r){ return r.json(); }),
+        fetch("https://disabled.invalid/itunes/search?term=" + encodeURIComponent(artistName) + "&entity=song&limit=25").then(function(r){ return r.json(); }),
+        fetch("https://disabled.invalid/itunes/lookup?id=" + aid + "&entity=album&limit=200").then(function(r){ return r.json(); }),
         /* v2.2.4: MusicBrainz supplements iTunes — catches albums iTunes lacks. */
-        fetch("https://musicbrainz.org/ws/2/release-group/?query=" + encodeURIComponent(mbQuery) + "&fmt=json&limit=100")
+        fetch("https://disabled.invalid/musicbrainz/ws/2/release-group/?query=" + encodeURIComponent(mbQuery) + "&fmt=json&limit=100")
           .then(function(r){ return r.json(); }).catch(function(){ return { "release-groups": [] }; })
       ]).then(function(res){
         return { artist: best.artistName, songs: res[0].results || [], albums: res[1].results || [],
@@ -808,7 +808,7 @@ function closeArtistPage(){
 function openITunesAlbum(collectionId){
   /* v2.2.1: collapse the player so the album isn't hidden behind it. */
   try { if(!$("fullPlayer").hidden) collapsePlayer(); } catch(e){}
-  fetch("https://itunes.apple.com/lookup?id=" + collectionId + "&entity=song&limit=200")
+  fetch("https://disabled.invalid/itunes/lookup?id=" + collectionId + "&entity=song&limit=200")
     .then(function(r){ return r.json(); })
     .then(function(d){
       var tracks = (d.results || []).filter(function(r){ return r.wrapperType === "track"; });
@@ -1444,7 +1444,7 @@ function resolveTrack(v){
     if(v._userFixed) return Promise.resolve(null);
     if(!artist || !title) return Promise.resolve(null);
     var q = 'artist:"' + artist.replace(/"/g, "") + '" AND recording:"' + title.replace(/"/g, "") + '"';
-    return fetch("https://musicbrainz.org/ws/2/recording/?query=" + encodeURIComponent(q) + "&fmt=json&limit=3")
+    return fetch("https://disabled.invalid/musicbrainz/ws/2/recording/?query=" + encodeURIComponent(q) + "&fmt=json&limit=3")
       .then(function(r){ return r.json(); })
       .then(function(d){
         var recs = d.recordings || [];
@@ -1942,7 +1942,7 @@ function orderLocalAlbum(a, idx){
   }
   function mbOrder(){
     var q = 'artist:"' + artist.replace(/"/g, "") + '" AND release:"' + name.replace(/"/g, "") + '"';
-    return fetch("https://musicbrainz.org/ws/2/release/?query=" + encodeURIComponent(q) + "&fmt=json&limit=8")
+    return fetch("https://disabled.invalid/musicbrainz/ws/2/release/?query=" + encodeURIComponent(q) + "&fmt=json&limit=8")
       .then(function(r){ return r.json(); })
       .then(function(d){
         var aq = artist.toLowerCase(), nq = normTitle(name);
@@ -1957,7 +1957,7 @@ function orderLocalAlbum(a, idx){
         if(!best) throw new Error("no mb match");
         /* MusicBrainz asks for ~1 request per second. */
         return new Promise(function(res){ setTimeout(res, 1100); }).then(function(){
-          return fetch("https://musicbrainz.org/ws/2/release/" + best.id + "?fmt=json&inc=recordings")
+          return fetch("https://disabled.invalid/musicbrainz/ws/2/release/" + best.id + "?fmt=json&inc=recordings")
             .then(function(r){ return r.json(); });
         });
       })
@@ -1978,7 +1978,7 @@ function orderLocalAlbum(a, idx){
   }
   function itunesOrder(){
     var q = (artist + " " + name).trim();
-    return fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(q) + "&entity=album&limit=10")
+    return fetch("https://disabled.invalid/itunes/search?term=" + encodeURIComponent(q) + "&entity=album&limit=10")
       .then(function(r){ return r.json(); })
       .then(function(d){
         var aq = artist.toLowerCase(), nq = name.toLowerCase();
@@ -1991,7 +1991,7 @@ function orderLocalAlbum(a, idx){
           if(as > 0 && ns > 0 && as + ns > bestScore){ bestScore = as + ns; best = r; }
         });
         if(!best) throw new Error("no match");
-        return fetch("https://itunes.apple.com/lookup?id=" + best.collectionId + "&entity=song&limit=200")
+        return fetch("https://disabled.invalid/itunes/lookup?id=" + best.collectionId + "&entity=song&limit=200")
           .then(function(r){ return r.json(); });
       })
       .then(function(d){
@@ -2932,7 +2932,7 @@ function buildLastFmGenreStation(genreName){
   }
   /* Fetch from Last.fm. */
   buildStep = "getting artists from Last.fm";
-  return fetchWithTimeout("https://ws.audioscrobbler.com/2.0/?method=tag.getTopArtists&tag=" + encodeURIComponent(tag) + "&api_key=" + LASTFM_KEY + "&format=json&limit=25")
+  return fetchWithTimeout("https://disabled.invalid/lastfm/2.0/?method=tag.getTopArtists&tag=" + encodeURIComponent(tag) + "&api_key=" + LASTFM_KEY + "&format=json&limit=25")
     .then(function(r){ return r.json(); })
     .then(function(d){
       var artists = ((d.topartists || {}).artist || []).map(function(a){ return a.name; }).filter(Boolean);
@@ -2941,7 +2941,7 @@ function buildLastFmGenreStation(genreName){
       shuffleList(artists);
       /* Get top 2 tracks for first 15 artists. */
       var trackPromises = artists.slice(0, 15).map(function(artistName){
-        return fetchWithTimeout("https://ws.audioscrobbler.com/2.0/?method=artist.getTopTracks&artist=" + encodeURIComponent(artistName) + "&api_key=" + LASTFM_KEY + "&format=json&limit=3")
+        return fetchWithTimeout("https://disabled.invalid/lastfm/2.0/?method=artist.getTopTracks&artist=" + encodeURIComponent(artistName) + "&api_key=" + LASTFM_KEY + "&format=json&limit=3")
           .then(function(r2){ return r2.json(); })
           .then(function(d2){
             var tracks = ((d2.toptracks || {}).track || []).slice(0, 2);
@@ -3232,7 +3232,7 @@ function showSimilar(){
   box.hidden = false;
   box.innerHTML = '<div class="empty">Finding artists like ' + esc(artist) + "…</div>";
   say("Finding artists like " + artist + ".");
-  fetch("https://ws.audioscrobbler.com/2.0/?method=artist.getSimilar&artist=" + encodeURIComponent(artist) + "&api_key=" + LASTFM_KEY + "&format=json&limit=12")
+  fetch("https://disabled.invalid/lastfm/2.0/?method=artist.getSimilar&artist=" + encodeURIComponent(artist) + "&api_key=" + LASTFM_KEY + "&format=json&limit=12")
     .then(function(r){ return r.json(); })
     .then(function(d){
       var arts = (d && d.similarartists && d.similarartists.artist) || [];
@@ -3471,7 +3471,7 @@ function renderTrendingMetal(){
   if(!box) return;
   box.innerHTML = "<p style=\"color:#999\">Loading…</p>";
   /* Use iTunes search for trending metal */
-  fetch("https://itunes.apple.com/search?term=metal&media=music&entity=song&limit=10")
+  fetch("https://disabled.invalid/itunes/search?term=metal&media=music&entity=song&limit=10")
     .then(function(r){ return r.json(); })
     .then(function(d){
       box.innerHTML = "";
@@ -3712,7 +3712,7 @@ function loadForYouReleases(){
   aBox.innerHTML = "<p style='color:#999'>Loading…</p>";
   sBox.innerHTML = "";
   Promise.all(artists.map(function(a){
-    return fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(a) + "&entity=album&limit=50")
+    return fetch("https://disabled.invalid/itunes/search?term=" + encodeURIComponent(a) + "&entity=album&limit=50")
       .then(function(r){ return r.json(); })
       .then(function(d){ return { artist: a, results: d.results || [] }; })
       .catch(function(){ return { artist: a, results: [] }; });
@@ -3787,7 +3787,7 @@ function openAlbumPanel(artist, name, colId){
   $("albumTracks").innerHTML = "<p style='color:#999'>Loading tracks…</p>";
   $("albumPanel").hidden = false;
   say("Loading the album " + name + ".");
-  fetch("https://itunes.apple.com/lookup?id=" + encodeURIComponent(colId) + "&entity=song&limit=200")
+  fetch("https://disabled.invalid/itunes/lookup?id=" + encodeURIComponent(colId) + "&entity=song&limit=200")
     .then(function(r){ if(!r.ok) throw new Error("lookup " + r.status); return r.json(); })
     .then(function(d){
       var tracks = (d.results || []).filter(function(r){ return r.wrapperType === "track"; });
@@ -4033,8 +4033,8 @@ function openArtistPanel(){
   say("Loading " + artist + ".");
   var q = encodeURIComponent(artist);
   Promise.all([
-    fetch("https://itunes.apple.com/search?term=" + q + "&entity=album&limit=40").then(function(r){ return r.json(); }),
-    fetch("https://itunes.apple.com/search?term=" + q + "&entity=song&limit=40").then(function(r){ return r.json(); })
+    fetch("https://disabled.invalid/itunes/search?term=" + q + "&entity=album&limit=40").then(function(r){ return r.json(); }),
+    fetch("https://disabled.invalid/itunes/search?term=" + q + "&entity=song&limit=40").then(function(r){ return r.json(); })
   ]).then(function(res){
     renderArtistAlbums(artist, res[0].results || []);
     renderArtistSongs(artist, res[1].results || []);
