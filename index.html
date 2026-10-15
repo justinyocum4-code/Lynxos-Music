@@ -816,16 +816,25 @@ function renderArtistPagePython(data){
   /* v2.2.48: See All handlers for albums and singles */
   var albumsBtn = $("artistAlbumsSeeAll");
   if(albumsBtn) albumsBtn.addEventListener("click", function(){
+    state.seeAllFromArtist = true;
     openSeeAll(state.artistNameFull + " - Albums", function(grid){
       (state.artistAlbumsFull || []).forEach(function(a){
         var aname = a.title || "Unknown";
         var aart = a.thumb || "";
         var ayear = a.year || "";
-        var d = document.createElement("div");
+        var abid = a.browseId || "";
+        var d = document.createElement("button");
         d.className = "albumCard";
+        d.setAttribute("aria-label", "Open album " + aname);
         d.innerHTML = (aart ? '<img src="' + esc(aart) + '" alt="">' : "") +
           '<div class="an">' + esc(aname) + '</div>' +
           (ayear ? '<div class="ad">' + esc(ayear) + "</div>" : "");
+        /* v2.2.53: Make See All cards clickable */
+        (function(bid, ttl){
+          d.addEventListener("click", function(){
+            if(bid) openPythonAlbum(bid, ttl, state.artistNameFull, aart);
+          });
+        })(abid, aname);
         grid.appendChild(d);
       });
     });
@@ -833,16 +842,24 @@ function renderArtistPagePython(data){
   });
   var singlesBtn = $("artistSinglesSeeAll");
   if(singlesBtn) singlesBtn.addEventListener("click", function(){
+    state.seeAllFromArtist = true;
     openSeeAll(state.artistNameFull + " - Singles", function(grid){
       (state.artistSinglesFull || []).forEach(function(a){
         var aname = a.title || "Unknown";
         var aart = a.thumb || "";
         var ayear = a.year || "";
-        var d = document.createElement("div");
+        var abid = a.browseId || "";
+        var d = document.createElement("button");
         d.className = "albumCard";
+        d.setAttribute("aria-label", "Open single " + aname);
         d.innerHTML = (aart ? '<img src="' + esc(aart) + '" alt="">' : "") +
           '<div class="an">' + esc(aname) + '</div>' +
           (ayear ? '<div class="ad">' + esc(ayear) + "</div>" : "");
+        (function(bid, ttl){
+          d.addEventListener("click", function(){
+            if(bid) openPythonAlbum(bid, ttl, state.artistNameFull, aart);
+          });
+        })(abid, aname);
         grid.appendChild(d);
       });
     });
@@ -3810,13 +3827,23 @@ function openSeeAll(title, build){
   TABS.forEach(function(t){ $(t[1]).hidden = true; $(t[0]).setAttribute("aria-selected", "false"); });
   $("searchView").hidden = true;
   $("settingsView").hidden = true;
+  /* v2.2.53: Also hide artist and album views so See All is visible */
+  try { $("artistView").hidden = true; } catch(e){}
+  try { $("albumPanel").hidden = true; } catch(e){}
   $("seeAllView").hidden = false;
   state.tab = "seeall";
   say(title + ". Full list — scroll up and down.");
 }
 function closeSeeAll(){
   $("seeAllView").hidden = true;
-  showTab("home");
+  /* v2.2.53: Return to artist page if we came from there */
+  if(state.seeAllFromArtist){
+    state.seeAllFromArtist = false;
+    $("artistView").hidden = false;
+    say("Back to artist.");
+  } else {
+    showTab("home");
+  }
 }
 function openMixesSeeAll(){
   openSeeAll("Mixed for you", function(grid){
