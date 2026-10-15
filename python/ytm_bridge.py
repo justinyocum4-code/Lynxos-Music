@@ -229,3 +229,44 @@ def get_stream_url(video_id):
                 return json.dumps({"error": "No stream URL found"})
     except Exception as e:
         return json.dumps({"error": str(e)})
+
+def get_new_releases(limit=100):
+    """Get new album releases. Returns JSON array of albums."""
+    try:
+        ytm = _get_ytm()
+        # Use charts to get trending, which includes new releases
+        # ytmusicapi doesn't have a direct new releases endpoint,
+        # so we search for recent albums across genres
+        albums = []
+        seen = set()
+        # Search for new albums by year
+        import datetime
+        year = datetime.datetime.now().year
+        for query in [f"new album {year}", f"new releases {year}", "new music"]:
+            try:
+                results = ytm.search(query, filter="albums", limit=30)
+                for item in results:
+                    browse_id = item.get("browseId", "")
+                    if not browse_id or browse_id in seen:
+                        continue
+                    seen.add(browse_id)
+                    thumbnails = item.get("thumbnails", [])
+                    thumb_url = thumbnails[-1].get("url", "") if thumbnails else ""
+                    artists = item.get("artists", [])
+                    artist_name = artists[0].get("name", "") if artists else ""
+                    albums.append({
+                        "browseId": browse_id,
+                        "title": item.get("title", ""),
+                        "artist": artist_name,
+                        "year": item.get("year", ""),
+                        "thumb": thumb_url,
+                    })
+                    if len(albums) >= limit:
+                        break
+            except:
+                continue
+            if len(albums) >= limit:
+                break
+        return json.dumps(albums[:limit])
+    except Exception as e:
+        return json.dumps({"error": str(e)})
