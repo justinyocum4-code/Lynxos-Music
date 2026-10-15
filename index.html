@@ -4266,7 +4266,19 @@ function saveCurrentAlbum(){
   var key = name.toLowerCase() + "  " + artist.toLowerCase();
   for(var i = 0; i < albums.length; i++){
     if(albums[i].name.toLowerCase() + "  " + String(albums[i].artist || "").toLowerCase() === key){
-      say("That album is already in your library.");
+      /* v2.2.62: If already saved but with fewer tracks, update it */
+      if(albums[i].tracks.length < saveTracks.length){
+        albums[i].tracks = saveTracks.map(function(t){
+          return { videoId: t.videoId || "", title: t.title, channel: t.channel,
+            thumb: t.thumb, art: t.art, resolveQuery: t.resolveQuery, fallbackQuery: t.fallbackQuery };
+        });
+        if(saveBrowseId) albums[i].browseId = saveBrowseId;
+        saveAlbums(albums);
+        renderAlbums();
+        say("Updated " + name + " with " + saveTracks.length + " tracks.");
+      } else {
+        say("That album is already in your library.");
+      }
       return;
     }
   }
