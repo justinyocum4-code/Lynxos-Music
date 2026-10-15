@@ -108,6 +108,37 @@ def get_artist_info(artist_id):
     except Exception as e:
         return json.dumps({"error": str(e)})
 
+def get_artist_albums(artist_id):
+    """Get ALL albums and singles from the artist's page. Returns JSON object with albums and singles arrays."""
+    try:
+        ytm = _get_ytm()
+        artist = ytm.get_artist(artist_id)
+        albums = []
+        singles = []
+        # Albums section
+        for item in artist.get("albums", {}).get("results", []):
+            thumbnails = item.get("thumbnails", [])
+            thumb_url = thumbnails[-1].get("url", "") if thumbnails else ""
+            albums.append({
+                "browseId": item.get("browseId", ""),
+                "title": item.get("title", ""),
+                "year": item.get("year", ""),
+                "thumb": thumb_url,
+            })
+        # Singles section
+        for item in artist.get("singles", {}).get("results", []):
+            thumbnails = item.get("thumbnails", [])
+            thumb_url = thumbnails[-1].get("url", "") if thumbnails else ""
+            singles.append({
+                "browseId": item.get("browseId", ""),
+                "title": item.get("title", ""),
+                "year": item.get("year", ""),
+                "thumb": thumb_url,
+            })
+        return json.dumps({"albums": albums, "singles": singles})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
 def search_artists(query, limit=10):
     """Search for artists. Returns JSON array."""
     try:
