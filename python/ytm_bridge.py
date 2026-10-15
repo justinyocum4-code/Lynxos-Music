@@ -238,6 +238,9 @@ def get_album(browse_id, limit=50):
         # Get artist name from album info
         artists = album.get("artists", [])
         artist_name = artists[0].get("name", "") if artists else ""
+        # v2.2.51: Get album art for tracks
+        athumbs = album.get("thumbnails", [])
+        album_thumb = athumbs[-1].get("url", "") if athumbs else ""
         tracks = []
         for item in album.get("tracks", [])[:limit]:
             t = _track_from_song(item)
@@ -247,6 +250,10 @@ def get_album(browse_id, limit=50):
                 if not t.get("channel") and artist_name:
                     t["channel"] = artist_name
                     t["ownerChannel"] = artist_name
+                # v2.2.51: Use album art if track has no thumb
+                if not t.get("thumb") and album_thumb:
+                    t["thumb"] = album_thumb
+                    t["art"] = album_thumb
                 tracks.append(t)
             else:
                 # v2.2.50: Fallback - try to construct track manually if _track_from_song failed
@@ -259,8 +266,8 @@ def get_album(browse_id, limit=50):
                         "ownerChannel": artist_name,
                         "album": album_title,
                         "dur": item.get("duration", "") or item.get("length", ""),
-                        "thumb": "",
-                        "art": "",
+                        "thumb": album_thumb,
+                        "art": album_thumb,
                     })
         return json.dumps(tracks)
     except Exception as e:
