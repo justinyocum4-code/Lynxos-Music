@@ -6,11 +6,11 @@ on:
       version_name:
         description: 'Version name (e.g. 1.0)'
         required: false
-        default: '2.2.74'
+        default: '2.2.75'
       version_code:
         description: 'Version code (whole number, bump every build)'
         required: false
-        default: '138'
+        default: '139'
       release_notes:
         description: 'Release notes'
         required: false
@@ -797,12 +797,14 @@ jobs:
                       });
                   }
                   @JavascriptInterface public void openUrl(final String url) {
-                      /* v2.2.69: Open URL in system browser (for OAuth) */
+                      /* v2.2.75: Open URL in system browser (for OAuth) - explicit Activity ref */
                       try {
                           Intent i = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url));
                           i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                          startActivity(i);
-                      } catch (Exception ignored) {}
+                          MainActivity.this.startActivity(i);
+                      } catch (Exception e) {
+                          android.util.Log.e("LynxosYTM", "openUrl failed: " + url, e);
+                      }
                   }
               }
 
@@ -850,9 +852,11 @@ jobs:
                           // subframe loads must stay inside the player.
                           if (request.isForMainFrame()) {
                               String url = request.getUrl().toString();
-                              if (url.contains("music.youtube.com") || url.contains("youtube.com/watch")) {
+                              if (url.contains("music.youtube.com") || url.contains("youtube.com/watch") ||
+                                  url.contains("supabase.co/auth") || url.contains("accounts.google.com")) {
                                   try {
                                       Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                                      i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                                       view.getContext().startActivity(i);
                                   } catch (Exception ignored) {}
                                   return true;
