@@ -6,11 +6,11 @@ on:
       version_name:
         description: 'Version name (e.g. 1.0)'
         required: false
-        default: '2.2.77'
+        default: '2.2.78'
       version_code:
         description: 'Version code (whole number, bump every build)'
         required: false
-        default: '141'
+        default: '142'
       release_notes:
         description: 'Release notes'
         required: false
@@ -170,6 +170,7 @@ jobs:
                   <activity
                       android:name="com.lynxosmusic.app.MainActivity"
                       android:exported="true"
+                      android:launchMode="singleTask"
                       android:windowSoftInputMode="adjustResize"
                       android:configChanges="orientation|screenSize|keyboardHidden">
                       <intent-filter>
@@ -836,6 +837,21 @@ jobs:
                   YTMusicBridge ytmBridgeInstance = new YTMusicBridge();
                   sharedYtmBridge = ytmBridgeInstance;
                   webView.addJavascriptInterface(ytmBridgeInstance, "LynxosYTM");
+                  /* v2.2.78: Check if we were launched from OAuth deep link */
+                  try {
+                      android.net.Uri launchUri = getIntent().getData();
+                      if (launchUri != null && "com.lynxosmusic.app".equals(launchUri.getScheme())) {
+                          final String launchUrl = launchUri.toString();
+                          final String launchEscaped = launchUrl.replace("\\", "\\\\").replace("'", "\\'");
+                          webView.postDelayed(new Runnable() {
+                              @Override public void run() {
+                                  webView.evaluateJavascript(
+                                      "(function(){ try { if (window.handleAuthCallback) window.handleAuthCallback('" + launchEscaped + "'); } catch(e){} })()",
+                                      null);
+                              }
+                          }, 2000);
+                      }
+                  } catch (Exception ignored) {}
                   /* v2.2.72: Pre-warm Python in background so home screen doesn't freeze
                      waiting for the interpreter to boot on first use. */
                   new Thread(new Runnable() {
