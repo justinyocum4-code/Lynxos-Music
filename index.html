@@ -279,7 +279,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.76</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()">👤</button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings" style="margin-left:auto">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.77</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings" style="margin-left:auto">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -4715,8 +4715,8 @@ function renderAccount(){
 }
 function fetchUserInfo(accessToken){
   var box = $("accountContent");
-  fetch(SUPABASE_URL + "/auth/v1/user", {
-    headers: { "apikey": SB_ANON, "Authorization": "Bearer " + accessToken }
+  fetch("https://klykzghndlrfwwxwaczm.supabase.co/auth/v1/user", {
+    headers: { "apikey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtseWt6Z2huZGxyZnd3eHdhY3ptIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk1MzUxNDUsImV4cCI6MjEwNTExMTE0NX0.02AcmkbA_wjLN5XOfwuisJjck2TijjqH66bX5ddVV0Q", "Authorization": "Bearer " + accessToken }
   }).then(function(r){ return r.json(); }).then(function(user){
     if(user && user.id){
       try { localStorage.setItem("lm_sb_user", JSON.stringify(user)); } catch(e){}
@@ -4731,14 +4731,12 @@ function fetchUserInfo(accessToken){
   });
 }
 function startGoogleLogin(){
+  /* v2.2.77: Hardcoded URL - no variable dependency */
   var scopes = encodeURIComponent("https://www.googleapis.com/auth/youtube https://www.googleapis.com/auth/youtubepartner");
-  var url = SUPABASE_URL + "/auth/v1/authorize?provider=google" +
+  var url = "https://klykzghndlrfwwxwaczm.supabase.co/auth/v1/authorize?provider=google" +
     "&redirect_to=" + encodeURIComponent("com.lynxosmusic.app://auth-callback") +
     "&scopes=" + scopes;
   say("Opening Google sign-in in your browser. Come back here when done.");
-  /* v2.2.76: Navigate WebView directly - shouldOverrideUrlLoading intercepts
-     OAuth URLs and opens them in the external browser. The Java bridge was
-     silently failing, so we don't rely on it. */
   window.location.href = url;
 }
 /* Called from Android when the OAuth deep link returns */
