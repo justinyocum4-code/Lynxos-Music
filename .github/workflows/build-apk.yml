@@ -1042,6 +1042,8 @@ jobs:
                                           if (event.getAction() == KeyEvent.ACTION_DOWN) {
                                               int kc = event.getKeyCode();
                                               if (kc == KeyEvent.KEYCODE_MEDIA_NEXT) {
+                                                  /* v2.2.41: Prefetch ahead on Bluetooth next for instant response. */
+                                                  try { prefetchNext(currentIndex + 2); prefetchNext(currentIndex + 3); } catch (Exception ignored) {}
                                                   main.post(new Runnable() {
                                                       @Override public void run() {
                                                           UiListener l = ui;
