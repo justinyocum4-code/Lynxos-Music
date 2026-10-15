@@ -235,15 +235,37 @@ def get_mood_playlists(params, limit=50):
         return json.dumps({"error": str(e)})
 
 def get_charts(country="US", limit=50):
-    """Get charts (new releases/trending). Returns JSON."""
+    """Get charts (top singles/trending). Returns JSON.
+    v2.2.70: YouTube removed the songs list from charts - now pulls
+    tracks from the Trending playlist instead."""
     try:
         ytm = _get_ytm()
         charts = ytm.get_charts(country=country)
         tracks = []
-        for item in charts.get("songs", {}).get("items", [])[:limit]:
-            t = _track_from_song(item)
-            if t:
-                tracks.append(t)
+        # Find the Trending playlist in the charts response
+        trending_id = None
+        for v in charts.get("videos", []):
+            title = (v.get("title") or "").lower()
+            if "trending" in title and country.lower() in title or "trending" in title:
+                trending_id = v.get("playlistId")
+                break
+        if trending_id:
+            pl = ytm.get_playlist(trending_id, limit=limit)
+            for item in pl.get("tracks", [])[:limit]:
+                artists = item.get("artists", [])
+                artist = artists[0].get("name", "") if artists else ""
+                thumbs = item.get("thumbnails", [])
+                thumb = thumbs[-1].get("url", "") if thumbs else ""
+                t = {
+                    "videoId": item.get("videoId", ""),
+                    "title": item.get("title", ""),
+                    "channel": artist,
+                    "ownerChannel": artist,
+                    "thumb": thumb,
+                    "art": thumb,
+                }
+                if t["title"] and t["videoId"]:
+                    tracks.append(t)
         return json.dumps(tracks)
     except Exception as e:
         return json.dumps({"error": str(e)})
