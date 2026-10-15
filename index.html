@@ -3325,40 +3325,33 @@ function isRecentRelease(dateStr){
   } catch(e){ return true; }
 }
 
+/* v2.2.37: Load singles via Python ytmusicapi (charts = trending now). */
 function loadAllSingles(){
   var box = $("allSingles");
   if(!box) return;
   if(allSinglesCache){ renderAllSingles(allSinglesCache); return; }
   box.innerHTML = "<p style='color:#999'>Loading new singles…</p>";
-  Promise.all(RELEASE_GENRES.map(function(g){
-    return fetch("https://itunes.apple.com/us/rss/topsongs/limit=100/genre=" + g.id + "/json")
-      .then(function(r){ return r.json(); })
-      .then(function(d){ return (d.feed && d.feed.entry) || []; })
-      .catch(function(){ return []; });
-  })).then(function(allEntries){
-      var seen = {}, merged = [];
-      allEntries.forEach(function(entries){
-        entries.forEach(function(e){
-          var key = ((e["im:name"] || {}).label || "") + "|" + ((e["im:artist"] || {}).label || "");
-          if(!key || seen[key]) return;
-          seen[key] = 1;
-          merged.push({
-            name: (e["im:name"] || {}).label || "",
-            artist: (e["im:artist"] || {}).label || "",
-            art: (((e["im:image"] || [])[2] || {}).label || "").replace("170x170bb", "300x300bb"),
-            releaseDate: (e["im:releaseDate"] || {}).label || ""
-          });
-        });
-      });
-      /* v2.2.26: "Top singles" = popular now across genres. Don't filter by
-         date — the topsongs feed is popularity-based, and date-filtering it
-         leaves almost nothing (metal/rock tops are all old classics). */
-      allSinglesCache = merged.filter(function(x){ return x.name && x.artist; });
-      renderAllSingles(allSinglesCache);
-    })
-    .catch(function(){
-      box.innerHTML = "<p style='color:#999'>Couldn't load singles.</p>";
-    });
+  try {
+    if (typeof LynxosYTM !== "undefined" && LynxosYTM.getCharts) {
+      var jsonStr = LynxosYTM.getCharts("US", 100);
+      var tracks = JSON.parse(jsonStr);
+      if (tracks && tracks.error) throw new Error(tracks.error);
+      if (tracks && tracks.length) {
+        allSinglesCache = tracks.map(function(t){
+          return {
+            name: t.title || "",
+            artist: t.channel || t.ownerChannel || "",
+            art: t.thumb || t.art || "",
+            videoId: t.videoId || "",
+            releaseDate: ""
+          };
+        }).filter(function(x){ return x.name && x.artist; });
+        renderAllSingles(allSinglesCache);
+        return;
+      }
+    }
+  } catch(e) { }
+  box.innerHTML = "<p style='color:#999'>Couldn't load singles.</p>";
 }
 function renderAllSingles(items){
   var box = $("allSingles");
@@ -3407,43 +3400,32 @@ var RELEASE_GENRES = [
   { id: "5", name: "Classical" }
 ];
 function loadAllReleases(){
+  /* v2.2.37: Load new releases via Python ytmusicapi. */
   var box = $("allReleases");
   if(!box) return;
   if(allReleasesCache){ renderAllReleases(allReleasesCache); return; }
   box.innerHTML = "<p style='color:#999'>Loading new releases…</p>";
-  Promise.all(RELEASE_GENRES.map(function(g){
-    return fetch("https://itunes.apple.com/us/rss/topalbums/limit=100/genre=" + g.id + "/json")
-      .then(function(r){ return r.json(); })
-      .then(function(d){ return (d.feed && d.feed.entry) || []; })
-      .catch(function(){ return []; });
-  })).then(function(allEntries){
-      var seen = {}, merged = [];
-      allEntries.forEach(function(entries){
-        entries.forEach(function(e){
-          var id = ((e.id || {}).attributes || {})["im:id"] || "";
-          if(!id || seen[id]) return;
-          seen[id] = 1;
-          merged.push({
-            name: (e["im:name"] || {}).label || "",
-            artist: (e["im:artist"] || {}).label || "",
-            art: (((e["im:image"] || [])[2] || {}).label || "").replace("170x170bb", "300x300bb"),
-            id: id,
-            releaseDate: (e["im:releaseDate"] || {}).label || ""
-          });
-        });
-      });
-      allReleasesCache = merged.filter(function(x){ return x.name && x.id && isRecentRelease(x.releaseDate); });
-      /* Sort by release date, newest first. */
-      allReleasesCache.sort(function(a, b){
-        try {
-          return new Date(b.releaseDate).getTime() - new Date(a.releaseDate).getTime();
-        } catch(e){ return 0; }
-      });
-      renderAllReleases(allReleasesCache);
-    })
-    .catch(function(){
-      box.innerHTML = "<p style='color:#999'>Couldn't load new releases.</p>";
-    });
+  try {
+    if (typeof LynxosYTM !== "undefined" && LynxosYTM.getNewReleases) {
+      var jsonStr = LynxosYTM.getNewReleases(100);
+      var albums = JSON.parse(jsonStr);
+      if (albums && albums.error) throw new Error(albums.error);
+      if (albums && albums.length) {
+        allReleasesCache = albums.map(function(a){
+          return {
+            name: a.title || "",
+            artist: a.artist || "",
+            art: a.thumb || "",
+            id: a.browseId || "",
+            releaseDate: a.year || ""
+          };
+        }).filter(function(x){ return x.name && x.artist; });
+        renderAllReleases(allReleasesCache);
+        return;
+      }
+    }
+  } catch(e) { }
+  box.innerHTML = "<p style='color:#999'>Couldn't load releases.</p>";
 }
 function renderAllReleases(items){
   var box = $("allReleases");
