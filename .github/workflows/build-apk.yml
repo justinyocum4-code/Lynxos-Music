@@ -573,16 +573,18 @@ jobs:
                               try {
                                   ensurePython();
                                   if (ytmModule != null) {
+                                      /* v2.2.50: longer timeout for Chaquopy */
                                       PyObject r = ytmModule.callAttr("get_album", browseId, limit);
                                       result[0] = r.toString();
                                   }
                               } catch (Exception e) {
-                                  android.util.Log.e("LynxosYTM", "getAlbum failed", e);
+                                  android.util.Log.e("LynxosYTM", "getAlbum failed for " + browseId, e);
+                                  result[0] = "{\"error\":\"" + e.toString().replace("\"", "'") + "\"}";
                               }
                           }
                       });
                       t.start();
-                      try { t.join(15000); } catch (Exception e) {}
+                      try { t.join(30000); } catch (Exception e) {}
                       return result[0];
                   }
                   @JavascriptInterface public String getNewReleases(final int limit) {
