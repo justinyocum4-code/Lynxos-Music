@@ -1287,6 +1287,17 @@ function ytmGetArtistInfo(artistId){
   } catch (e) { }
   return Promise.resolve({});
 }
+function ytmFindAlbumBrowseId(albumName, artistName){
+  try {
+    if (typeof LynxosYTM !== "undefined" && LynxosYTM.findAlbumBrowseId) {
+      var jsonStr = LynxosYTM.findAlbumBrowseId(albumName, artistName || "");
+      var parsed = JSON.parse(jsonStr);
+      if (parsed && parsed.error) throw new Error(parsed.error);
+      return Promise.resolve(parsed.browseId || "");
+    }
+  } catch (e) { }
+  return Promise.resolve("");
+}
 function ytmGetAlbum(browseId){
   try {
     if (typeof LynxosYTM !== "undefined" && LynxosYTM.getAlbum) {
@@ -2130,8 +2141,50 @@ function organizeAlbums(){
 function openLocalAlbum(idx){
   var a = getAlbums()[idx];
   if(!a || !a.tracks.length){ say("That album is empty."); return; }
-  /* v2.2.54: If saved album has browseId and few tracks, re-fetch full list */
-  if(a.browseId && a.tracks.length < 5 && !state._refetchingAlbum){
+  /* v2.2.56: If saved album has few tracks, try to find and re-fetch full list */
+  if(a.tracks.length < 5 && !state._refetchingAlbum){
+    state._refetchingAlbum = true;
+    var doFetch = function(browseId){
+      if(!browseId){
+        state._refetchingAlbum = false;
+        say("Couldn't find the official track list for " + a.name + ".");
+        openLocalAlbum(idx);
+        return;
+      }
+      /* Save the found browseId for next time */
+      var albums = getAlbums();
+      albums[idx].browseId = browseId;
+      saveAlbums(albums);
+      say("Loading full album...");
+      ytmGetAlbum(browseId).then(function(fullTracks){
+        state._refetchingAlbum = false;
+        if(fullTracks && fullTracks.length > a.tracks.length){
+          var albums2 = getAlbums();
+          albums2[idx].tracks = fullTracks;
+          saveAlbums(albums2);
+          say("Loaded " + fullTracks.length + " tracks.");
+        }
+        openLocalAlbum(idx);
+      }).catch(function(){
+        state._refetchingAlbum = false;
+        say("Couldn't load the full track list.");
+        openLocalAlbum(idx);
+      });
+    };
+    if(a.browseId){
+      doFetch(a.browseId);
+    } else {
+      /* v2.2.56: Try to find browseId by searching */
+      say("Finding " + a.name + "...");
+      ytmFindAlbumBrowseId(a.name, a.artist).then(doFetch).catch(function(){
+        state._refetchingAlbum = false;
+        openLocalAlbum(idx);
+      });
+    }
+    return;
+  }
+  /* v2.2.54: Legacy check (kept for compatibility) */
+  if(false && a.browseId && a.tracks.length < 5 && !state._refetchingAlbum){
     state._refetchingAlbum = true;
     say("Loading full album...");
     ytmGetAlbum(a.browseId).then(function(fullTracks){
@@ -2176,6 +2229,8 @@ function orderLocalAlbum(a, idx){
   if(!a || a.orderVer === ORDER_VER || !a.tracks || a.tracks.length < 2) return;
   /* Albums saved from the app's album pages are already in order. */
   if(a.tracks[0].resolveQuery){ a.orderVer = ORDER_VER; return; }
+  /* v2.2.56: Python-sourced albums (with browseId) are already in correct order - skip reordering */
+  if(a.browseId){ a.orderVer = ORDER_VER; return; }
   var artist = String(a.artist || "").trim(), name = String(a.name || "").trim();
   if(!artist || !name) return;
   a.orderVer = ORDER_VER; /* one attempt — misses keep the current order */
