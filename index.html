@@ -64,7 +64,8 @@
   #miniPlayer .mptitle { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #miniPlayer .mpartist { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   /* full player overlay */
-  #fullPlayer { position: fixed; inset: 0; z-index: 40; background: var(--bg); overflow-y: auto; padding: 10px 16px 30px; }
+  /* v2.2.52: Full player above album panel (z-45) */
+  #fullPlayer { position: fixed; inset: 0; z-index: 55; background: var(--bg); overflow-y: auto; padding: 10px 16px 30px; }
   #fullPlayer[hidden] { display: none; }
   /* v2.2.0: player overflow menu (YouTube Music style). */
   #fpMenu { position: fixed; top: 54px; right: 12px; z-index: 60; background: #1a1a1a;
@@ -762,7 +763,7 @@ function renderArtistPagePython(data){
   }
   if(albums.length){
     html += "<div class='row' style='align-items:center;justify-content:space-between'><h3 style='margin:0'>Albums</h3>";
-    if(albums.length > 10) html += "<button class='btn small secondary' id='artistAlbumsSeeAll'>See all</button>";
+    html += "<button class='btn small secondary' id='artistAlbumsSeeAll'>See all</button>";
     html += "</div><div class='hscroll'>";
     albumsPreview.forEach(function(a, idx){
       var aname = a.title || a.name || "Unknown";
@@ -779,7 +780,7 @@ function renderArtistPagePython(data){
   }
   if(singles.length){
     html += "<div class='row' style='align-items:center;justify-content:space-between'><h3 style='margin:0'>Singles</h3>";
-    if(singles.length > 10) html += "<button class='btn small secondary' id='artistSinglesSeeAll'>See all</button>";
+    html += "<button class='btn small secondary' id='artistSinglesSeeAll'>See all</button>";
     html += "</div><div class='hscroll'>";
     singlesPreview.forEach(function(a, idx){
       var aname = a.title || a.name || "Unknown";
