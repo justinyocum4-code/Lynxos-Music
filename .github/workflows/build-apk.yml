@@ -979,7 +979,8 @@ jobs:
               /* v2.2.7: media session for Bluetooth headset buttons. */
               private MediaSession mediaSession;
               private final Handler main = new Handler(Looper.getMainLooper());
-              private final ExecutorService bg = Executors.newSingleThreadExecutor();
+              /* v2.2.42: Multi-threaded for parallel prefetch - much faster skipping. */
+              private final ExecutorService bg = Executors.newFixedThreadPool(3);
               private final List<Track> queue = new ArrayList<>();
               /* v2.1.7: cache of resolved audio URLs (videoId -> url) plus
                  prefetch of the next track so skipping songs is instant. */
@@ -1405,9 +1406,37 @@ jobs:
                   }
                   return null;
               }
-              /* v2.2.33: Try Python yt-dlp first (more robust), fall back to NewPipe. */
+              /* v2.2.42: Speed fix - NewPipe FIRST (fast 1-2s), yt-dlp second (robust 3-5s).
+                 NewPipe just parses the page; yt-dlp does full extraction. */
               private String resolveAudioUrl(String videoId, String title, String artist) throws Exception {
-                  // Try Python yt-dlp directly with automatic alternatives (v2.2.39)
+                  // Try NewPipeExtractor first (fast)
+                  try {
+                      StreamExtractor ex = ServiceList.YouTube.getStreamExtractor("https://www.youtube.com/watch?v=" + videoId);
+                      ex.fetchPage();
+                      List<AudioStream> streams = ex.getAudioStreams();
+                      AudioStream best = null;
+                      for (AudioStream s : streams) {
+                          if (s.getDeliveryMethod() != DeliveryMethod.PROGRESSIVE_HTTP) continue;
+                          String u = "";
+                          try { u = s.getUrl(); } catch (Exception ignored) {}
+                          if (u == null || u.isEmpty()) continue;
+                          if (best == null || s.getAverageBitrate() > best.getAverageBitrate()) best = s;
+                      }
+                      if (best == null) {
+                          for (AudioStream s : streams) {
+                              String u = "";
+                              try { u = s.getUrl(); } catch (Exception ignored) {}
+                              if (u != null && !u.isEmpty()) { best = s; break; }
+                          }
+                      }
+                      if (best != null) {
+                          android.util.Log.i("LynxosMusic", "NewPipe fast-path OK for " + videoId);
+                          return best.getUrl();
+                      }
+                  } catch (Exception e) {
+                      android.util.Log.w("LynxosMusic", "NewPipe failed for " + videoId + ", trying yt-dlp", e);
+                  }
+                  // Fall back to Python yt-dlp with automatic alternatives (robust)
                   try {
                       String pyUrl = getStreamUrlViaPythonDirect(videoId, title, artist);
                       if (pyUrl != null && !pyUrl.isEmpty()) {
@@ -1415,29 +1444,9 @@ jobs:
                           return pyUrl;
                       }
                   } catch (Exception e) {
-                      android.util.Log.w("LynxosMusic", "Python yt-dlp failed for " + videoId + ", trying NewPipe", e);
+                      android.util.Log.w("LynxosMusic", "Python yt-dlp failed for " + videoId, e);
                   }
-                  // Fall back to NewPipeExtractor
-                  StreamExtractor ex = ServiceList.YouTube.getStreamExtractor("https://www.youtube.com/watch?v=" + videoId);
-                  ex.fetchPage();
-                  List<AudioStream> streams = ex.getAudioStreams();
-                  AudioStream best = null;
-                  for (AudioStream s : streams) {
-                      if (s.getDeliveryMethod() != DeliveryMethod.PROGRESSIVE_HTTP) continue;
-                      String u = "";
-                      try { u = s.getUrl(); } catch (Exception ignored) {}
-                      if (u == null || u.isEmpty()) continue;
-                      if (best == null || s.getAverageBitrate() > best.getAverageBitrate()) best = s;
-                  }
-                  if (best == null) {
-                      for (AudioStream s : streams) {
-                          String u = "";
-                          try { u = s.getUrl(); } catch (Exception ignored) {}
-                          if (u != null && !u.isEmpty()) { best = s; break; }
-                      }
-                  }
-                  if (best == null) throw new ExtractionException("No playable audio stream found");
-                  return best.getUrl();
+                  throw new ExtractionException("No playable audio stream found");
               }
 
               private List<Track> parseTracks(String json) {
