@@ -721,6 +721,12 @@ function openPythonAlbum(browseId, title, artist, thumb){
     bindTrackButtons($("albumTracks"), tracks);
     /* Store for queue playback */
     state.albumTracks = tracks;
+    /* v2.2.55: Set global albumTracks and name/artist so save button works */
+    try { albumTracks = tracks; } catch(e){}
+    try {
+      var anEl = $("albumName"); if(anEl) anEl.textContent = title || "";
+      var arEl = $("albumArtist"); if(arEl) arEl.textContent = artist || "";
+    } catch(e2){}
     say(title + " loaded with " + tracks.length + " tracks.");
   }).catch(function(){
     $("albumTracks").innerHTML = "<p class='hint'>Couldn't load album.</p>";
