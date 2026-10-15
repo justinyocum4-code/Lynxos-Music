@@ -274,11 +274,12 @@
   body.tv #tv-menu button { text-align: left; }
   body.tv #tv-menu .tv-menu-hint { color: #999; font-size: 20px; margin: auto 0 0 0; }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.68</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings" style="margin-left:auto">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.69</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button><button class="iconbtn" id="accountBtn" aria-label="Account">👤</button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings" style="margin-left:auto">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -336,6 +337,12 @@
       </div>
       <div class="hscroll" id="trendingMetal" style="margin-top:8px"><p style="color:#999">Loading…</p></div>
     </div>
+  </section>
+  <!-- v2.2.69: Account - Google login via Supabase -->
+  <section id="accountView" role="tabpanel" aria-labelledby="accountTitle" hidden>
+    <button class="backBtn" id="accountBackBtn" aria-label="Back">‹ Back</button>
+    <h2 id="accountTitle" style="color:var(--gold)">Account</h2>
+    <div id="accountContent"><p style="color:#999">Loading…</p></div>
   </section>
   <section id="seeAllView" role="tabpanel" aria-labelledby="seeAllTitle" hidden>
     <button class="backBtn" id="seeAllBackBtn" aria-label="Back">‹ Back</button>
@@ -1162,6 +1169,8 @@ window.lmHandleBack = function(){
     if(!$("fullPlayer").hidden){ collapsePlayer(); return "handled"; }
     /* v2.2.66: Explicit settings back (was accidental fallthrough) */
     if(!$("settingsView").hidden){ $("settingsView").hidden = true; showTab(state.tab && state.tab !== "settings" ? state.tab : "home"); say("Back."); return "handled"; }
+    /* v2.2.69: Account view back */
+    if(!$("accountView").hidden){ closeAccount(); return "handled"; }
     var ab = $("albumPanel");
     if(ab && !ab.hidden){ closeAlbumPanel(); return "handled"; }
     var pd = $("playlistDetail");
@@ -4638,6 +4647,111 @@ function renderArtistSongs(artist, results){
   });
   if(!n) box.innerHTML = "<p style='color:#999'>No songs found.</p>";
 }
+/* ================= v2.2.69: Account - Google login via Supabase ================= */
+var SUPABASE_URL = "https://klykzghndlrfwwxwaczm.supabase.co";
+var SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtseWt6Z2huZGxyZnd3eHdhY3ptIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk1MzUxNDUsImV4cCI6MjEwNTExMTE0NX0.02AcmkbA_wjLN5XOfwuisJjck2TijjqH66bX5ddVV0Q";
+var sbClient = null;
+try {
+  if (typeof supabase !== "undefined") {
+    sbClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  }
+} catch(e){ console.log("supabase init: " + e.message); }
+
+function openAccount(){
+  TABS.forEach(function(t){ $(t[1]).hidden = true; $(t[0]).setAttribute("aria-selected", "false"); });
+  $("searchView").hidden = true;
+  $("settingsView").hidden = true;
+  $("seeAllView").hidden = true;
+  $("artistView").hidden = true;
+  $("accountView").hidden = false;
+  state.tab = "account";
+  renderAccount();
+  say("Account.");
+}
+function closeAccount(){
+  $("accountView").hidden = true;
+  showTab("home");
+}
+function renderAccount(){
+  var box = $("accountContent");
+  if(!box || !sbClient){ if(box) box.innerHTML = "<p>Sign-in is unavailable right now.</p>"; return; }
+  sbClient.auth.getSession().then(function(res){
+    var session = res.data.session;
+    if(session && session.user){
+      var u = session.user;
+      var name = u.user_metadata.full_name || u.email || "Signed in";
+      var avatar = u.user_metadata.avatar_url || "";
+      box.innerHTML =
+        "<div style='text-align:center;padding:20px'>" +
+        (avatar ? "<img src='" + esc(avatar) + "' alt='' style='width:80px;height:80px;border-radius:50%'>" : "<div style='font-size:60px'>👤</div>") +
+        "<h3 style='color:var(--gold)'>" + esc(name) + "</h3>" +
+        "<p style='color:#999'>" + esc(u.email || "") + "</p>" +
+        "<button class='btn' id='signOutBtn'>Sign out</button>" +
+        "<p style='color:#666;font-size:13px;margin-top:16px'>Your liked songs and playlists stay on this device for now. Cloud sync is coming.</p>" +
+        "</div>";
+      $("signOutBtn").addEventListener("click", function(){
+        sbClient.auth.signOut().then(function(){ renderAccount(); say("Signed out."); });
+      });
+      say("Signed in as " + name);
+    } else {
+      box.innerHTML =
+        "<div style='text-align:center;padding:20px'>" +
+        "<div style='font-size:60px'>👤</div>" +
+        "<h3 style='color:var(--gold)'>Sign in</h3>" +
+        "<p style='color:#999'>Sign in with Google to save your progress across devices.</p>" +
+        "<button class='btn' id='googleSignInBtn' style='margin-top:12px'>Sign in with Google</button>" +
+        "</div>";
+      $("googleSignInBtn").addEventListener("click", startGoogleLogin);
+    }
+  });
+}
+function startGoogleLogin(){
+  if(!sbClient){ say("Sign-in is unavailable."); return; }
+  /* Open OAuth in external browser, app receives the callback via deep link */
+  sbClient.auth.signInWithOAuth({
+    provider: "google",
+    options: { redirectTo: "com.lynxosmusic.app://auth-callback", skipBrowserRedirect: true }
+  }).then(function(res){
+    if(res.data && res.data.url){
+      /* Ask Android to open in the system browser */
+      if(typeof LynxosPlayer !== "undefined" && LynxosPlayer.openUrl){
+        LynxosPlayer.openUrl(res.data.url);
+      } else {
+        window.open(res.data.url, "_blank");
+      }
+      say("Opening Google sign-in in your browser. Come back here when done.");
+    } else {
+      say("Couldn't start sign-in.");
+    }
+  });
+}
+/* Called from Android when the OAuth deep link returns */
+function handleAuthCallback(url){
+  if(!sbClient || !url) return;
+  try {
+    /* URL looks like com.lynxosmusic.app://auth-callback#access_token=...&refresh_token=... */
+    var hash = url.split("#")[1] || "";
+    var params = {};
+    hash.split("&").forEach(function(p){
+      var kv = p.split("=");
+      if(kv[0]) params[kv[0]] = decodeURIComponent(kv[1] || "");
+    });
+    if(params.access_token && params.refresh_token){
+      sbClient.auth.setSession({
+        access_token: params.access_token,
+        refresh_token: params.refresh_token
+      }).then(function(){
+        renderAccount();
+        say("Signed in!");
+      });
+    } else if(url.indexOf("error=") >= 0){
+      say("Sign-in was cancelled or failed.");
+    }
+  } catch(e){ console.log("auth callback: " + e.message); }
+}
+$("accountBtn").addEventListener("click", openAccount);
+$("accountBackBtn").addEventListener("click", closeAccount);
+
 /* ================= v1.2 init additions ================= */
 renderRecentSearches();
 updateSleepBtn();
