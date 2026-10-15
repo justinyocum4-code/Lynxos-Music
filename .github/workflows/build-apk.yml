@@ -586,28 +586,6 @@ jobs:
                       try { t.join(30000); } catch (Exception e) {}
                       return result[0];
                   }
-                  /* v2.2.65: Genre station from artist top songs (genre-pure by construction) */
-                  @JavascriptInterface public String getGenreStation(final String genreKey, final int limit) {
-                      final String[] result = new String[1];
-                      result[0] = "[]";
-                      Thread t = new Thread(new Runnable() {
-                          @Override public void run() {
-                              try {
-                                  ensurePython();
-                                  if (ytmModule != null) {
-                                      PyObject r = ytmModule.callAttr("get_genre_station", genreKey, limit);
-                                      result[0] = r.toString();
-                                  }
-                              } catch (Exception e) {
-                                  android.util.Log.e("LynxosYTM", "getGenreStation failed", e);
-                                  result[0] = "{\"error\":\"" + e.toString().replace("\"", "'") + "\"}";
-                              }
-                          }
-                      });
-                      t.start();
-                      try { t.join(60000); } catch (Exception e) {}
-                      return result[0];
-                  }
                   @JavascriptInterface public String getAlbum(final String browseId, final int limit) {
                       final String[] result = new String[1];
                       result[0] = "[]";
