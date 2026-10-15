@@ -1344,16 +1344,42 @@ jobs:
                   });
               }
 
+              /* v2.2.35: Direct Python yt-dlp call, self-contained in MusicService. */
+              private String getStreamUrlViaPythonDirect(String videoId) {
+                  try {
+                      if (!com.chaquopy.python.Python.isStarted()) {
+                          com.chaquopy.python.Python.start(new com.chaquopy.python.android.AndroidPlatform(MusicService.this));
+                      }
+                      com.chaquopy.python.PyObject mod = com.chaquopy.python.Python.getInstance().getModule("ytm_bridge");
+                      if (mod != null) {
+                          com.chaquopy.python.PyObject r = mod.callAttr("get_stream_url", videoId);
+                          String json = r.toString();
+                          if (json != null && json.contains("\"url\"")) {
+                              int start = json.indexOf("\"url\"") + 7;
+                              int end = json.indexOf("\"", start);
+                              if (start > 6 && end > start) {
+                                  String url = json.substring(start, end);
+                                  if (url != null && !url.isEmpty() && url.startsWith("http")) {
+                                      return url;
+                                  }
+                              }
+                          } else if (json != null && json.contains("\"error\"")) {
+                              android.util.Log.w("LynxosMusic", "Python yt-dlp error for " + videoId + ": " + json);
+                          }
+                      }
+                  } catch (Exception e) {
+                      android.util.Log.w("LynxosMusic", "Direct Python yt-dlp failed for " + videoId, e);
+                  }
+                  return null;
+              }
               /* v2.2.33: Try Python yt-dlp first (more robust), fall back to NewPipe. */
               private String resolveAudioUrl(String videoId) throws Exception {
-                  // Try Python yt-dlp via shared bridge instance
+                  // Try Python yt-dlp directly (self-contained, no Activity dependency)
                   try {
-                      if (MainActivity.sharedYtmBridge != null) {
-                          String pyUrl = MainActivity.sharedYtmBridge.getStreamUrlViaPython(videoId);
-                          if (pyUrl != null && !pyUrl.isEmpty()) {
-                              android.util.Log.i("LynxosMusic", "Got stream URL via Python yt-dlp for " + videoId);
-                              return pyUrl;
-                          }
+                      String pyUrl = getStreamUrlViaPythonDirect(videoId);
+                      if (pyUrl != null && !pyUrl.isEmpty()) {
+                          android.util.Log.i("LynxosMusic", "Got stream URL via Python yt-dlp for " + videoId);
+                          return pyUrl;
                       }
                   } catch (Exception e) {
                       android.util.Log.w("LynxosMusic", "Python yt-dlp failed for " + videoId + ", trying NewPipe", e);
