@@ -62,6 +62,24 @@ def search_songs(query, max_results=20):
     except Exception as e:
         return json.dumps({"error": str(e)})
 
+def get_song(video_id):
+    """Get song details by video ID. Returns JSON object."""
+    try:
+        ytm = _get_ytm()
+        song = ytm.get_song(videoId=video_id)
+        details = song.get("videoDetails", {})
+        thumbs = details.get("thumbnail", {}).get("thumbnails", [])
+        thumb = thumbs[-1].get("url", "") if thumbs else ""
+        return json.dumps({
+            "videoId": video_id,
+            "title": details.get("title", ""),
+            "channel": details.get("author", ""),
+            "thumb": thumb,
+            "art": thumb,
+        })
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
 def get_radio(video_id, limit=50):
     """Get radio queue for a video. Returns JSON array of tracks."""
     try:
@@ -230,6 +248,60 @@ def get_mood_playlists(params, limit=50):
                 continue
             if len(tracks) >= limit:
                 break
+        return json.dumps(tracks)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+def _get_ytm_authed(provider_token):
+    """Create YTMusic with user's OAuth token for personal library access."""
+    from ytmusicapi import YTMusic
+    # ytmusicapi OAuth format needs refresh token flow; use headers directly
+    ytm = YTMusic()
+    ytm._headers["Authorization"] = "Bearer " + provider_token
+    return ytm
+
+def get_ytm_liked(provider_token, limit=100):
+    """Get user's YouTube Music liked songs. Needs YouTube OAuth scope."""
+    try:
+        ytm = _get_ytm_authed(provider_token)
+        songs = ytm.get_liked_songs(limit=limit)
+        tracks = []
+        for item in songs.get("tracks", [])[:limit]:
+            t = _track_from_song(item)
+            if t:
+                tracks.append(t)
+        return json.dumps(tracks)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+def get_ytm_playlists(provider_token, limit=50):
+    """Get user's YouTube Music playlists."""
+    try:
+        ytm = _get_ytm_authed(provider_token)
+        playlists = ytm.get_library_playlists(limit=limit)
+        out = []
+        for p in playlists[:limit]:
+            thumbs = p.get("thumbnails", [])
+            out.append({
+                "playlistId": p.get("playlistId", ""),
+                "title": p.get("title", ""),
+                "thumb": thumbs[-1].get("url", "") if thumbs else "",
+                "count": p.get("count", ""),
+            })
+        return json.dumps(out)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+def get_ytm_history(provider_token):
+    """Get user's YouTube Music history."""
+    try:
+        ytm = _get_ytm_authed(provider_token)
+        history = ytm.get_history()
+        tracks = []
+        for item in history:
+            t = _track_from_song(item)
+            if t:
+                tracks.append(t)
         return json.dumps(tracks)
     except Exception as e:
         return json.dumps({"error": str(e)})
