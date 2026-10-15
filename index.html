@@ -278,7 +278,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.67</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings" style="margin-left:auto">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.68</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings" style="margin-left:auto">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -2576,8 +2576,9 @@ $("clearHistoryBtn").addEventListener("click", function(){
   say("History cleared."); renderHistory();
 });
 /* ---- liked ---- */
-function getLiked(){ return getJSON("lm_liked", []); }
-function getHistory(){ return getJSON("lm_history", []); }
+/* v2.2.68: filter out corrupt null entries from old bugs */
+function getLiked(){ var a = getJSON("lm_liked", []); return Array.isArray(a) ? a.filter(function(t){ return t && t.title; }) : []; }
+function getHistory(){ var a = getJSON("lm_history", []); return Array.isArray(a) ? a.filter(function(t){ return t && t.title; }) : []; }
 function isLiked(id){ return getLiked().some(function(v){ return v.videoId === id; }); }
 function toggleLike(v){
   var l = getLiked();
@@ -3719,13 +3720,14 @@ function showSimilar(){
 $("fpSimilarBtn").addEventListener("click", showSimilar);
 /* ================= home screen ================= */
 function renderHome(){
-  renderHomeChips();
-  renderSpeedDial();
-  renderQuickPicks();
-  renderMixes();
-  renderFreshFinds();
-  loadAllReleases();
-  loadAllSingles();
+  /* v2.2.68: each section is isolated - one bad section can't kill the home screen */
+  try { renderHomeChips(); } catch(e){ console.log("chips: " + e.message); }
+  try { renderSpeedDial(); } catch(e){ console.log("speeddial: " + e.message); }
+  try { renderQuickPicks(); } catch(e){ console.log("quickpicks: " + e.message); }
+  try { renderMixes(); } catch(e){ console.log("mixes: " + e.message); }
+  try { renderFreshFinds(); } catch(e){ console.log("fresh: " + e.message); }
+  try { loadAllReleases(); } catch(e){ console.log("releases: " + e.message); }
+  try { loadAllSingles(); } catch(e){ console.log("singles: " + e.message); }
 }
 /* v2.2.67: Genre filter chips (YouTube Music style) */
 function renderHomeChips(){
@@ -3753,14 +3755,17 @@ function renderSpeedDial(){
   function add(it){ if(it && it.key && !seen[it.key]){ seen[it.key] = 1; items.push(it); } }
   /* Liked songs first */
   getLiked().slice(0, 9).forEach(function(t){
+    if(!t || !t.title) return;
     add({ key: "song:" + (t.videoId || t.title), kind: "song", title: t.title, artist: trackArtist(t), art: t.art || t.thumb, track: t });
   });
   /* Top artists */
   topArtists(9).forEach(function(a){
+    if(!a) return;
     add({ key: "artist:" + a, kind: "artist", title: a, artist: "Artist", art: null });
   });
   /* Recent history */
   getHistory().slice(0, 18).forEach(function(t){
+    if(!t || !t.title) return;
     add({ key: "song:" + (t.videoId || t.title), kind: "song", title: t.title, artist: trackArtist(t), art: t.art || t.thumb, track: t });
   });
   items = items.slice(0, 27);
@@ -3821,6 +3826,7 @@ function renderQuickPicks(){
   box.innerHTML = "";
   var seen = {};
   hist.forEach(function(t){
+    if(!t || !t.title) return;
     var key = t.videoId || t.title;
     if(seen[key]) return;
     seen[key] = 1;
@@ -3844,6 +3850,7 @@ function renderFreshFinds(){
   }
   box.innerHTML = "";
   shuffleList(liked.slice()).forEach(function(t){
+    if(!t || !t.title) return;
     var b = document.createElement("button");
     b.className = "visualCard";
     b.setAttribute("aria-label", "Play " + t.title + " by " + trackArtist(t));
