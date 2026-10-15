@@ -399,6 +399,106 @@ jobs:
                       try { t.join(15000); } catch (Exception e) {}
                       return result[0];
                   }
+                  @JavascriptInterface public String getMoodGenreCategories() {
+                      final String[] result = new String[1];
+                      result[0] = "{}";
+                      Thread t = new Thread(new Runnable() {
+                          @Override public void run() {
+                              try {
+                                  ensurePython();
+                                  if (ytmModule != null) {
+                                      PyObject r = ytmModule.callAttr("get_mood_genre_categories");
+                                      result[0] = r.toString();
+                                  }
+                              } catch (Exception e) {
+                                  android.util.Log.e("LynxosYTM", "getMoodGenreCategories failed", e);
+                              }
+                          }
+                      });
+                      t.start();
+                      try { t.join(15000); } catch (Exception e) {}
+                      return result[0];
+                  }
+                  @JavascriptInterface public String getMoodPlaylists(final String params, final int limit) {
+                      final String[] result = new String[1];
+                      result[0] = "[]";
+                      Thread t = new Thread(new Runnable() {
+                          @Override public void run() {
+                              try {
+                                  ensurePython();
+                                  if (ytmModule != null) {
+                                      PyObject r = ytmModule.callAttr("get_mood_playlists", params, limit);
+                                      result[0] = r.toString();
+                                  }
+                              } catch (Exception e) {
+                                  android.util.Log.e("LynxosYTM", "getMoodPlaylists failed", e);
+                              }
+                          }
+                      });
+                      t.start();
+                      try { t.join(20000); } catch (Exception e) {}
+                      return result[0];
+                  }
+                  @JavascriptInterface public String getCharts(final String country, final int limit) {
+                      final String[] result = new String[1];
+                      result[0] = "[]";
+                      Thread t = new Thread(new Runnable() {
+                          @Override public void run() {
+                              try {
+                                  ensurePython();
+                                  if (ytmModule != null) {
+                                      PyObject r = ytmModule.callAttr("get_charts", country, limit);
+                                      result[0] = r.toString();
+                                  }
+                              } catch (Exception e) {
+                                  android.util.Log.e("LynxosYTM", "getCharts failed", e);
+                              }
+                          }
+                      });
+                      t.start();
+                      try { t.join(15000); } catch (Exception e) {}
+                      return result[0];
+                  }
+                  @JavascriptInterface public String searchAlbums(final String query, final int limit) {
+                      final String[] result = new String[1];
+                      result[0] = "[]";
+                      Thread t = new Thread(new Runnable() {
+                          @Override public void run() {
+                              try {
+                                  ensurePython();
+                                  if (ytmModule != null) {
+                                      PyObject r = ytmModule.callAttr("search_albums", query, limit);
+                                      result[0] = r.toString();
+                                  }
+                              } catch (Exception e) {
+                                  android.util.Log.e("LynxosYTM", "searchAlbums failed", e);
+                              }
+                          }
+                      });
+                      t.start();
+                      try { t.join(15000); } catch (Exception e) {}
+                      return result[0];
+                  }
+                  @JavascriptInterface public String getAlbum(final String browseId, final int limit) {
+                      final String[] result = new String[1];
+                      result[0] = "[]";
+                      Thread t = new Thread(new Runnable() {
+                          @Override public void run() {
+                              try {
+                                  ensurePython();
+                                  if (ytmModule != null) {
+                                      PyObject r = ytmModule.callAttr("get_album", browseId, limit);
+                                      result[0] = r.toString();
+                                  }
+                              } catch (Exception e) {
+                                  android.util.Log.e("LynxosYTM", "getAlbum failed", e);
+                              }
+                          }
+                      });
+                      t.start();
+                      try { t.join(15000); } catch (Exception e) {}
+                      return result[0];
+                  }
               }
 
               public class AudioBridge {
