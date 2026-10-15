@@ -3172,6 +3172,14 @@ var GENRE_ARTISTS = {
   "r&b": ["The Weeknd", "Rihanna", "Frank Ocean", "Ariana Grande", "Beyoncé", "Daniel Caesar", "Brent Faiyaz", "SZA", "Doja Cat", "Tinashe", "PARTYNEXTDOOR", "Miguel", "Bruno Mars", "Joji", "Kali Uchis"],
 };
 
+/* v2.2.64: Decade-specific artist lists for accurate stations */
+var DECADE_ARTISTS = {
+  "80s metal": ["Metallica", "Iron Maiden", "Judas Priest", "Black Sabbath", "Slayer", "Megadeth", "Anthrax", "Pantera", "Motorhead", "Dio", "Ozzy Osbourne", "Def Leppard", "Bon Jovi", "Guns N Roses", "Motley Crue", "Poison", "Ratt", "Twisted Sister", "Quiet Riot", "Whitesnake", "Scorpions", "Accept", "Kreator", "Testament", "Exodus", "Overkill", "Death Angel", "Venom", "Mercyful Fate", "King Diamond", "Celtic Frost", "Bathory"],
+  "90s grunge": ["Nirvana", "Alice in Chains", "Pearl Jam", "Soundgarden", "Stone Temple Pilots", "Hole", "Bush", "Silverchair", "Temple of the Dog", "Mudhoney", "Screaming Trees", "Tad", "Melvins"],
+  "2000s rock": ["Linkin Park", "Foo Fighters", "Red Hot Chili Peppers", "Green Day", "The Offspring", "Blink-182", "System of a Down", "Korn", "Deftones", "Disturbed", "Godsmack", "Staind", "Papa Roach", "Limp Bizkit", "Nickelback", "Creed", "3 Doors Down", "Matchbox Twenty", "Go Goo Dolls"],
+  "2010s metal": ["Avenged Sevenfold", "Bullet for My Valentine", "Trivium", "Killswitch Engage", "Lamb of God", "Mastodon", "Gojira", "Meshuggah", "Opeth", "Dream Theater", "Periphery", "Tesseract", "Animals as Leaders"]
+};
+
 var GENRE_SEEDS = {
   "metal": ["6fVE8kSM43I", "L-iepu3EtyE", "jRGrNDV2mKc", "CD-E-LDc384", "09LTT0xwdfw", "AkFqg5wAuFk"],
   "rock": ["XFkzRNyygfk", "eVTXPUF4Oz4", "we5_bia7ON8", "YlUKcNNmywk", "6Ejga4kJUts", "vAoOJLpYKJ0", "A_MjCqQoLLA", "a_4-VUVIw1A"],
@@ -3426,20 +3434,49 @@ function filterRefillVideos(videos, r, qCounts){
   videos.forEach(function(sv){
     var a = normArtist(sv.ownerChannel || sv.channel || "");
     var songKey = normArtist(sv.ownerChannel || sv.channel) + "|" + normSong(sv.title, sv.ownerChannel || sv.channel);
-    /* Skip music-video-only versions, live versions, non-English, and songs
-       already in queue. No purity filter on refills — the branch song already
-       keeps it on-genre, and we want to WIDEN the station, not narrow it. */
-    if(!r.seenIds[sv.videoId] && !queueSongs[songKey] && !isMusicVideoOnly(sv.title) && !isLiveVersion(sv.title) && !isNonEnglish(sv.title, sv.ownerChannel || sv.channel) && (qCounts[a] || 0) < 2){
+    /* v2.2.64: Deep fix - APPLY genre filter on refills too.
+       This stops YouTube radio drift (e.g., 80s Metal drifting into 90s rock). */
+    var genreOk = true;
+    if(r.seedName){
+      genreOk = genrePure(r.seedName, sv.ownerChannel || sv.channel);
+    }
+    /* Skip music-video-only versions, live versions, non-English, off-genre,
+       and songs already in queue. Max 1 per artist on refills (was 2). */
+    if(!r.seenIds[sv.videoId] && !queueSongs[songKey] && genreOk && !isMusicVideoOnly(sv.title) && !isLiveVersion(sv.title) && !isNonEnglish(sv.title, sv.ownerChannel || sv.channel) && (qCounts[a] || 0) < 1){
       r.seenIds[sv.videoId] = true; qCounts[a] = (qCounts[a] || 0) + 1; fresh.push(sv);
     }
   });
   return fresh;
 }
 function genrePure(genre, ownerChannel){
-  /* v2.2.26: strict genre check — the artist MUST be in this genre's list.
-     The lists are now comprehensive (50+ artists per major genre) so valid
-     bands aren't filtered out, but off-genre content is blocked. */
-  var artists = GENRE_ARTISTS[String(genre || "").toLowerCase()];
+  /* v2.2.64: Deep fix - extract base genre from station names.
+     "80s metal hits" -> "metal", "90s grunge hits" -> "grunge", etc. */
+  var g = String(genre || "").toLowerCase();
+  var baseGenre = g;
+  /* Extract the core genre word */
+  if(g.indexOf("metal") !== -1) baseGenre = "metal";
+  else if(g.indexOf("grunge") !== -1) baseGenre = "grunge";
+  else if(g.indexOf("rock") !== -1) baseGenre = "rock";
+  else if(g.indexOf("pop") !== -1) baseGenre = "pop";
+  else if(g.indexOf("alternative") !== -1 || g.indexOf("alt ") !== -1) baseGenre = "alternative";
+  else if(g.indexOf("punk") !== -1) baseGenre = "punk";
+  else if(g.indexOf("hip-hop") !== -1 || g.indexOf("hip hop") !== -1 || g.indexOf("rap") !== -1) baseGenre = "hip-hop";
+  else if(g.indexOf("electronic") !== -1 || g.indexOf("edm") !== -1 || g.indexOf("dance") !== -1) baseGenre = "electronic";
+  else if(g.indexOf("country") !== -1) baseGenre = "country";
+  else if(g.indexOf("jazz") !== -1) baseGenre = "jazz";
+  else if(g.indexOf("classical") !== -1) baseGenre = "classical";
+  else if(g.indexOf("r&b") !== -1 || g.indexOf("rnb") !== -1) baseGenre = "r&b";
+  
+  /* v2.2.64: Check decade-specific lists first (e.g., "80s metal hits" -> "80s metal") */
+  var decadeKey = "";
+  if(g.indexOf("80s") !== -1 && g.indexOf("metal") !== -1) decadeKey = "80s metal";
+  else if(g.indexOf("90s") !== -1 && g.indexOf("grunge") !== -1) decadeKey = "90s grunge";
+  else if(g.indexOf("2000s") !== -1 && g.indexOf("rock") !== -1) decadeKey = "2000s rock";
+  else if(g.indexOf("2010s") !== -1 && g.indexOf("metal") !== -1) decadeKey = "2010s metal";
+  
+  var artists = null;
+  if(decadeKey && DECADE_ARTISTS[decadeKey]) artists = DECADE_ARTISTS[decadeKey];
+  if(!artists) artists = GENRE_ARTISTS[baseGenre] || GENRE_ARTISTS[g];
   if(!artists || !artists.length) return true;
   var c = normArtist(ownerChannel);
   if(!c) return false;
