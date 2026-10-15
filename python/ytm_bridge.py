@@ -1,6 +1,7 @@
-"""YouTube Music bridge for Lynxos Music v2.2.30.
+"""YouTube Music bridge for Lynxos Music v2.2.32.
 Uses ytmusicapi to talk to YouTube Music's InnerTube API.
 Called from Java via Chaquopy, exposed to JavaScript via WebView bridge.
+Python-only: all music data comes through here, no JavaScript fallbacks.
 """
 import json
 from ytmusicapi import YTMusic
@@ -14,6 +15,39 @@ def _get_ytm():
         _ytm = YTMusic()
     return _ytm
 
+def _track_from_song(item):
+    """Convert a ytmusicapi song item to Lynxos track format."""
+    if item.get("resultType") not in ("song", "video", None):
+        # For watch playlist items, resultType may not be present
+        pass
+    # Only audio tracks, not music videos
+    video_type = item.get("videoType", "")
+    if video_type == "MUSIC_VIDEO_TYPE_OMV":
+        return None
+    artists = item.get("artists", [])
+    if isinstance(artists, list) and artists:
+        artist_name = artists[0].get("name", "") if isinstance(artists[0], dict) else str(artists[0])
+    else:
+        artist_name = str(artists) if artists else ""
+    album = item.get("album", {})
+    album_name = album.get("name", "") if isinstance(album, dict) else ""
+    duration = item.get("duration", "") or item.get("length", "")
+    thumbnails = item.get("thumbnails", []) or item.get("thumbnail", [])
+    thumb_url = thumbnails[-1].get("url", "") if thumbnails else ""
+    video_id = item.get("videoId", "")
+    if not video_id:
+        return None
+    return {
+        "videoId": video_id,
+        "title": item.get("title", ""),
+        "channel": artist_name,
+        "ownerChannel": artist_name,
+        "album": album_name,
+        "dur": duration,
+        "thumb": thumb_url,
+        "art": thumb_url,
+    }
+
 def search_songs(query, max_results=20):
     """Search YouTube Music for songs. Returns JSON array of tracks."""
     try:
@@ -21,29 +55,9 @@ def search_songs(query, max_results=20):
         results = ytm.search(query, filter="songs", limit=max_results)
         tracks = []
         for item in results:
-            if item.get("resultType") not in ("song", "video"):
-                continue
-            # Only audio tracks, not music videos
-            video_type = item.get("videoType", "")
-            if video_type == "MUSIC_VIDEO_TYPE_OMV":
-                continue
-            artists = item.get("artists", [])
-            artist_name = artists[0].get("name", "") if artists else ""
-            album = item.get("album", {})
-            album_name = album.get("name", "") if isinstance(album, dict) else ""
-            duration = item.get("duration", "")
-            thumbnails = item.get("thumbnails", [])
-            thumb_url = thumbnails[-1].get("url", "") if thumbnails else ""
-            tracks.append({
-                "videoId": item.get("videoId", ""),
-                "title": item.get("title", ""),
-                "channel": artist_name,
-                "ownerChannel": artist_name,
-                "album": album_name,
-                "dur": duration,
-                "thumb": thumb_url,
-                "art": thumb_url,
-            })
+            t = _track_from_song(item)
+            if t:
+                tracks.append(t)
         return json.dumps(tracks)
     except Exception as e:
         return json.dumps({"error": str(e)})
@@ -55,22 +69,9 @@ def get_radio(video_id, limit=50):
         playlist = ytm.get_watch_playlist(videoId=video_id, limit=limit)
         tracks = []
         for item in playlist.get("tracks", []):
-            artists = item.get("artists", [])
-            if isinstance(artists, list) and artists:
-                artist_name = artists[0].get("name", "") if isinstance(artists[0], dict) else str(artists[0])
-            else:
-                artist_name = str(artists) if artists else ""
-            thumbnails = item.get("thumbnail", [])
-            thumb_url = thumbnails[-1].get("url", "") if thumbnails else ""
-            tracks.append({
-                "videoId": item.get("videoId", ""),
-                "title": item.get("title", ""),
-                "channel": artist_name,
-                "ownerChannel": artist_name,
-                "dur": item.get("length", ""),
-                "thumb": thumb_url,
-                "art": thumb_url,
-            })
+            t = _track_from_song(item)
+            if t:
+                tracks.append(t)
         return json.dumps(tracks)
     except Exception as e:
         return json.dumps({"error": str(e)})
@@ -83,19 +84,9 @@ def get_artist_top_songs(artist_id, limit=20):
         songs = artist.get("songs", {}).get("results", [])[:limit]
         tracks = []
         for item in songs:
-            artists = item.get("artists", [])
-            artist_name = artists[0].get("name", "") if artists else ""
-            thumbnails = item.get("thumbnails", [])
-            thumb_url = thumbnails[-1].get("url", "") if thumbnails else ""
-            tracks.append({
-                "videoId": item.get("videoId", ""),
-                "title": item.get("title", ""),
-                "channel": artist_name,
-                "ownerChannel": artist_name,
-                "dur": "",
-                "thumb": thumb_url,
-                "art": thumb_url,
-            })
+            t = _track_from_song(item)
+            if t:
+                tracks.append(t)
         return json.dumps(tracks)
     except Exception as e:
         return json.dumps({"error": str(e)})
@@ -115,5 +106,93 @@ def search_artists(query, limit=10):
                 "thumb": thumb_url,
             })
         return json.dumps(artists)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+def get_mood_genre_categories():
+    """Get YouTube Music mood/genre categories. Returns JSON."""
+    try:
+        ytm = _get_ytm()
+        result = ytm.get_mood_categories()
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+def get_mood_playlists(params, limit=50):
+    """Get playlists for a mood/genre params. Returns JSON array of tracks."""
+    try:
+        ytm = _get_ytm()
+        result = ytm.get_mood_playlists(params)
+        tracks = []
+        # get_mood_playlists returns playlists, need to get tracks from each
+        for pl in result[:5]:  # Top 5 playlists for the genre
+            playlist_id = pl.get("playlistId", "")
+            if not playlist_id:
+                continue
+            try:
+                playlist = ytm.get_playlist(playlist_id, limit=limit//5)
+                for item in playlist.get("tracks", []):
+                    t = _track_from_song(item)
+                    if t:
+                        tracks.append(t)
+                        if len(tracks) >= limit:
+                            break
+            except:
+                continue
+            if len(tracks) >= limit:
+                break
+        return json.dumps(tracks)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+def get_charts(country="US", limit=50):
+    """Get charts (new releases/trending). Returns JSON."""
+    try:
+        ytm = _get_ytm()
+        charts = ytm.get_charts(country=country)
+        tracks = []
+        for item in charts.get("songs", {}).get("items", [])[:limit]:
+            t = _track_from_song(item)
+            if t:
+                tracks.append(t)
+        return json.dumps(tracks)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+def search_albums(query, limit=20):
+    """Search for albums. Returns JSON array."""
+    try:
+        ytm = _get_ytm()
+        results = ytm.search(query, filter="albums", limit=limit)
+        albums = []
+        for item in results:
+            thumbnails = item.get("thumbnails", [])
+            thumb_url = thumbnails[-1].get("url", "") if thumbnails else ""
+            artists = item.get("artists", [])
+            artist_name = artists[0].get("name", "") if artists else ""
+            albums.append({
+                "browseId": item.get("browseId", ""),
+                "title": item.get("title", ""),
+                "artist": artist_name,
+                "year": item.get("year", ""),
+                "thumb": thumb_url,
+            })
+        return json.dumps(albums)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+def get_album(browse_id, limit=50):
+    """Get album tracks. Returns JSON array."""
+    try:
+        ytm = _get_ytm()
+        album = ytm.get_album(browse_id)
+        tracks = []
+        for item in album.get("tracks", [])[:limit]:
+            t = _track_from_song(item)
+            if t:
+                # Add album info
+                t["album"] = album.get("title", "")
+                tracks.append(t)
+        return json.dumps(tracks)
     except Exception as e:
         return json.dumps({"error": str(e)})
