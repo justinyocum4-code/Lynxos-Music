@@ -134,6 +134,7 @@ jobs:
                   version "3.10"
                   pip {
                       install "ytmusicapi==1.12.3"
+                      install "yt-dlp"
                   }
               }
           }
@@ -327,17 +328,51 @@ jobs:
                  JavaScript calls LynxosYTM.* methods. */
               public class YTMusicBridge {
                   private PyObject ytmModule = null;
+                  private static PyObject staticYtmModule = null;
+                  private static android.content.Context staticCtx = null;
                   private void ensurePython() {
                       try {
                           if (!Python.isStarted()) {
                               Python.start(new AndroidPlatform(MainActivity.this));
+                              staticCtx = MainActivity.this.getApplicationContext();
                           }
                           if (ytmModule == null) {
                               ytmModule = Python.getInstance().getModule("ytm_bridge");
+                              staticYtmModule = ytmModule;
                           }
                       } catch (Exception e) {
                           android.util.Log.e("LynxosYTM", "Python init failed", e);
                       }
+                  }
+                  /* v2.2.33: Static helper for MusicService to get stream URL via Python yt-dlp. */
+                  public static String getStreamUrlViaPython(String videoId, android.content.Context ctx) {
+                      try {
+                          if (!Python.isStarted()) {
+                              Python.start(new AndroidPlatform(ctx));
+                          }
+                          PyObject mod = staticYtmModule;
+                          if (mod == null) {
+                              mod = Python.getInstance().getModule("ytm_bridge");
+                              staticYtmModule = mod;
+                          }
+                          if (mod != null) {
+                              PyObject r = mod.callAttr("get_stream_url", videoId);
+                              String json = r.toString();
+                              if (json != null && json.contains("\"url\"")) {
+                                  int start = json.indexOf("\"url\"") + 7;
+                                  int end = json.indexOf("\"", start);
+                                  if (start > 6 && end > start) {
+                                      String url = json.substring(start, end);
+                                      if (url != null && !url.isEmpty() && url.startsWith("http")) {
+                                          return url;
+                                      }
+                                  }
+                              }
+                          }
+                      } catch (Exception e) {
+                          android.util.Log.w("LynxosYTM", "Static Python stream URL failed", e);
+                      }
+                      return null;
                   }
                   @JavascriptInterface public String searchSongs(final String query, final int maxResults) {
                       final String[] result = new String[1];
@@ -497,6 +532,26 @@ jobs:
                       });
                       t.start();
                       try { t.join(15000); } catch (Exception e) {}
+                      return result[0];
+                  }
+                  @JavascriptInterface public String getStreamUrl(final String videoId) {
+                      final String[] result = new String[1];
+                      result[0] = "{\"error\":\"not attempted\"}";
+                      Thread t = new Thread(new Runnable() {
+                          @Override public void run() {
+                              try {
+                                  ensurePython();
+                                  if (ytmModule != null) {
+                                      PyObject r = ytmModule.callAttr("get_stream_url", videoId);
+                                      result[0] = r.toString();
+                                  }
+                              } catch (Exception e) {
+                                  android.util.Log.e("LynxosYTM", "getStreamUrl failed", e);
+                              }
+                          }
+                      });
+                      t.start();
+                      try { t.join(30000); } catch (Exception e) {}
                       return result[0];
                   }
               }
@@ -1296,7 +1351,19 @@ jobs:
                   });
               }
 
+              /* v2.2.33: Try Python yt-dlp first (more robust), fall back to NewPipe. */
               private String resolveAudioUrl(String videoId) throws Exception {
+                  // Try Python yt-dlp via static helper
+                  try {
+                      String pyUrl = MainActivity.YTMusicBridge.getStreamUrlViaPython(videoId, MusicService.this);
+                      if (pyUrl != null && !pyUrl.isEmpty()) {
+                          android.util.Log.i("LynxosMusic", "Got stream URL via Python yt-dlp for " + videoId);
+                          return pyUrl;
+                      }
+                  } catch (Exception e) {
+                      android.util.Log.w("LynxosMusic", "Python yt-dlp failed for " + videoId + ", trying NewPipe", e);
+                  }
+                  // Fall back to NewPipeExtractor
                   StreamExtractor ex = ServiceList.YouTube.getStreamExtractor("https://www.youtube.com/watch?v=" + videoId);
                   ex.fetchPage();
                   List<AudioStream> streams = ex.getAudioStreams();
