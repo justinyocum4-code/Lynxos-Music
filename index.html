@@ -1071,247 +1071,55 @@ function cleanTrackTitle(t){
 }
 /* v2.2.20: Deezer API for clean metadata (free, no key needed).
    Used to verify track titles/artists and get accurate genre info. */
-function deezerSearch(query){
-  var url = "https://api.deezer.com/search?q=" + encodeURIComponent(query) + "&limit=5";
-  return fetch(url).then(function(r){ return r.json(); }).then(function(d){
-    return (d.data || []).map(function(t){
-      return {
-        title: t.title || "",
-        artist: (t.artist || {}).name || "",
-        album: (t.album || {}).title || "",
-        deezerId: t.id
-      };
-    });
-  }).catch(function(){ return []; });
-}
 /* v2.2.29: YouTube Music InnerTube API — the same private backend the
    ytmusicapi Python library uses, called directly from JavaScript.
    No Python needed. Returns clean titles, artist/album/duration metadata,
    direct videoIds, and musicVideoType (ATV=audio track, OMV=music video)
    so we can filter music videos at the source. Works anonymously. */
-var YTM_BASE = "https://music.youtube.com/youtubei/v1/";
-var YTM_KEY = "<redacted>";
-var YTM_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:88.0) Gecko/20100101 Firefox/88.0";
-function ytmClientVersion(){
-  var d = new Date();
-  var ymd = d.getFullYear() + ("0" + (d.getMonth() + 1)).slice(-2) + ("0" + d.getDate()).slice(-2);
-  return "1." + ymd + ".01.00";
-}
-function ytmPost(endpoint, fields){
-  var body = { context: { client: { clientName: "WEB_REMIX", clientVersion: ytmClientVersion() }, user: {} } };
-  for(var k in fields){ if(fields.hasOwnProperty(k)) body[k] = fields[k]; }
-  return fetch(YTM_BASE + endpoint + "?alt=json&key=" + YTM_KEY, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "User-Agent": YTM_UA,
-      "Origin": "https://music.youtube.com", "Accept": "*/*" },
-    body: JSON.stringify(body)
-  }).then(function(r){
-    if(!r.ok) throw new Error("YTM " + endpoint + " HTTP " + r.status);
-    return r.json();
-  });
-}
-/* Search filter params (from ytmusicapi): songs only. */
-var YTM_SEARCH_SONGS = "EgWKAQIIAWoMEA4QChADEAQQCRAF";
-/* Extract clean track info from a musicResponsiveListItemRenderer. */
-function ytmParseTrack(item){
-  try{
-    var cols = item.flexColumns || [];
-    var title = "";
-    if(cols[0] && cols[0].musicResponsiveListItemFlexColumnRenderer){
-      var runs = ((cols[0].musicResponsiveListItemFlexColumnRenderer.text || {}).runs) || [];
-      title = runs.map(function(x){ return x.text || ""; }).join("");
-    }
-    var subtitle = "";
-    if(cols[1] && cols[1].musicResponsiveListItemFlexColumnRenderer){
-      var runs2 = ((cols[1].musicResponsiveListItemFlexColumnRenderer.text || {}).runs) || [];
-      subtitle = runs2.map(function(x){ return x.text || ""; }).join("");
-    }
-    /* subtitle is "Artist • Album • 5:32" */
-    var parts = subtitle.split(" • ");
-    var artist = parts[0] || "", album = parts[1] || "", dur = parts[2] || "";
-    var navEp = (((item.overlay || {}).musicItemThumbnailOverlayRenderer || {}).content || {}).musicPlayButtonRenderer || {};
-    var watchEp = (navEp.playNavigationEndpoint || {}).watchEndpoint || {};
-    var videoId = watchEp.videoId || "";
-    var mvt = ((((watchEp.watchEndpointMusicSupportedConfigs || {}).watchEndpointMusicConfig || {}).musicVideoType) || "");
-    var thumb = "";
-    try{
-      var thumbs = ((((item.thumbnail || {}).musicThumbnailRenderer || {}).thumbnail || {}).thumbnails) || [];
-      if(thumbs.length) thumb = thumbs[thumbs.length - 1].url || "";
-    }catch(e){}
-    if(!videoId || !title) return null;
-    return {
-      videoId: videoId, title: title, channel: artist, ownerChannel: artist,
-      album: album, dur: dur, thumb: thumb, art: thumb,
-      _musicVideoType: mvt,
-      /* Only audio tracks (ATV), not official music videos (OMV) or user uploads (UGC). */
-      _isAudio: mvt === "MUSIC_VIDEO_TYPE_ATV"
-    };
-  }catch(e){ return null; }
-}
 /* v2.2.29: search YouTube Music directly. Returns clean audio tracks only. */
 function ytmSearchSongs(query, maxResults){
-  /* v2.2.30: Try Python ytmusicapi bridge first (more robust), fall back to JS InnerTube. */
+  /* v2.2.32: Python-only — no JavaScript fallback. */
   try {
     if (typeof LynxosYTM !== "undefined" && LynxosYTM.searchSongs) {
       var jsonStr = LynxosYTM.searchSongs(query, maxResults || 20);
       var parsed = JSON.parse(jsonStr);
       if (parsed && parsed.error) throw new Error(parsed.error);
-      if (parsed && parsed.length) return Promise.resolve(parsed);
+      return Promise.resolve(parsed || []);
     }
-  } catch (e) { /* fall through to JS */ }
-  return ytmPost("search", { query: query, params: YTM_SEARCH_SONGS }).then(function(d){
-    var tracks = [];
-    try{
-      var tabs = (((d.contents || {}).tabbedSearchResultsRenderer || {}).tabs) || [];
-      tabs.forEach(function(tab){
-        var sections = (((((tab.tabRenderer || {}).content || {}).sectionListRenderer || {}).contents) || []);
-        sections.forEach(function(sec){
-          var shelf = sec.musicShelfRenderer || sec.musicCardShelfRenderer;
-          var items = ((shelf || {}).contents) || [];
-          items.forEach(function(wrap){
-            var item = wrap.musicResponsiveListItemRenderer;
-            if(item){
-              var t = ytmParseTrack(item);
-              /* v2.2.29: only audio tracks — music videos filtered at the source. */
-              if(t && t._isAudio) tracks.push(t);
-            }
-          });
-        });
-      });
-    }catch(e){}
-    return tracks.slice(0, maxResults || 20);
-  });
+  } catch (e) { }
+  return Promise.resolve([]);
 }
 /* v2.2.29: get a 50-song radio queue from YouTube Music's real radio engine. */
 function ytmRadioQueue(videoId){
-  /* v2.2.30: Try Python ytmusicapi bridge first. */
+  /* v2.2.32: Python-only — no JavaScript fallback. */
   try {
     if (typeof LynxosYTM !== "undefined" && LynxosYTM.getRadio) {
       var jsonStr2 = LynxosYTM.getRadio(videoId, 50);
       var parsed2 = JSON.parse(jsonStr2);
       if (parsed2 && parsed2.error) throw new Error(parsed2.error);
-      if (parsed2 && parsed2.length) return Promise.resolve(parsed2);
+      return Promise.resolve(parsed2 || []);
     }
-  } catch (e) { /* fall through to JS */ }
-  return ytmPost("next", {
-    videoId: videoId, playlistId: "RDAMVM" + videoId,
-    isAudioOnly: true, enablePersistentPlaylistPanel: true,
-    tunerSettingValue: "AUTOMIX_SETTING_NORMAL"
-  }).then(function(d){
-    var tracks = [];
-    try{
-      var tabs = ((((((d.contents || {}).singleColumnMusicWatchNextResultsRenderer || {}).tabbedRenderer || {}).watchNextTabbedResultsRenderer || {}).tabs) || []);
-      tabs.forEach(function(tab){
-        var queue = (((((tab.tabRenderer || {}).content || {}).musicQueueRenderer || {}).content || {}).playlistPanelRenderer) || {};
-        ((queue.contents) || []).forEach(function(wrap){
-          var pv = wrap.playlistPanelVideoRenderer;
-          if(pv && pv.videoId){
-            var title = (((pv.title || {}).runs) || []).map(function(x){ return x.text || ""; }).join("");
-            var subtitle = (((pv.longBylineText || {}).runs) || []).map(function(x){ return x.text || ""; }).join("");
-            var artist = (subtitle.split(" • "))[0] || "";
-            var lenText = (((pv.lengthText || {}).runs) || [])[0];
-            tracks.push({
-              videoId: pv.videoId, title: title, channel: artist, ownerChannel: artist,
-              thumb: "", art: "", dur: lenText ? lenText.text : ""
-            });
-          }
-        });
-      });
-    }catch(e){}
-    return tracks.filter(function(t){ return t.videoId && t.title; });
-  });
+  } catch (e) { }
+  return Promise.resolve([]);
 }
 /* v2.2.29: browse YouTube Music's genre/mood pages for curated genre tracks.
    Two steps: (1) get the genre landing to find the params token,
    (2) browse the genre category for curated playlists, then pull tracks. */
-var YTM_GENRE_CACHE = {};
-function ytmGenreParams(genreName){
-  var g = String(genreName || "").toLowerCase();
-  if(YTM_GENRE_CACHE[g]) return Promise.resolve(YTM_GENRE_CACHE[g]);
-  return ytmPost("browse", { browseId: "FEmusic_moods_and_genres" }).then(function(d){
-    var found = null;
-    try{
-      /* Walk the response looking for a genre grid item matching our genre. */
-      var str = JSON.stringify(d);
-      /* Find all browseId/params pairs near our genre name. */
-      var grids = [];
-      (function walk(o){
-        if(!o || typeof o !== "object") return;
-        if(o.musicNavigationButtonRenderer){
-          var btn = o.musicNavigationButtonRenderer;
-          var txt = (((btn.buttonText || {}).runs) || []).map(function(x){ return x.text || ""; }).join("");
-          var cmd = (btn.clickCommand || {}).browseEndpoint || {};
-          if(txt && cmd.browseId === "FEmusic_moods_and_genres_category"){
-            grids.push({ name: txt.toLowerCase(), params: cmd.params });
-          }
-        }
-        for(var k in o){ if(o.hasOwnProperty(k)) walk(o[k]); }
-      })(d);
-      for(var i = 0; i < grids.length; i++){
-        if(grids[i].name === g || grids[i].name.indexOf(g) === 0 || g.indexOf(grids[i].name) === 0){
-          found = grids[i].params;
-          break;
-        }
-      }
-    }catch(e){}
-    if(found) YTM_GENRE_CACHE[g] = found;
-    return found;
-  }).catch(function(){ return null; });
-}
+/* v2.2.32: Python-only genre — uses ytmusicapi via LynxosYTM bridge. */
+/* v2.2.32: Python-only genre tracks — searches YouTube Music for genre. */
 function ytmGenreTracks(genreName, limit){
-  return ytmGenreParams(genreName).then(function(params){
-    if(!params) return [];
-    return ytmPost("browse", { browseId: "FEmusic_moods_and_genres_category", params: params });
-  }).then(function(d){
-    if(!d) return [];
-    var tracks = [];
-    try{
-      (function walk(o){
-        if(!o || typeof o !== "object") return;
-        if(o.playlistPanelVideoRenderer){
-          var pv = o.playlistPanelVideoRenderer;
-          if(pv.videoId){
-            var title = (((pv.title || {}).runs) || []).map(function(x){ return x.text || ""; }).join("");
-            var subtitle = (((pv.longBylineText || {}).runs) || []).map(function(x){ return x.text || ""; }).join("");
-            var artist = (subtitle.split(" \u2022 "))[0] || (subtitle.split(" \u00b7 "))[0] || "";
-            tracks.push({ videoId: pv.videoId, title: title, channel: artist, ownerChannel: artist,
-              thumb: "", art: "", _fromYTMGenre: true });
-          }
-          return;
-        }
-        if(o.musicResponsiveListItemRenderer){
-          var t = ytmParseTrack(o.musicResponsiveListItemRenderer);
-          if(t && t._isAudio) tracks.push(t);
-          return;
-        }
-        for(var k in o){ if(o.hasOwnProperty(k)) walk(o[k]); }
-      })(d);
-    }catch(e){}
-    /* Dedupe by videoId. */
-    var seen = {}, out = [];
-    tracks.forEach(function(t){
-      if(t.videoId && !seen[t.videoId]){ seen[t.videoId] = true; out.push(t); }
-    });
-    return out.slice(0, limit || 50);
-  }).catch(function(){ return []; });
+  try {
+    if (typeof LynxosYTM !== "undefined" && LynxosYTM.searchSongs) {
+      /* Search for the genre to get representative tracks. */
+      var jsonStr = LynxosYTM.searchSongs(genreName + " music", limit || 50);
+      var parsed = JSON.parse(jsonStr);
+      if (parsed && parsed.error) throw new Error(parsed.error);
+      return Promise.resolve(parsed || []);
+    }
+  } catch (e) { }
+  return Promise.resolve([]);
 }
 /* Verify a track against Deezer and return cleaned metadata. */
-function verifyWithDeezer(title, artist){
-  var q = (artist ? artist + " " : "") + (title || "");
-  if(!q.trim()) return Promise.resolve(null);
-  return deezerSearch(q).then(function(results){
-    if(!results.length) return null;
-    /* Find best match by artist name. */
-    var normA = normArtist(artist);
-    for(var i = 0; i < results.length; i++){
-      var r = results[i];
-      if(normA && normArtist(r.artist).indexOf(normA) !== -1){
-        return r;
-      }
-    }
-    return results[0];
-  });
-}
 
 function parseTrack(title, channel){
   var t = String(title == null ? "" : title).trim();
