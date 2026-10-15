@@ -196,3 +196,36 @@ def get_album(browse_id, limit=50):
         return json.dumps(tracks)
     except Exception as e:
         return json.dumps({"error": str(e)})
+
+def get_stream_url(video_id):
+    """Get playable audio stream URL for a video ID using yt-dlp.
+    Returns JSON with url or error. This is the fallback when NewPipe fails."""
+    try:
+        import yt_dlp
+        url = "https://www.youtube.com/watch?v=" + video_id
+        ydl_opts = {
+            'format': 'bestaudio/best',
+            'quiet': True,
+            'no_warnings': True,
+            'extract_flat': False,
+            'noplaylist': True,
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            # Get the best audio URL
+            stream_url = info.get('url', '')
+            if not stream_url:
+                # Try formats list
+                for f in info.get('formats', []):
+                    if f.get('acodec') != 'none' and f.get('vcodec') == 'none':
+                        stream_url = f.get('url', '')
+                        if stream_url:
+                            break
+                if not stream_url and info.get('formats'):
+                    stream_url = info['formats'][0].get('url', '')
+            if stream_url:
+                return json.dumps({"url": stream_url})
+            else:
+                return json.dumps({"error": "No stream URL found"})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
