@@ -316,61 +316,6 @@ def find_album_browse_id(album_name, artist_name=""):
     except Exception as e:
         return json.dumps({"error": str(e)})
 
-def get_genre_station(genre_key, limit=100):
-    """Build a genre station from representative artists' top songs.
-    This is genre-pure by construction - no search drift, no off-genre songs."""
-    try:
-        ytm = _get_ytm()
-        # Representative artists per genre station - curated for purity
-        STATION_ARTISTS = {
-            "80s metal hits": ["Metallica", "Iron Maiden", "Judas Priest", "Black Sabbath", "Slayer", "Megadeth", "Anthrax", "Motorhead", "Dio", "Ozzy Osbourne", "Def Leppard", "Motley Crue", "Scorpions", "Accept", "Venom"],
-            "90s grunge hits": ["Nirvana", "Alice in Chains", "Pearl Jam", "Soundgarden", "Stone Temple Pilots", "Hole", "Bush", "Silverchair", "Temple of the Dog", "Mudhoney"],
-            "2000s rock hits": ["Linkin Park", "Foo Fighters", "Red Hot Chili Peppers", "Green Day", "System of a Down", "Korn", "Deftones", "Disturbed", "Godsmack", "Staind", "Papa Roach"],
-            "2010s metal hits": ["Avenged Sevenfold", "Bullet for My Valentine", "Trivium", "Killswitch Engage", "Lamb of God", "Mastodon", "Gojira", "Meshuggah"],
-        }
-        artists = STATION_ARTISTS.get(genre_key, [])
-        if not artists:
-            return json.dumps({"error": "Unknown genre: " + genre_key})
-        
-        all_tracks = []
-        seen_ids = set()
-        # Get top songs from each artist (diversified by construction)
-        per_artist = max(3, limit // len(artists)) if artists else 5
-        for artist_name in artists:
-            try:
-                # Search for the artist
-                results = ytm.search(artist_name, filter="artists", limit=1)
-                if not results:
-                    continue
-                artist_id = results[0].get("browseId", "")
-                if not artist_id:
-                    continue
-                # Get their top songs
-                artist_data = ytm.get_artist(artist_id)
-                songs = artist_data.get("songs", {}).get("results", [])
-                count = 0
-                for song in songs:
-                    if count >= per_artist:
-                        break
-                    t = _track_from_song(song)
-                    if t and t.get("videoId") and t["videoId"] not in seen_ids:
-                        # Filter out live/music video versions
-                        title_lower = t.get("title", "").lower()
-                        if "live" in title_lower or "music video" in title_lower:
-                            continue
-                        seen_ids.add(t["videoId"])
-                        all_tracks.append(t)
-                        count += 1
-            except Exception:
-                continue
-        
-        # Shuffle for variety
-        import random
-        random.shuffle(all_tracks)
-        return json.dumps(all_tracks[:limit])
-    except Exception as e:
-        return json.dumps({"error": str(e)})
-
 def get_album(browse_id, limit=50):
     """Get album tracks. Returns JSON array."""
     try:
