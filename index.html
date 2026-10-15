@@ -312,8 +312,8 @@
       <div class="hscroll" id="trendingMetal" style="margin-top:8px"><p style="color:#999">Loading…</p></div>
     </div>
     <div class="homeBlock">
-      <h2>By decade</h2>
-      <div class="row" id="decadeRow" role="group" aria-label="Browse by decade" style="margin-top:8px"></div>
+      <h2>Top artists</h2>
+      <div class="hscroll" id="topArtistsRow" style="margin-top:8px"><p style="color:#999">Loading…</p></div>
     </div>
     <div class="homeBlock">
       <h2>Mood stations</h2>
@@ -693,6 +693,10 @@ function openPythonAlbum(browseId, title, artist, thumb){
   state.albumFromArtist = !$("artistView").hidden;
   /* v2.2.54: Track browseId for saving */
   state.currentAlbumBrowseId = browseId;
+  /* v2.2.66: Remember where we came from for back navigation */
+  if(!$("artistView").hidden) state.albumReturnTo = "artist";
+  else if(state.searchOpen) state.albumReturnTo = "search";
+  else state.albumReturnTo = state.tab || "home";
   /* Hide other views, show album panel */
   TABS.forEach(function(t){ $(t[1]).hidden = true; });
   $("searchView").hidden = true;
@@ -1139,8 +1143,8 @@ window.lmHandleBack = function(){
     if(tvMenuOpen()){ closeTvMenu(); say("Menu closed."); return "handled"; }
     /* v2.2.54: Full player first - collapse it before closing panels underneath */
     if(!$("fullPlayer").hidden){ collapsePlayer(); return "handled"; }
-    var ap = $("artistPanel");
-    if(ap && !ap.hidden){ ap.hidden = true; say("Back."); return "handled"; }
+    /* v2.2.66: Explicit settings back (was accidental fallthrough) */
+    if(!$("settingsView").hidden){ $("settingsView").hidden = true; showTab(state.tab && state.tab !== "settings" ? state.tab : "home"); say("Back."); return "handled"; }
     var ab = $("albumPanel");
     if(ab && !ab.hidden){ closeAlbumPanel(); return "handled"; }
     var pd = $("playlistDetail");
@@ -1419,19 +1423,9 @@ function ytmRadioQueue(videoId){
 /* v2.2.45: Diversify genre stations by artist - max 3 songs per artist.
    Prevents stations like '80s Metal' from being all Metallica. */
 function ytmGenreTracks(genreName, limit){
-  /* v2.2.65: Use genre-pure station builder (artist top songs, not search) */
-  try {
-    if (typeof LynxosYTM !== "undefined" && LynxosYTM.getGenreStation) {
-      var jsonStr = LynxosYTM.getGenreStation(genreName, limit || 100);
-      var parsed = JSON.parse(jsonStr);
-      if (parsed && parsed.error) throw new Error(parsed.error);
-      var tracks = parsed || [];
-      return Promise.resolve(tracks);
-    }
-  } catch (e) { }
   try {
     if (typeof LynxosYTM !== "undefined" && LynxosYTM.searchSongs) {
-      /* Fallback: Search for the genre to get representative tracks. */
+      /* Search for the genre to get representative tracks. */
       var jsonStr = LynxosYTM.searchSongs(genreName + " music", limit || 50);
       var parsed = JSON.parse(jsonStr);
       if (parsed && parsed.error) throw new Error(parsed.error);
@@ -3909,8 +3903,28 @@ $("allReleasesSeeAllBtn").addEventListener("click", function(){
 function renderExplore(){
   renderGenres();
   renderTrendingMetal();
-  renderDecades();
+  renderTopArtists();
   renderMoods();
+}
+/* v2.2.66: Top artists row - quick jump to artist pages */
+function renderTopArtists(){
+  var box = $("topArtistsRow");
+  if(!box) return;
+  var artists = topArtists(10);
+  if(!artists.length){
+    box.innerHTML = "<p style='color:#999'>Like some songs and your top artists will appear here.</p>";
+    return;
+  }
+  box.innerHTML = "";
+  artists.forEach(function(a){
+    var b = document.createElement("button");
+    b.className = "visualCard";
+    b.setAttribute("aria-label", "Open artist page for " + a.name);
+    b.innerHTML = (a.art ? "<img src='" + esc(a.art) + "' alt='' style='width:80px;height:80px;border-radius:8px;object-fit:cover'>" : "<div style='font-size:48px;padding:16px 0 8px'>👤</div>") +
+      "<div class='vlabel'>" + esc(a.name) + "</div>";
+    b.addEventListener("click", function(){ openArtistPage(a.name); });
+    box.appendChild(b);
+  });
 }
 /* v2.2.16: trending metal, decades, moods */
 function renderTrendingMetal(){
@@ -3933,25 +3947,7 @@ function renderTrendingMetal(){
     })
     .catch(function(){ box.innerHTML = "<p style=\"color:#999\">Couldn't load trending.</p>"; });
 }
-var DECADES = [
-  ["📼", "80s Metal", "80s metal hits"],
-  ["💿", "90s Grunge", "90s grunge hits"],
-  ["📀", "2000s Rock", "2000s rock hits"],
-  ["🎵", "2010s Metal", "2010s metal hits"]
-];
-function renderDecades(){
-  var box = $("decadeRow");
-  if(!box) return;
-  box.innerHTML = "";
-  DECADES.forEach(function(d){
-    var b = document.createElement("button");
-    b.className = "visualCard";
-    b.setAttribute("aria-label", "Play " + d[1]);
-    b.innerHTML = "<div style='font-size:48px;padding:16px 0 8px'>" + d[0] + "</div><div class='vlabel'>" + d[1] + "</div>";
-    b.addEventListener("click", function(){ startRadio(d[2]); });
-    box.appendChild(b);
-  });
-}
+
 var MOODS = [
   ["💪", "Workout", "workout metal mix"],
   ["😌", "Chill", "chill rock acoustic"],
@@ -4297,11 +4293,19 @@ function renderAlbumTracks(){
 }
 function closeAlbumPanel(){
   $("albumPanel").hidden = true;
-  /* v2.2.50: Restore artist view if we came from there */
-  if(state.albumFromArtist){
-    state.albumFromArtist = false;
+  /* v2.2.66: Return to where we came from */
+  var ret = state.albumReturnTo || (state.albumFromArtist ? "artist" : null);
+  state.albumReturnTo = null;
+  state.albumFromArtist = false;
+  if(ret === "artist"){
     $("artistView").hidden = false;
     say("Back to artist.");
+  } else if(ret === "search"){
+    state.searchOpen = true;
+    $("searchView").hidden = false;
+    say("Back to search.");
+  } else if(ret){
+    showTab(ret);
   } else {
     say("Back.");
   }
