@@ -691,6 +691,8 @@ function openPythonAlbum(browseId, title, artist, thumb){
   if(!browseId){ say("No album ID."); return; }
   /* v2.2.50: Remember if we came from artist page for back navigation */
   state.albumFromArtist = !$("artistView").hidden;
+  /* v2.2.54: Track browseId for saving */
+  state.currentAlbumBrowseId = browseId;
   /* Hide other views, show album panel */
   TABS.forEach(function(t){ $(t[1]).hidden = true; });
   $("searchView").hidden = true;
@@ -1073,11 +1075,12 @@ window.lmRemotePrev = function(){ try { playPrev(); } catch(e){} return "handled
 window.lmHandleBack = function(){
   try {
     if(tvMenuOpen()){ closeTvMenu(); say("Menu closed."); return "handled"; }
+    /* v2.2.54: Full player first - collapse it before closing panels underneath */
+    if(!$("fullPlayer").hidden){ collapsePlayer(); return "handled"; }
     var ap = $("artistPanel");
-    if(ap && !ap.hidden && !$("fullPlayer").hidden){ ap.hidden = true; say("Back to player."); return "handled"; }
+    if(ap && !ap.hidden){ ap.hidden = true; say("Back."); return "handled"; }
     var ab = $("albumPanel");
     if(ab && !ab.hidden){ closeAlbumPanel(); return "handled"; }
-    if(!$("fullPlayer").hidden){ collapsePlayer(); return "handled"; }
     var pd = $("playlistDetail");
     if(pd && pd.innerHTML.trim() !== ""){ pd.innerHTML = ""; say("Back to playlists."); return "handled"; }
     if(state.searchOpen){ closeSearch(); return "handled"; }
@@ -2121,6 +2124,24 @@ function organizeAlbums(){
 function openLocalAlbum(idx){
   var a = getAlbums()[idx];
   if(!a || !a.tracks.length){ say("That album is empty."); return; }
+  /* v2.2.54: If saved album has browseId and few tracks, re-fetch full list */
+  if(a.browseId && a.tracks.length < 5 && !state._refetchingAlbum){
+    state._refetchingAlbum = true;
+    say("Loading full album...");
+    ytmGetAlbum(a.browseId).then(function(fullTracks){
+      state._refetchingAlbum = false;
+      if(fullTracks && fullTracks.length > a.tracks.length){
+        var albums = getAlbums();
+        var fresh = albums[idx];
+        fresh.tracks = fullTracks;
+        albums[idx] = fresh;
+        saveAlbums(albums);
+        say("Loaded " + fullTracks.length + " tracks.");
+      }
+      openLocalAlbum(idx);
+    }).catch(function(){ state._refetchingAlbum = false; openLocalAlbum(idx); });
+    return;
+  }
   var box = $("albumList");
   box.innerHTML = '<button class="btn secondary small" id="localAlbumBackBtn">‹ Back to albums</button>' +
     '<h3>' + esc(a.name) + '</h3><p class="hint">' + esc(a.artist) + ' • ' + a.tracks.length + ' songs</p>' +
@@ -4164,8 +4185,11 @@ function saveCurrentAlbum(){
   var art = "";
   try { art = $("albumArt").src || ""; } catch(e){}
   if(!art && albumTracks[0].art) art = albumTracks[0].art;
+  /* v2.2.54: Save browseId so we can re-fetch full track list later */
+  var saveBrowseId = "";
+  try { saveBrowseId = state.currentAlbumBrowseId || ""; } catch(e){}
   albums.push({
-    name: name, artist: artist, art: art,
+    name: name, artist: artist, art: art, browseId: saveBrowseId,
     tracks: albumTracks.map(function(t){
       return { videoId: t.videoId || "", title: t.title, channel: t.channel,
         thumb: t.thumb, art: t.art, resolveQuery: t.resolveQuery, fallbackQuery: t.fallbackQuery };
