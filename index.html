@@ -651,38 +651,60 @@ function openArtistPage(artistName){
   $("artistName").textContent = artistName;
   $("artistContent").innerHTML = "<p class='hint'>Loading...</p>";
   say("Artist page for " + artistName + ".");
-  /* iTunes: find the artist, then top songs + albums. */
-  fetch("https://disabled.invalid/itunes/search?term=" + encodeURIComponent(artistName) + "&entity=musicArtist&limit=5")
-    .then(function(r){ return r.json(); })
-    .then(function(d){
-      var aq = artistName.toLowerCase();
-      var best = null;
-      (d.results || []).forEach(function(r){
-        var rn = String(r.artistName || "").toLowerCase();
-        if(rn === aq) best = r;
-        else if(!best && (rn.indexOf(aq) === 0 || aq.indexOf(rn) === 0)) best = r;
-      });
-      if(!best) throw new Error("no artist");
-      var aid = best.artistId;
-      var mbQuery = 'artist:"' + best.artistName.replace(/"/g, "") + '"';
-      return Promise.all([
-        fetch("https://disabled.invalid/itunes/search?term=" + encodeURIComponent(artistName) + "&entity=song&limit=25").then(function(r){ return r.json(); }),
-        fetch("https://disabled.invalid/itunes/lookup?id=" + aid + "&entity=album&limit=200").then(function(r){ return r.json(); }),
-        /* v2.2.4: MusicBrainz supplements iTunes — catches albums iTunes lacks. */
-        fetch("https://disabled.invalid/musicbrainz/ws/2/release-group/?query=" + encodeURIComponent(mbQuery) + "&fmt=json&limit=100")
-          .then(function(r){ return r.json(); }).catch(function(){ return { "release-groups": [] }; })
-      ]).then(function(res){
-        return { artist: best.artistName, songs: res[0].results || [], albums: res[1].results || [],
-                 mbGroups: (res[2]["release-groups"] || []) };
-      });
-    })
+  /* v2.2.43: Python-only artist page via ytmusicapi. */
+  ytmSearchArtists(artistName).then(function(artists){
+    artists = artists || [];
+    if(!artists.length) throw new Error("no artist");
+    var aq = artistName.toLowerCase();
+    var best = artists[0];
+    artists.forEach(function(a){
+      var an = String(a.artist || a.name || "").toLowerCase();
+      if(an === aq) best = a;
+    });
+    var artistId = best.browseId || best.artistId || best.id;
+    if(!artistId) throw new Error("no artist id");
+    return Promise.all([
+      ytmGetArtistTopSongs(artistId),
+      ytmSearchAlbums(artistName)
+    ]).then(function(res){
+      return { artist: best.artist || best.name || artistName, songs: res[0] || [], albums: res[1] || [] };
+    });
+  })
     .then(function(data){
-      renderArtistPage(data);
+      renderArtistPagePython(data);
     })
     .catch(function(){
       $("artistContent").innerHTML = "<p class='hint'>Couldn't load " + esc(artistName) + ".</p>";
       say("Couldn't load the artist page.");
     });
+}
+/* v2.2.43: Render artist page from Python data. */
+function renderArtistPagePython(data){
+  var box = $("artistContent");
+  var songs = (data.songs || []).slice(0, 10);
+  var albums = (data.albums || []).slice(0, 20);
+  var html = "";
+  if(songs.length){
+    html += "<h3>Top songs</h3><div class='trackList'>";
+    songs.forEach(function(s, i){
+      html += trackRow(s, i);
+    });
+    html += "</div>";
+    /* Store for playback */
+    state.artistSongs = songs;
+  }
+  if(albums.length){
+    html += "<h3>Albums</h3><div class='hscroll'>";
+    albums.forEach(function(a){
+      html += albumCard(a);
+    });
+    html += "</div>";
+  }
+  if(!html) html = "<p class='hint'>No results for " + esc(data.artist) + ".</p>";
+  box.innerHTML = html;
+  /* Bind track buttons */
+  if(state.artistSongs) bindTrackButtons(box, state.artistSongs);
+  say("Loaded " + data.artist + ".");
 }
 function renderArtistPage(data){
   var box = $("artistContent");
@@ -1065,6 +1087,40 @@ function ytmSearchSongs(query, maxResults){
   try {
     if (typeof LynxosYTM !== "undefined" && LynxosYTM.searchSongs) {
       var jsonStr = LynxosYTM.searchSongs(query, maxResults || 20);
+      var parsed = JSON.parse(jsonStr);
+      if (parsed && parsed.error) throw new Error(parsed.error);
+      return Promise.resolve(parsed || []);
+    }
+  } catch (e) { }
+  return Promise.resolve([]);
+}
+/* v2.2.43: Artist page wrappers. */
+function ytmSearchArtists(query, maxResults){
+  try {
+    if (typeof LynxosYTM !== "undefined" && LynxosYTM.searchArtists) {
+      var jsonStr = LynxosYTM.searchArtists(query, maxResults || 10);
+      var parsed = JSON.parse(jsonStr);
+      if (parsed && parsed.error) throw new Error(parsed.error);
+      return Promise.resolve(parsed || []);
+    }
+  } catch (e) { }
+  return Promise.resolve([]);
+}
+function ytmGetArtistTopSongs(artistId, maxResults){
+  try {
+    if (typeof LynxosYTM !== "undefined" && LynxosYTM.getArtistTopSongs) {
+      var jsonStr = LynxosYTM.getArtistTopSongs(artistId, maxResults || 20);
+      var parsed = JSON.parse(jsonStr);
+      if (parsed && parsed.error) throw new Error(parsed.error);
+      return Promise.resolve(parsed || []);
+    }
+  } catch (e) { }
+  return Promise.resolve([]);
+}
+function ytmSearchAlbums(query, maxResults){
+  try {
+    if (typeof LynxosYTM !== "undefined" && LynxosYTM.searchAlbums) {
+      var jsonStr = LynxosYTM.searchAlbums(query, maxResults || 20);
       var parsed = JSON.parse(jsonStr);
       if (parsed && parsed.error) throw new Error(parsed.error);
       return Promise.resolve(parsed || []);
