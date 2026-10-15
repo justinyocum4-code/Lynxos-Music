@@ -405,6 +405,14 @@ jobs:
                       try { t.join(15000); } catch (Exception e) {}
                       return result[0];
                   }
+                  @JavascriptInterface public String getArtistTopSongs(final String artistId, final int limit) {
+                      try {
+                          Object result = py.get("get_artist_top_songs").call(artistId, limit);
+                          return result != null ? result.toString() : "[]";
+                      } catch (Exception e) {
+                          return "{\"error\":\"" + e.toString().replace("\"", "'") + "\"}";
+                      }
+                  }
                   @JavascriptInterface public String searchArtists(final String query, final int limit) {
                       final String[] result = new String[1];
                       result[0] = "[]";
@@ -1042,28 +1050,31 @@ jobs:
                                           KeyEvent event = (KeyEvent) p;
                                           if (event.getAction() == KeyEvent.ACTION_DOWN) {
                                               int kc = event.getKeyCode();
+                                              /* v2.2.43: Bluetooth NEXT - bypass UI thread hop for instant response.
+                                                 Call playAtInternal directly, update UI after. */
                                               if (kc == KeyEvent.KEYCODE_MEDIA_NEXT) {
-                                                  /* v2.2.41: Prefetch ahead on Bluetooth next for instant response. */
                                                   try { prefetchNext(currentIndex + 2); prefetchNext(currentIndex + 3); } catch (Exception ignored) {}
+                                                  final int nextIdx = currentIndex + 1;
+                                                  /* Update UI immediately on main thread, start playback on bg thread */
                                                   main.post(new Runnable() {
                                                       @Override public void run() {
                                                           UiListener l = ui;
-                                                          boolean consumed = false;
-                                                          if (l != null) { try { consumed = l.onNotifNext(); } catch (Exception ignored) {} }
-                                                          if (!consumed) playAtInternal(currentIndex + 1);
+                                                          if (l != null) { try { l.onNotifNext(); } catch (Exception ignored) {} }
                                                       }
                                                   });
+                                                  playAtInternal(nextIdx);
                                                   return true;
                                               }
+                                              /* v2.2.43: Bluetooth PREV - same instant response fix. */
                                               if (kc == KeyEvent.KEYCODE_MEDIA_PREVIOUS) {
+                                                  final int prevIdx = currentIndex - 1;
                                                   main.post(new Runnable() {
                                                       @Override public void run() {
                                                           UiListener l = ui;
-                                                          boolean consumed = false;
-                                                          if (l != null) { try { consumed = l.onNotifPrev(); } catch (Exception ignored) {} }
-                                                          if (!consumed) playAtInternal(currentIndex - 1);
+                                                          if (l != null) { try { l.onNotifPrev(); } catch (Exception ignored) {} }
                                                       }
                                                   });
+                                                  playAtInternal(prevIdx);
                                                   return true;
                                               }
                                               /* v2.2.14: handle play/pause here too and consume it,
