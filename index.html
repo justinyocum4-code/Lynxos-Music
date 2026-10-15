@@ -728,9 +728,11 @@ function openPythonAlbum(browseId, title, artist, thumb){
       var arEl = $("albumArtist"); if(arEl) arEl.textContent = artist || "";
     } catch(e2){}
     /* v2.2.61: Deep fix - bind Play/Shuffle directly to these tracks */
+    /* v2.2.63: Also bind Save directly */
     try {
       var playBtn = $("albumPlayBtn");
       var shuffleBtn = $("albumShuffleBtn");
+      var saveBtn = $("albumSaveBtn");
       if(playBtn){
         playBtn.onclick = function(){
           state.radio = null;
@@ -747,6 +749,37 @@ function openPythonAlbum(browseId, title, artist, thumb){
           state.queue = q;
           playQueueIndex(0, true);
           say("Shuffling " + title + ".");
+        };
+      }
+      if(saveBtn){
+        saveBtn.onclick = function(){
+          var albums = getAlbums();
+          var key = (title || "").toLowerCase() + "  " + (artist || "").toLowerCase();
+          var foundIdx = -1;
+          for(var i = 0; i < albums.length; i++){
+            if(albums[i].name.toLowerCase() + "  " + String(albums[i].artist || "").toLowerCase() === key){
+              foundIdx = i;
+              break;
+            }
+          }
+          var art = thumb || "";
+          try { if(!art) art = $("albumArt").src || ""; } catch(e){}
+          var newEntry = {
+            name: title || "Album", artist: artist || "", art: art, browseId: browseId,
+            tracks: tracks.map(function(t){
+              return { videoId: t.videoId || "", title: t.title, channel: t.channel,
+                thumb: t.thumb, art: t.art, resolveQuery: t.resolveQuery, fallbackQuery: t.fallbackQuery };
+            })
+          };
+          if(foundIdx >= 0){
+            albums[foundIdx] = newEntry;
+            say("Updated " + title + " with " + tracks.length + " tracks.");
+          } else {
+            albums.push(newEntry);
+            say("Saved " + title + " to your albums.");
+          }
+          saveAlbums(albums);
+          renderAlbums();
         };
       }
     } catch(e3){}
