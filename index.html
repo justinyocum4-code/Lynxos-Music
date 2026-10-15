@@ -256,7 +256,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.29</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.30</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <div class="homeBlock">
@@ -420,7 +420,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.29. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.30. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -1003,41 +1003,7 @@ function isoDur(s){
 /* v2.1.7: alternate versions of a song (reimagined, remixes, live cuts) are
    never the album recording — rank them as a last resort. */
 var ALT_VERSION_RE = /reimagined|remix|acoustic|unplugged|\blive\b|cover|sped ?up|slowed|nightcore/i;
-function ytScrapeSearch(q){
-  var url = "https://www.youtube.com/results?search_query=" + encodeURIComponent(q);
-  return fetchWithTimeout(url, { headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" } }, 15000)
-    .then(function(r){ return r.text(); })
-    .then(function(html){
-      var m = html.match(/var ytInitialData = (\{.+?\});<\/script>/s);
-      if(!m) throw new Error("no data");
-      var data = JSON.parse(m[1]);
-      var videos = [];
-      try {
-        var sections = data.contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer.contents;
-        for(var s = 0; s < sections.length && videos.length < 20; s++){
-          var items = (sections[s].itemSectionRenderer || {}).contents || [];
-          for(var i = 0; i < items.length && videos.length < 20; i++){
-            var vr = items[i].videoRenderer;
-            if(!vr || !vr.videoId) continue;
-            var title = ((vr.title || {}).runs || [{}])[0].text || "";
-            var channel = (((vr.ownerText || {}).runs || [{}])[0].text) ||
-                          (((vr.longBylineText || {}).runs || [{}])[0].text) || "";
-            var thumbs = (vr.thumbnail || {}).thumbnails || [];
-            var thumbUrl = thumbs.length ? thumbs[thumbs.length - 1].url : "";
-            if(title){
-              var durText = ((vr.lengthText || {}).simpleText) || "";
-              videos.push({
-                videoId: vr.videoId, title: title, channel: channel,
-                thumb: thumbUrl, art: thumbUrl, dur: parseDur(durText)
-              });
-            }
-          }
-        }
-      } catch(e){ throw new Error("parse failed"); }
-      if(!videos.length) throw new Error("no videos");
-      return videos;
-    });
-}
+/* v2.2.30: ytScrapeSearch removed — pure YouTube Music now. */
 /* v2.1.5: karaoke/instrumental uploads have no vocals — never auto-pick one
    when the app is choosing the album version of a song. */
 var NO_VOCALS_RE = /karaoke|instrumental|backing track|no vocals|minus one|play-?along/i;
@@ -1053,34 +1019,9 @@ function topicArtistMatch(v, artist){
   return ta === wa || ta.indexOf(wa) === 0 || wa.indexOf(ta) === 0;
 }
 function ytSearch(q, preferAlbum, artist){
-  /* v2.2.29: Try YouTube Music InnerTube first (clean metadata, audio-only,
-     no music videos). Fall back to scraping, then Data API. */
-  return ytmSearchSongs(q, 20).catch(function(){ return []; }).then(function(ytmTracks){
-    if(ytmTracks && ytmTracks.length >= 5) return ytmTracks;
-    /* Not enough InnerTube results — try scraping. */
-    return ytScrapeSearch(q).catch(function(){
-    var key = getKey();
-    var url = "https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&videoCategoryId=10&videoEmbeddable=true&maxResults=25&q=" + encodeURIComponent(q) + "&key=" + encodeURIComponent(key);
-    return ytFetch(url).then(function(data){
-      if(data.error) throw new Error(data.error.message || "API error");
-      var videos = (data.items || []).map(function(it){
-        var th = it.snippet.thumbnails || {};
-        return { videoId: it.id.videoId, title: it.snippet.title, channel: it.snippet.channelTitle,
-          thumb: th.medium ? th.medium.url : (th.default ? th.default.url : ""),
-          art: th.high ? th.high.url : (th.medium ? th.medium.url : ""), dur: 0 };
-      });
-      /* v2.1.7: one cheap batch call for durations (needed to drop previews). */
-      var ids = videos.map(function(v){ return v.videoId; }).filter(Boolean).join(",");
-      if(!ids) return videos;
-      return ytFetch("https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id=" + encodeURIComponent(ids) + "&key=" + encodeURIComponent(key))
-        .then(function(d2){
-          var dm = {};
-          (d2.items || []).forEach(function(it){ dm[it.id] = isoDur((it.contentDetails || {}).duration); });
-          videos.forEach(function(v){ v.dur = dm[v.videoId] || 0; });
-          return videos;
-        }).catch(function(){ return videos; });
-    });
-  }).then(function(videos){
+  /* v2.2.30: Pure YouTube Music — InnerTube only. No scraping, no Data API,
+     no Deezer. Returns clean audio tracks with real metadata. */
+  return ytmSearchSongs(q, 20).catch(function(){ return []; }).then(function(videos){
     /* Strictly music: drop talk/documentary/review-style videos. */
     videos = videos.filter(function(v){ return !NON_MUSIC_RE.test(v.title); });
     if(preferAlbum){
@@ -1108,7 +1049,6 @@ function ytSearch(q, preferAlbum, artist){
       videos.sort(function(a, b){ return (isOfficialMusic(b) ? 1 : 0) - (isOfficialMusic(a) ? 1 : 0); });
     }
     return videos.slice(0, 20);
-    });
   });
 }
 /* Clean a YouTube channel name down to a readable artist name. */
@@ -1210,6 +1150,15 @@ function ytmParseTrack(item){
 }
 /* v2.2.29: search YouTube Music directly. Returns clean audio tracks only. */
 function ytmSearchSongs(query, maxResults){
+  /* v2.2.30: Try Python ytmusicapi bridge first (more robust), fall back to JS InnerTube. */
+  try {
+    if (typeof LynxosYTM !== "undefined" && LynxosYTM.searchSongs) {
+      var jsonStr = LynxosYTM.searchSongs(query, maxResults || 20);
+      var parsed = JSON.parse(jsonStr);
+      if (parsed && parsed.error) throw new Error(parsed.error);
+      if (parsed && parsed.length) return Promise.resolve(parsed);
+    }
+  } catch (e) { /* fall through to JS */ }
   return ytmPost("search", { query: query, params: YTM_SEARCH_SONGS }).then(function(d){
     var tracks = [];
     try{
@@ -1235,6 +1184,15 @@ function ytmSearchSongs(query, maxResults){
 }
 /* v2.2.29: get a 50-song radio queue from YouTube Music's real radio engine. */
 function ytmRadioQueue(videoId){
+  /* v2.2.30: Try Python ytmusicapi bridge first. */
+  try {
+    if (typeof LynxosYTM !== "undefined" && LynxosYTM.getRadio) {
+      var jsonStr2 = LynxosYTM.getRadio(videoId, 50);
+      var parsed2 = JSON.parse(jsonStr2);
+      if (parsed2 && parsed2.error) throw new Error(parsed2.error);
+      if (parsed2 && parsed2.length) return Promise.resolve(parsed2);
+    }
+  } catch (e) { /* fall through to JS */ }
   return ytmPost("next", {
     videoId: videoId, playlistId: "RDAMVM" + videoId,
     isAudioOnly: true, enablePersistentPlaylistPanel: true,
@@ -2953,91 +2911,36 @@ function isoDurationMinutes(iso){
   return (parseInt(m[1] || "0", 10) * 60) + parseInt(m[2] || "0", 10) + (parseInt(m[3] || "0", 10) / 60);
 }
 function filterLongVideos(videos, maxMin){
-  if(!videos.length) return Promise.resolve(videos);
-  var ids = videos.map(function(v){ return v.videoId; }).join(",");
-  var url = "https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id=" + encodeURIComponent(ids) + "&key=" + encodeURIComponent(getKey());
-  return ytFetch(url).then(function(d){
-    var map = {};
-    (d.items || []).forEach(function(it){ map[it.id] = it.contentDetails.duration; });
-    return videos.filter(function(v){
-      var dur = map[v.videoId];
-      if(!dur) return true;
-      return isoDurationMinutes(dur) <= maxMin;
-    });
-  }).catch(function(){ return videos; });
+  /* v2.2.30: InnerTube returns durations directly — filter locally, no API call. */
+  if(!videos || !videos.length) return Promise.resolve(videos || []);
+  return Promise.resolve(videos.filter(function(v){
+    var dur = parseDurationToMin(v.dur);
+    if(!dur) return true;
+    return dur <= maxMin;
+  }));
+}
+function parseDurationToMin(d){
+  if(!d) return 0;
+  if(typeof d === "number") return d / 60;
+  var s = String(d).trim();
+  /* "5:32" or "1:05:32" */
+  var parts = s.split(":").map(function(x){ return parseInt(x, 10) || 0; });
+  if(parts.length === 2) return parts[0] + parts[1] / 60;
+  if(parts.length === 3) return parts[0] * 60 + parts[1] + parts[2] / 60;
+  return 0;
 }
 /* YouTube's own radio engine (the same one behind YouTube Music radio):
    RD<videoId> is a playlist YouTube generates from its recommendation
    algorithm. One cheap call returns 50 tracks, far wider than any
    "similar artists" list. */
 function fetchYouTubeRadio(videoId){
-  /* v2.2.29: Try YouTube Music's real radio engine (InnerTube next endpoint)
-     first — 50 clean tracks with proper metadata. Fall back to RD playlist. */
-  return ytmRadioQueue(videoId).catch(function(){ return []; }).then(function(ytmTracks){
-    if(ytmTracks && ytmTracks.length >= 10){
-      var filtered = ytmTracks.filter(function(v){ return !NON_MUSIC_RE.test(v.title); });
-      return filterLongVideos(filtered, 25);
-    }
-    return fetchYouTubeRadioFallback(videoId);
+  /* v2.2.30: Pure YouTube Music radio — InnerTube next endpoint only.
+     50 clean tracks, no Data API, no fallbacks. */
+  return ytmRadioQueue(videoId).catch(function(){ return []; }).then(function(tracks){
+    return (tracks || []).filter(function(v){ return !NON_MUSIC_RE.test(v.title); });
   });
 }
-function fetchYouTubeRadioFallback(videoId){
-  var pid = "RD" + videoId;
-  var url = "https://www.googleapis.com/youtube/v3/playlistItems?part=snippet,contentDetails&playlistId=" + encodeURIComponent(pid) + "&maxResults=50&key=" + encodeURIComponent(getKey());
-  return ytFetch(url).then(function(d){
-    if(d.error) throw new Error(d.error.message || "Radio failed");
-    var videos = (d.items || []).map(function(it){
-      var sn = it.snippet || {}, th = sn.thumbnails || {};
-      return {
-        videoId: (it.contentDetails || {}).videoId,
-        title: sn.title || "",
-        channel: sn.videoOwnerChannelTitle || sn.channelTitle || "",
-        ownerChannel: sn.videoOwnerChannelTitle || sn.channelTitle || "",
-        thumb: th.medium ? th.medium.url : (th.default ? th.default.url : ""),
-        art: th.high ? th.high.url : (th.medium ? th.medium.url : "")
-      };
-    }).filter(function(v){ return v.videoId; });
-    videos = videos.filter(function(v){ return !NON_MUSIC_RE.test(v.title); });
-    return filterLongVideos(videos, 25);
-  });
-}
-/* v2.2.27: Deezer-powered stations. Deezer picks the songs (accurate genre
-   data), YouTube plays them. Fixes genre mixing at the root — no more relying
-   on YouTube's messy "related videos". */
-var DEEZER_GENRE_IDS = {
-  "metal": 464,
-  "rock": 152,
-  "pop": 132,
-  "hip-hop": 116,
-  "country": 84,
-  "alternative": 85,
-  "electronic": 106,
-  "jazz": 129,
-  "classical": 98,
-  "blues": 153,
-  "r&b": 165,
-  "dance": 113
-};
-function deezerGenreTracks(genre, limit){
-  var gid = DEEZER_GENRE_IDS[String(genre || "").toLowerCase()];
-  if(!gid) return Promise.resolve([]);
-  var url = "https://api.deezer.com/chart/" + gid + "/tracks?limit=" + (limit || 50);
-  return fetch(url).then(function(r){ return r.json(); }).then(function(d){
-    return (d.data || []).map(function(t){
-      return {
-        videoId: "",
-        title: t.title || "",
-        channel: (t.artist || {}).name || "",
-        ownerChannel: (t.artist || {}).name || "",
-        thumb: (t.album || {}).cover_medium || "",
-        art: (t.album || {}).cover_big || "",
-        resolveQuery: ((t.artist || {}).name || "") + " " + (t.title || "") + " official audio",
-        fallbackQuery: ((t.artist || {}).name || "") + " " + (t.title || ""),
-        _fromDeezer: true
-      };
-    }).filter(function(x){ return x.title && x.channel; });
-  }).catch(function(){ return []; });
-}
+/* v2.2.30: Deezer removed — pure YouTube Music now. */
 
 /* Verified seed videoIds per genre: each pulls its RD recommendation
    playlist (reliable endpoint, no search). Multiple seeds per genre for
@@ -3349,19 +3252,13 @@ function startRadio(artist){
          YouTube Music itself — accurate genres, clean metadata, audio only).
          Falls back to Deezer, then YouTube seeds. */
       say("Loading " + seedName + " station.");
+      /* v2.2.30: Pure YouTube Music — genre tracks from InnerTube only.
+         No Deezer, no fallbacks. */
       getSeed = ytmGenreTracks(seedName, 100).then(function(ytmTracks){
-        if(ytmTracks && ytmTracks.length >= 20){
-          /* InnerTube won — wrap so the next .then passes it through. */
-          return { _wrapped: true, videos: ytmTracks, name: seedName, fromYTM: true };
+        if(ytmTracks && ytmTracks.length){
+          return { videos: ytmTracks, seedIds: null, name: seedName, fromYTM: true };
         }
-        /* Fallback to Deezer. */
-        return deezerGenreTracks(seedName, 100).then(function(dt){
-          if(dt && dt.length >= 20) return { _wrapped: true, videos: dt, name: seedName, fromDeezer: true };
-          return dt; /* empty — falls through to YouTube seeds below */
-        });
-      }).then(function(intermediate){
-        if(intermediate && intermediate._wrapped) return intermediate;
-        /* Fallback to YouTube seeds. */
+        /* If genre browse fails, use YouTube Music radio from seed tracks. */
         return Promise.all(hardSeeds.map(function(id){ return fetchYouTubeRadio(id).catch(function(){ return []; }); }))
           .then(function(results){
             var seenIds = {}, all = [];
@@ -3370,8 +3267,8 @@ function startRadio(artist){
                 if(sv.videoId && !seenIds[sv.videoId]){ seenIds[sv.videoId] = true; all.push(sv); }
               });
             });
-            if(!all.length) throw new Error("no videos from YouTube");
-            return { videos: all, seedIds: null, name: seedName, fromDeezer: false };
+            if(!all.length) throw new Error("no videos from YouTube Music");
+            return { videos: all, seedIds: null, name: seedName, fromYTM: true };
           });
       }).then(function(seedResult){
           var all = seedResult.videos || [];
