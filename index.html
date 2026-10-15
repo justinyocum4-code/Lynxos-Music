@@ -2147,7 +2147,7 @@ function openLocalAlbum(idx){
     var doFetch = function(browseId){
       if(!browseId){
         state._refetchingAlbum = false;
-        say("Couldn't find the official track list for " + a.name + ".");
+        /* v2.2.57: Old album without ID - just show what we have, no error */
         openLocalAlbum(idx);
         return;
       }
