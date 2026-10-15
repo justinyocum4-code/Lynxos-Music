@@ -279,7 +279,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.71</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button><button class="iconbtn" id="accountBtn" aria-label="Account">👤</button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings" style="margin-left:auto">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.72</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button><button class="iconbtn" id="accountBtn" aria-label="Account" onclick="openAccount()">👤</button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings" style="margin-left:auto">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -4780,8 +4780,8 @@ function handleAuthCallback(url){
     }
   } catch(e){ console.log("auth callback: " + e.message); }
 }
-$("accountBtn").addEventListener("click", openAccount);
-$("accountBackBtn").addEventListener("click", closeAccount);
+try { $("accountBtn").addEventListener("click", openAccount); } catch(e){}
+try { $("accountBackBtn").addEventListener("click", closeAccount); } catch(e){}
 
 /* ================= v1.2 init additions ================= */
 renderRecentSearches();
