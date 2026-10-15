@@ -39,10 +39,13 @@
   .empty { color: var(--muted); text-align: center; padding: 28px 10px; }
   .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   /* song rows, YouTube Music style */
-  .track { display: flex; gap: 12px; align-items: center; padding: 8px 4px; border-bottom: 1px solid #1e1e1e; }
-  .track img { width: 56px; height: 56px; object-fit: cover; border-radius: 4px; background: var(--surface2); flex-shrink: 0; }
+  /* v2.2.41: Cleaner, more organized track rows. */
+  .track { display: flex; gap: 12px; align-items: center; padding: 10px 8px; border-bottom: 1px solid #1e1e1e; border-radius: 8px; margin-bottom: 4px; background: rgba(255,255,255,0.02); }
+  .track img { width: 56px; height: 56px; object-fit: cover; border-radius: 8px; background: var(--surface2); flex-shrink: 0; }
   .track .info { flex: 1; min-width: 0; }
-  .track .title { font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .track .title { font-size: 16px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+  .track .channel { font-size: 14px; color: var(--gold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+  .track .actions { display: flex; gap: 4px; flex-shrink: 0; }
   .track .channel { color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .track .actions { display: flex; gap: 2px; flex-shrink: 0; }
   .iconbtn { background: none; border: none; color: var(--text); font-size: 20px; padding: 10px; cursor: pointer; }
