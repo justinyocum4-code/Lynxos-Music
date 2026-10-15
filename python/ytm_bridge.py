@@ -234,13 +234,34 @@ def get_album(browse_id, limit=50):
     try:
         ytm = _get_ytm()
         album = ytm.get_album(browse_id)
+        album_title = album.get("title", "")
+        # Get artist name from album info
+        artists = album.get("artists", [])
+        artist_name = artists[0].get("name", "") if artists else ""
         tracks = []
         for item in album.get("tracks", [])[:limit]:
             t = _track_from_song(item)
             if t:
-                # Add album info
-                t["album"] = album.get("title", "")
+                t["album"] = album_title
+                # Fill in artist if missing
+                if not t.get("channel") and artist_name:
+                    t["channel"] = artist_name
+                    t["ownerChannel"] = artist_name
                 tracks.append(t)
+            else:
+                # v2.2.50: Fallback - try to construct track manually if _track_from_song failed
+                video_id = item.get("videoId", "")
+                if video_id:
+                    tracks.append({
+                        "videoId": video_id,
+                        "title": item.get("title", ""),
+                        "channel": artist_name,
+                        "ownerChannel": artist_name,
+                        "album": album_title,
+                        "dur": item.get("duration", "") or item.get("length", ""),
+                        "thumb": "",
+                        "art": "",
+                    })
         return json.dumps(tracks)
     except Exception as e:
         return json.dumps({"error": str(e)})
