@@ -696,7 +696,14 @@ function renderArtistPagePython(data){
   if(albums.length){
     html += "<h3>Albums</h3><div class='hscroll'>";
     albums.forEach(function(a){
-      html += albumCard(a);
+      var aname = a.title || a.name || "Unknown";
+      var aartist = a.artist || "";
+      var aart = a.thumb || a.art || "";
+      var ayear = a.year || a.date || "";
+      html += '<button class="albumCard" aria-label="Album ' + esc(aname) + ' by ' + esc(aartist) + '">' +
+        (aart ? '<img src="' + esc(aart) + '" alt="">' : "") +
+        '<div class="an">' + esc(aname) + '</div><div class="aa">' + esc(aartist) + '</div>' +
+        (ayear ? '<div class="ad">' + esc(ayear) + "</div>" : "") + "</button>";
     });
     html += "</div>";
   }
