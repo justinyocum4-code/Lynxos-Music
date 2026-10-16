@@ -94,18 +94,54 @@
   #albumName { color: #fff; margin: 6px 0 2px; font-size: 22px; }
   #albumArtist { color: var(--gold); font-size: 17px; margin-bottom: 10px; }
   #albumTracks { text-align: left; margin-top: 12px; }
+  /* v2.2.82: YTM-style album page — top bar, centered art/title, circular action row, numbered tracks. */
+  .ap-top { display: flex; align-items: center; justify-content: space-between; text-align: left; }
+  .ap-head-center { display: flex; align-items: center; gap: 8px; }
+  #albumArtistAvatar { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; }
+  #albumArtistAvatar[hidden] { display: none; }
+  .ap-head-text { text-align: center; }
+  #albumArtistTop { color: var(--text); font-size: 14px; font-weight: 600; }
+  #albumYearTop { font-size: 12px; }
+  #albumPanel #albumArt { width: min(68vw, 320px); height: min(68vw, 320px); margin: 16px auto; }
+  #albumPanel #albumName { font-size: 26px; font-weight: 800; }
+  .ap-actions { display: flex; align-items: center; justify-content: center; gap: 14px; margin: 14px 0 6px; }
+  .ap-btn { width: 52px; height: 52px; border-radius: 50%; border: none; background: #1d1d1d; color: var(--text); font-size: 22px; display: flex; align-items: center; justify-content: center; }
+  .ap-btn.ap-play { width: 68px; height: 68px; font-size: 28px; background: #fff; color: #000; }
+  body.light .ap-btn { background: #e8e2d2; color: #1a1a1a; }
+  body.light .ap-btn.ap-play { background: #1a1a1a; color: #fff; }
+  #albumMoreMenu { background: #1a1a1a; border: 1px solid #333; border-radius: 8px; margin: 4px auto 0; max-width: 280px; overflow: hidden; }
+  #albumMoreMenu[hidden] { display: none; }
+  #albumMoreMenu button { display: block; width: 100%; text-align: left; background: none; border: none; color: var(--text); padding: 12px 16px; font-size: 15px; }
+  .atrack { display: flex; align-items: center; gap: 12px; padding: 10px 4px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+  .atrack .anum { font-size: 20px; color: var(--text); min-width: 28px; text-align: center; }
+  .atrack .ainfo { flex: 1; min-width: 0; }
+  .atrack .atitle { font-size: 16px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .atrack .asub { font-size: 14px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .atrack .iconbtn { flex: 0 0 auto; }
   #fpCollapseBtn { background: none; border: none; color: var(--text); font-size: 26px; padding: 8px; cursor: pointer; }
   .fp-top { display: flex; align-items: center; justify-content: space-between; }
   .fp-top span { color: var(--muted); font-size: 13px; letter-spacing: 1px; }
-  #fpArt { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; background: var(--surface); margin: 8px 0 12px; }
-  #fpTitle { font-size: 20px; font-weight: bold; margin: 0; }
-  #fpArtist { color: var(--muted); font-size: 15px; margin: 4px 0 8px; }
-  .fp-like-row { display: flex; justify-content: flex-end; gap: 4px; margin-bottom: 4px; }
+  .fp-top-spacer { flex: 1; }
+  #fpArt { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; background: var(--surface); margin: 8px auto 16px; max-width: 420px; display: block; }
+  /* v2.2.82: YTM-style player — tappable title, action pills, big play, up-next handle. */
+  .fp-title-btn { background: none; border: none; padding: 0; margin: 0; color: var(--text); font-size: 22px; font-weight: 800; text-align: left; display: block; width: 100%; }
+  .fp-title-btn .fp-title-chev { color: var(--muted); font-weight: 400; }
+  #fpTitle { font-size: 22px; font-weight: 800; margin: 0; }
+  #fpArtist { color: var(--muted); font-size: 15px; margin: 4px 0 12px; }
+  .fp-pills { display: flex; gap: 8px; margin: 4px 0 12px; flex-wrap: wrap; }
+  .fp-pill { display: inline-flex; align-items: center; gap: 6px; background: #1d1d1d; color: var(--text); border: none; border-radius: 999px; padding: 10px 16px; font-size: 14px; font-weight: 600; }
+  .fp-pill span:last-child { font-weight: 600; }
+  body.light .fp-pill { background: #e8e2d2; color: #1a1a1a; }
   .times { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; margin-top: -6px; }
-  .fp-controls { display: flex; align-items: center; justify-content: space-between; margin: 6px 0 4px; }
+  .fp-controls { display: flex; align-items: center; justify-content: space-between; margin: 10px 0 4px; }
   .fp-controls .iconbtn { font-size: 26px; }
   #fpPlayBtn { font-size: 44px; color: var(--text); }
+  .fp-controls .iconbtn.fp-play-big { font-size: 64px; }
   .fp-controls .iconbtn.active { color: var(--gold); }
+  .fp-upnext-handle { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 100%; background: none; border: none; padding: 14px 0 10px; margin-top: 8px; color: var(--text); }
+  .fp-handle-bar { width: 40px; height: 4px; border-radius: 2px; background: var(--muted); }
+  .fp-upnext-label { font-size: 14px; font-weight: 600; }
+  #fpUpNextBody { padding-bottom: 20px; }
   #ytplayer { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   .fp-section-title { color: var(--muted); font-size: 13px; letter-spacing: 1px; margin: 18px 0 6px; text-transform: uppercase; }
   /* library segments */
@@ -161,6 +197,19 @@
   .albumCard .an { font-size: 14px; padding: 6px 2px 0; font-weight: 400; color: var(--text); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .albumCard .aa { font-size: 14px; color: var(--muted); padding: 2px 2px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .albumCard .ad { font-size: 12px; color: var(--muted); padding: 2px 2px 0; }
+  /* v2.2.82: "Albums & singles" 2-column grid + explicit badge, per his YTM screenshot. */
+  .asGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 12px; width: 100%; }
+  .asSearchRow { display: flex; gap: 8px; align-items: center; width: 100%; margin-bottom: 4px; }
+  #asSearchInput { flex: 1; background: var(--surface); color: var(--text); border: 1px solid #333; border-radius: 8px; padding: 10px 12px; font-size: 15px; }
+  #asSearchInput[hidden] { display: none; }
+  .asCard { background: transparent; border: none; padding: 0; text-align: left; color: #fff; min-width: 0; }
+  .asCard img { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; border-radius: 4px; background: var(--surface2); }
+  .asCard .an { font-size: 14px; font-weight: 600; padding: 8px 2px 0; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .asCard .aa { font-size: 14px; color: var(--muted); padding: 2px 2px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .explicitBadge { display: inline-block; border: 1px solid var(--muted); color: var(--muted); font-size: 10px; font-weight: 700; border-radius: 2px; padding: 0 3px; margin-right: 4px; vertical-align: 1px; }
+  body.light .asCard { color: #1a1a1a; }
+  body.light .asCard .an { color: #1a1a1a; }
+  body.light .asCard .aa { color: #5a5a5a; }
   /* v2.2.81: Library + Explore redo — YouTube Music patterns. */
   .libHead { font-size: 28px; font-weight: 800; color: var(--text); margin: 6px 0 8px; padding: 0 4px; }
   .libChips { display: flex; gap: 8px; overflow-x: auto; padding: 4px 2px 10px; scrollbar-width: none; }
@@ -266,16 +315,22 @@
     width: auto; height: auto; max-width: 100%; max-height: 30vh;
     object-fit: contain; margin: 0; border-radius: 10px;
   }
+  body.tv .fp-tv-left #fpTitleBtn {
+    order: 2; flex: 0 0 auto; margin: 0; text-align: center;
+    max-width: 100%; display: block;
+  }
   body.tv .fp-tv-left #fpTitle {
-    order: 2; flex: 0 0 auto; font-size: 26px; margin: 0; text-align: center;
+    font-size: 26px; margin: 0; text-align: center;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
   }
   body.tv .fp-tv-left #fpArtist {
     order: 3; flex: 0 0 auto; font-size: 20px; margin: 0; text-align: center; color: var(--gold);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
   }
+  body.tv .fp-tv-left .fp-pills { order: 4; flex: 0 0 auto; margin: 0; justify-content: center; }
+  body.tv .fp-tv-left .fp-pills .fp-pill { font-size: 16px; padding: 8px 14px; }
   body.tv .fp-tv-left .fp-controls {
-    order: 4; flex: 0 0 auto; margin: 0; justify-content: center; gap: 2vw;
+    order: 5; flex: 0 0 auto; margin: 0; justify-content: center; gap: 2vw;
   }
   body.tv .fp-controls .iconbtn {
     width: 44px; height: 44px; min-width: 44px; min-height: 44px; padding: 0; font-size: 20px;
@@ -283,11 +338,11 @@
     display: flex; align-items: center; justify-content: center;
   }
   body.tv #fpPlayBtn { font-size: 24px; background: rgba(212,175,55,.18); }
-  body.tv .fp-tv-left .fp-like-row { order: 5; flex: 0 0 auto; margin: 0; }
-  body.tv .fp-tv-left .fp-like-row .iconbtn { width: 38px; height: 38px; min-width: 38px; min-height: 38px; font-size: 18px; }
-  body.tv .fp-tv-left label.sr-only { order: 6; }
-  body.tv .fp-tv-left #fpSeek { order: 7; flex: 0 0 auto; margin: 0; width: 100%; max-width: 420px; }
-  body.tv .fp-tv-left .times { order: 8; flex: 0 0 auto; font-size: 16px; margin: 0; width: 100%; max-width: 420px; }
+  body.tv .fp-tv-left label.sr-only { order: 7; }
+  body.tv .fp-tv-left #fpSeek { order: 8; flex: 0 0 auto; margin: 0; width: 100%; max-width: 420px; }
+  body.tv .fp-tv-left .times { order: 9; flex: 0 0 auto; font-size: 16px; margin: 0; width: 100%; max-width: 420px; }
+  /* TV: up-next queue is hidden on TV, so hide its handle too. */
+  body.tv #fpUpNextHandle { display: none; }
   body.tv .fp-tv-right {
     display: block; min-height: 0; min-width: 0; overflow-y: auto;
     border-left: 2px solid var(--gold); padding-left: 2vw;
@@ -335,7 +390,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.81</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.82</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -500,7 +555,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.81. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.82. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -539,26 +594,32 @@
 <div id="fullPlayer" hidden role="dialog" aria-label="Now playing">
   <div class="fp-top">
     <button id="fpCollapseBtn" aria-label="Collapse player">⌄</button>
-    <span>NOW PLAYING</span>
+    <span class="fp-top-spacer"></span>
     <button id="fpMenuBtn" class="iconbtn" aria-label="More options" aria-haspopup="menu">⋮</button>
   </div>
   <div id="fpMenu" hidden role="menu" aria-label="Song options"></div>
   <div class="fp-tv-main">
    <div class="fp-tv-left">
   <img id="fpArt" alt="Album art">
-  <h2 id="fpTitle">Nothing playing</h2>
+  <button id="fpTitleBtn" class="fp-title-btn" aria-label="Open track details">
+    <span id="fpTitle">Nothing playing</span><span class="fp-title-chev" aria-hidden="true"> ›</span>
+  </button>
   <div id="fpArtist"></div>
-  <div class="fp-controls">
-    <button class="iconbtn" id="fpShuffleBtn" aria-label="Shuffle">🔀</button>
-    <button class="iconbtn" id="fpPrevBtn" aria-label="Previous track">⏮</button>
-    <button class="iconbtn" id="fpPlayBtn" aria-label="Play or pause">▶</button>
-    <button class="iconbtn" id="fpNextBtn" aria-label="Next track">⏭</button>
-    <button class="iconbtn" id="fpRepeatBtn" aria-label="Repeat mode">🔁</button>
+  <div class="fp-pills" role="group" aria-label="Song actions">
+    <button class="fp-pill" id="fpLikePill" aria-label="Like this song">🤍 <span>Like</span></button>
+    <button class="fp-pill" id="fpSavePill" aria-label="Save to a playlist">＋ <span>Save</span></button>
+    <button class="fp-pill" id="fpSharePill" aria-label="Share this song">↗ <span>Share</span></button>
   </div>
-  <div class="fp-like-row"><button class="iconbtn" id="fpLikeBtn" aria-label="Like this song">🤍</button></div>
   <label for="fpSeek" class="sr-only">Seek</label>
   <input type="range" id="fpSeek" min="0" max="100" value="0" step="1">
   <div class="times"><span id="fpCur">0:00</span><span id="fpDur">0:00</span></div>
+  <div class="fp-controls">
+    <button class="iconbtn" id="fpShuffleBtn" aria-label="Shuffle">🔀</button>
+    <button class="iconbtn" id="fpPrevBtn" aria-label="Previous track">⏮</button>
+    <button class="iconbtn fp-play-big" id="fpPlayBtn" aria-label="Play or pause">▶</button>
+    <button class="iconbtn" id="fpNextBtn" aria-label="Next track">⏭</button>
+    <button class="iconbtn" id="fpRepeatBtn" aria-label="Repeat mode">🔁</button>
+  </div>
    </div>
    <div class="fp-tv-right" id="tvLyricsCol">
      <div class="fp-lyrics-head">📝 Lyrics</div>
@@ -566,19 +627,17 @@
      <div id="tvLyricsBody" tabindex="0" aria-label="Song lyrics. Use up and down to scroll.">Lyrics will appear here when music plays.</div>
    </div>
   </div>
-  <div class="row" style="margin-top:8px">
+  <!-- v2.2.82: legacy action buttons kept hidden for their handlers; reached via the ⋮ menu now -->
+  <div id="fpLegacyActions" hidden>
     <button class="btn secondary small" id="fpAddToPlaylistBtn">＋ Playlist</button>
     <button class="btn secondary small" id="fpYtMusicBtn">▶ YouTube Music</button>
-  </div>
-  <div class="row" style="margin-top:4px">
     <button class="btn secondary small" id="fpRadioBtn">📻 Radio</button>
     <button class="btn secondary small" id="fpSimilarBtn">🎸 Similar</button>
     <button class="btn secondary small" id="fpSleepBtn" aria-label="Sleep timer off. Tap to set.">⏲</button>
-  </div>
-  <div class="row" style="margin-top:4px">
     <button class="btn secondary small" id="fpArtistBtn">🧑‍🎤 Artist</button>
     <button class="btn secondary small" id="fpLyricsBtn">📝 Lyrics</button>
     <button class="btn secondary small" id="fpShareBtn" aria-label="Share this song">↗ Share</button>
+    <button class="iconbtn" id="fpLikeBtn" aria-label="Like this song">🤍</button>
   </div>
   <div id="lyricsPanel" hidden>
     <button class="backBtn" id="lyricsBackBtn" aria-label="Back to player">‹ Back</button>
@@ -594,21 +653,39 @@
     <div class="fp-section-title">Top songs</div>
     <div id="artistSongs"></div>
   </div>
-  <div class="fp-section-title">Similar artists</div>
-  <div id="fpSimilarList" hidden></div>
-  <div class="fp-section-title">Up next</div>
-  <div id="fpQueueList"></div>
+  <button id="fpUpNextHandle" class="fp-upnext-handle" aria-expanded="false" aria-controls="fpUpNextBody" aria-label="Show up next queue">
+    <span class="fp-handle-bar" aria-hidden="true"></span>
+    <span class="fp-upnext-label">Up next</span>
+  </button>
+  <div id="fpUpNextBody" hidden>
+    <div class="fp-section-title" id="fpSimilarTitle" hidden>Similar artists</div>
+    <div id="fpSimilarList" hidden></div>
+    <div id="fpQueueList"></div>
+  </div>
 </div>
 <div id="albumPanel" hidden role="dialog" aria-label="Album">
-  <div style="text-align:left"><button class="backBtn" id="albumBackBtn" aria-label="Back">‹ Back</button></div>
+  <div class="ap-top">
+    <button class="backBtn" id="albumBackBtn" aria-label="Back">‹ Back</button>
+    <div class="ap-head-center">
+      <img id="albumArtistAvatar" alt="" hidden>
+      <div class="ap-head-text">
+        <div id="albumArtistTop"></div>
+        <div id="albumYearTop" class="hint"></div>
+      </div>
+    </div>
+    <button class="iconbtn" id="albumRadioBtn" aria-label="Start radio from this artist">▷▷</button>
+  </div>
   <img id="albumArt" alt="Album cover">
   <h2 id="albumName"></h2>
   <div id="albumArtist"></div>
-  <div class="row" style="justify-content:center">
-    <button class="btn" id="albumPlayBtn">▶ Play</button>
-    <button class="btn secondary" id="albumShuffleBtn">🔀 Shuffle</button>
-    <button class="btn secondary" id="albumSaveBtn">💾 Save album</button>
+  <div class="ap-actions" role="group" aria-label="Album actions">
+    <button class="ap-btn" id="albumShuffleBtn" aria-label="Shuffle album">🔀</button>
+    <button class="ap-btn" id="albumSaveBtn" aria-label="Save album to library">🔖</button>
+    <button class="ap-btn ap-play" id="albumPlayBtn" aria-label="Play album">▶</button>
+    <button class="ap-btn" id="albumShareBtn" aria-label="Share album">↗</button>
+    <button class="ap-btn" id="albumMoreBtn" aria-label="More album options" aria-haspopup="menu">⋮</button>
   </div>
+  <div id="albumMoreMenu" hidden role="menu" aria-label="Album options"></div>
   <div id="albumTracks"></div>
 </div>
 <script>
@@ -821,12 +898,30 @@ function openPythonAlbum(browseId, title, artist, thumb){
   $("seeAllView").hidden = true;
   $("settingsView").hidden = true;
   $("artistView").hidden = true;
+  try { $("accountView").hidden = true; } catch(e){}
   var panel = $("albumPanel");
   if(panel) panel.hidden = false;
   $("albumArt").src = thumb || "";
   $("albumArt").alt = title + " cover";
   $("albumName").textContent = title || "Album";
   $("albumArtist").textContent = artist || "";
+  /* v2.2.82: YTM-style header — artist avatar + name, year below. */
+  $("albumArtistTop").textContent = artist || "";
+  $("albumYearTop").textContent = "";
+  var avEl = $("albumArtistAvatar");
+  avEl.hidden = true; avEl.src = "";
+  ytmGetAlbumInfo(browseId).then(function(info){
+    info = info || {};
+    if(info.year){ $("albumYearTop").textContent = info.year; }
+    var aName = info.artist || artist;
+    if(aName){ $("albumArtistTop").textContent = aName; }
+    var aId = info.artistId || "";
+    if(aId){
+      ytmGetArtistInfo(aId).then(function(ai){
+        if(ai && ai.thumb && !ai.error){ avEl.src = ai.thumb; avEl.alt = aName; avEl.hidden = false; }
+      }).catch(function(){});
+    }
+  }).catch(function(){});
   $("albumTracks").innerHTML = "<p style='color:#999'>Loading tracks...</p>";
   say("Loading " + title + ".");
   ytmGetAlbum(browseId).then(function(tracks){
@@ -836,11 +931,12 @@ function openPythonAlbum(browseId, title, artist, thumb){
       say("No tracks found.");
       return;
     }
+    /* v2.2.82: YTM-style numbered rows — big number, title, "Artist • duration", 3-dot menu. */
     var html = "<div class='trackList'>";
-    tracks.forEach(function(t, i){ html += trackRow(t, i); });
+    tracks.forEach(function(t, i){ html += albumTrackRow(t, i); });
     html += "</div>";
     $("albumTracks").innerHTML = html;
-    bindTrackButtons($("albumTracks"), tracks);
+    bindAlbumTrackButtons($("albumTracks"), tracks);
     /* Store for queue playback */
     state.albumTracks = tracks;
     /* v2.2.55: Set global albumTracks and name/artist so save button works */
@@ -1193,6 +1289,59 @@ function openITunesAlbum(collectionId){
     })
     .catch(function(){ say("Couldn't load that album."); });
 }
+/* v2.2.82: numbered album track rows per his YTM screenshot. */
+function albumTrackRow(t, i){
+  var p = parseTrack(t.title, t.channel);
+  var sub = p.artist + (t.dur ? " • " + t.dur : "");
+  return '<div class="atrack" data-arow="' + i + '" role="button" tabindex="0" aria-label="Play ' + esc(p.title) + " by " + esc(p.artist) + '">' +
+    '<span class="anum" aria-hidden="true">' + (i + 1) + '</span>' +
+    '<div class="ainfo"><div class="atitle">' + esc(p.title) + '</div><div class="asub">' + esc(sub) + '</div></div>' +
+    '<button class="iconbtn" data-amenu="' + i + '" aria-label="Options for ' + esc(p.title) + '" aria-haspopup="menu">⋮</button></div>';
+}
+function bindAlbumTrackButtons(root, tracks){
+  root.querySelectorAll("[data-arow]").forEach(function(row){
+    row.addEventListener("click", function(e){
+      if(e.target.closest("[data-amenu]")) return;
+      var t = tracks[parseInt(row.getAttribute("data-arow"), 10)];
+      if(t){ state.radio = null; state.queue = tracks.slice(); playQueueIndex(tracks.indexOf(t), true); }
+    });
+    row.addEventListener("keydown", function(e){
+      if(e.key === "Enter" || e.key === " "){ e.preventDefault(); row.click(); }
+    });
+  });
+  root.querySelectorAll("[data-amenu]").forEach(function(b){
+    b.addEventListener("click", function(e){
+      e.stopPropagation();
+      var t = tracks[parseInt(b.getAttribute("data-amenu"), 10)];
+      if(t) albumTrackMenu(t, b);
+    });
+  });
+}
+function albumTrackMenu(t, anchor){
+  var m = $("albumMoreMenu");
+  var items = [
+    { label: "Play next", fn: function(){ state.queue.splice(state.qi + 1, 0, t); say("Will play next: " + t.title); } },
+    { label: "Add to queue", fn: function(){ state.queue.push(t); say("Added to queue: " + t.title); } },
+    { label: isLiked(t.videoId) ? "Unlike" : "Like", fn: function(){ toggleLike(t); } },
+    { label: "Share", fn: function(){
+      var url = t.videoId ? ("https://www.youtube.com/watch?v=" + t.videoId) : "";
+      if(url && navigator.clipboard){ navigator.clipboard.writeText(url).then(function(){ say("Link copied."); }).catch(function(){ say("Couldn't copy the link."); }); }
+      else say("No link available yet.");
+    }}
+  ];
+  m.innerHTML = "";
+  items.forEach(function(it){
+    var b = document.createElement("button");
+    b.textContent = it.label;
+    b.setAttribute("role", "menuitem");
+    b.addEventListener("click", function(){ m.hidden = true; it.fn(); });
+    m.appendChild(b);
+  });
+  m.hidden = false;
+  var first = m.querySelector("button");
+  if(first) first.focus();
+  say("Options for " + t.title + ".");
+}
 /* ================= TV side menu + remote hooks ================= */
 var tvMenu = $("tv-menu");
 function tvMenuOpen(){ return !!(tvMenu && tvMenu.classList.contains("open")); }
@@ -1492,6 +1641,18 @@ function ytmGetAlbum(browseId){
     }
   } catch (e) { }
   return Promise.resolve([]);
+}
+function ytmGetAlbumInfo(browseId){
+  /* v2.2.82: album metadata (title, artist, artistId, year, thumb) for the album page header. */
+  try {
+    if (typeof LynxosYTM !== "undefined" && LynxosYTM.getAlbumInfo) {
+      var jsonStr = LynxosYTM.getAlbumInfo(browseId);
+      var parsed = JSON.parse(jsonStr);
+      if (parsed && parsed.error) throw new Error(parsed.error);
+      return Promise.resolve(parsed || {});
+    }
+  } catch (e) { }
+  return Promise.resolve({});
 }
 function ytmGetArtistAlbums(artistId){
   try {
@@ -2845,6 +3006,7 @@ function toggleLike(v){
 function updateLikeBtn(){
   var v = currentVideo();
   $("fpLikeBtn").textContent = (v && isLiked(v.videoId)) ? "❤️" : "🤍";
+  try { fpLikePillLabel(); } catch(e){}
 }
 function renderLiked(){
   var l = getLiked();
@@ -2857,6 +3019,36 @@ $("fpLikeBtn").addEventListener("click", function(){
   var v = currentVideo();
   if(!v){ say("Nothing playing to like."); return; }
   toggleLike(v);
+});
+/* v2.2.82: YTM-style action pills delegate to the existing handlers. */
+function fpLikePillLabel(){
+  var v = null;
+  try { v = currentVideo(); } catch(e){}
+  var liked = v && isLiked(v.videoId);
+  var pill = $("fpLikePill");
+  if(pill){ pill.innerHTML = (liked ? "❤️" : "🤍") + " <span>Like</span>"; pill.setAttribute("aria-label", liked ? "Unlike this song" : "Like this song"); }
+}
+$("fpLikePill").addEventListener("click", function(){ $("fpLikeBtn").click(); });
+$("fpSavePill").addEventListener("click", function(){ $("fpAddToPlaylistBtn").click(); });
+$("fpSharePill").addEventListener("click", function(){ $("fpShareBtn").click(); });
+/* v2.2.82: Up-next lives behind the bottom handle (his bug report). */
+function toggleUpNext(show){
+  var body = $("fpUpNextBody"), handle = $("fpUpNextHandle");
+  var willShow = (typeof show === "boolean") ? show : body.hidden;
+  body.hidden = !willShow;
+  handle.setAttribute("aria-expanded", willShow ? "true" : "false");
+  handle.setAttribute("aria-label", willShow ? "Hide up next queue" : "Show up next queue");
+  say(willShow ? "Up next shown." : "Up next hidden.");
+}
+$("fpUpNextHandle").addEventListener("click", function(){ toggleUpNext(); });
+/* v2.2.82: tapping the song title opens the track context (album if known, else artist). */
+$("fpTitleBtn").addEventListener("click", function(){
+  var v = null;
+  try { v = currentVideo(); } catch(e){}
+  if(!v){ say("Nothing playing."); return; }
+  if(v.albumBrowseId){ openPythonAlbum(v.albumBrowseId, v.album || v.title, trackArtist(v), v.art || v.thumb); }
+  else if(v.album || v.albumName){ say("Album: " + (v.album || v.albumName)); openArtistPage(trackArtist(v)); }
+  else { openArtistPage(trackArtist(v)); }
 });
 /* ================= settings ================= */
 /* ================= Google Takeout import (v1.8) ================= */
@@ -3170,6 +3362,11 @@ function fpMenuItems(){
   }});
   items.push({ label: state.sleepMinutes > 0 ? ("Sleep timer: " + state.sleepMinutes + " min (tap to change)") : "Sleep timer",
     fn: function(){ $("fpSleepBtn").click(); }});
+  /* v2.2.82: actions that lived as button rows under the player now live here. */
+  items.push({ label: "▶ YouTube Music", fn: function(){ $("fpYtMusicBtn").click(); }});
+  items.push({ label: "📻 Start radio", fn: function(){ $("fpRadioBtn").click(); }});
+  items.push({ label: "🎸 Similar artists", fn: function(){ $("fpSimilarBtn").click(); }});
+  items.push({ label: "📝 Lyrics", fn: function(){ $("fpLyricsBtn").click(); }});
   return items;
 }
 function toggleFpMenu(show){
@@ -3925,12 +4122,16 @@ function fetchWithTimeout(url, opts, ms){
 var LASTFM_KEY = "e06508f947f4fac1595adde9c41264eb";
 function showSimilar(){
   var box = $("fpSimilarList");
-  if(!box.hidden){ box.hidden = true; box.innerHTML = ""; say("Similar artists hidden."); return; }
+  var title = $("fpSimilarTitle");
+  if(!box.hidden){ box.hidden = true; box.innerHTML = ""; if(title) title.hidden = true; say("Similar artists hidden."); return; }
   var v = currentVideo();
   if(!v){ say("Nothing playing."); return; }
   var artist = trackArtist(v);
   if(!artist){ say("Couldn't figure out the artist for this song."); return; }
   box.hidden = false;
+  var simTitle = $("fpSimilarTitle"); if(simTitle) simTitle.hidden = false;
+  /* v2.2.82: similar artists live inside the Up-next panel now — open it. */
+  try { toggleUpNext(true); } catch(e){}
   box.innerHTML = '<div class="empty">Finding artists like ' + esc(artist) + "…</div>";
   say("Finding artists like " + artist + ".");
   fetch("https://disabled.invalid/lastfm/2.0/?method=artist.getSimilar&artist=" + encodeURIComponent(artist) + "&api_key=" + LASTFM_KEY + "&format=json&limit=12")
@@ -4104,7 +4305,7 @@ function renderFreshFinds(){
   });
 }
 /* v2.2.2: top singles across all genres (daily Apple feed). */
-var allSinglesCache = null;
+var allSinglesCache = null, allSinglesCacheTime = 0;
 /* v2.2.23: only show recent releases (last 90 days). Filters out old content
    from the new singles and new albums sections. */
 function isRecentRelease(dateStr){
@@ -4121,7 +4322,7 @@ function isRecentRelease(dateStr){
 function loadAllSingles(){
   var box = $("allSingles");
   if(!box) return;
-  if(allSinglesCache){ renderAllSingles(allSinglesCache); return; }
+  if(allSinglesCache && (Date.now() - allSinglesCacheTime) < RELEASES_TTL){ renderAllSingles(allSinglesCache); return; }
   box.innerHTML = "<p style='color:#999'>Loading new singles…</p>";
   try {
     if (typeof LynxosYTM !== "undefined" && LynxosYTM.getCharts) {
@@ -4139,6 +4340,7 @@ function loadAllSingles(){
           };
         }).filter(function(x){ return x.name && x.artist; });
         renderAllSingles(allSinglesCache);
+        allSinglesCacheTime = Date.now();
         return;
       }
     }
@@ -4158,17 +4360,14 @@ function renderAllSingles(items){
   bindTrackButtons(box, tracks);
 }
 $("allSinglesSeeAllBtn").addEventListener("click", function(){
+  /* v2.2.82: singles See-all joins the combined "Albums & singles" screen — one thing. */
   if(!allSinglesCache || !allSinglesCache.length){ say("Singles are still loading."); return; }
-  var tracks = allSinglesCache.map(function(x){
-    return { videoId: "", title: x.name, channel: x.artist,
-      thumb: x.art, art: x.art,
+  var combo = allSinglesCache.map(function(x){
+    return { kind: "single", name: x.name, artist: x.artist, art: x.art, id: "", explicit: false,
       resolveQuery: x.artist + " " + x.name + " official audio",
       fallbackQuery: x.artist + " " + x.name };
   });
-  openSeeAll("Top singles", function(grid){
-    grid.innerHTML = '<div id="seeAllSinglesList">' + tracks.map(function(t, i){ return trackRow(t, i); }).join("") + "</div>";
-    bindTrackButtons($("seeAllSinglesList"), tracks);
-  });
+  openAlbumsSinglesSeeAll(combo);
 });
 /* v2.2.80: See-all for the Quick picks shelf (recent history as track rows). */
 $("quickPicksSeeAllBtn").addEventListener("click", function(){
@@ -4197,7 +4396,12 @@ $("freshFindsSeeAllBtn").addEventListener("click", function(){
 /* v2.2.1: new releases across all genres. The "newreleases" RSS feed doesn't
    exist (Apple returns "Invalid RSS channel name"), so use the daily-updated
    top-albums feed instead — it's what's hot right now across every genre. */
-var allReleasesCache = null;
+var allReleasesCache = null, allReleasesCacheTime = 0;
+/* v2.2.82: 6-hour TTL — the old cache never expired within a session, so the
+   shelves froze on first load. Combined with the real "New releases" feed
+   (was: relevance-ranked search results that never changed), the shelf now
+   actually stays fresh. */
+var RELEASES_TTL = 6 * 3600 * 1000;
 /* v2.2.24: fetch new releases from multiple genre feeds for true diversity.
    The single "topalbums" feed skews toward whatever's popular; merging
    genre-specific feeds guarantees all genres are represented. */
@@ -4216,10 +4420,12 @@ var RELEASE_GENRES = [
   { id: "5", name: "Classical" }
 ];
 function loadAllReleases(){
-  /* v2.2.37: Load new releases via Python ytmusicapi. */
+  /* v2.2.37: Load new releases via Python ytmusicapi.
+     v2.2.82: the feed is now YouTube's real "New releases" home section
+     (typed Album/Single/EP items), not search results. */
   var box = $("allReleases");
   if(!box) return;
-  if(allReleasesCache){ renderAllReleases(allReleasesCache); return; }
+  if(allReleasesCache && (Date.now() - allReleasesCacheTime) < RELEASES_TTL){ renderAllReleases(allReleasesCache); return; }
   box.innerHTML = "<p style='color:#999'>Loading new releases…</p>";
   try {
     if (typeof LynxosYTM !== "undefined" && LynxosYTM.getNewReleases) {
@@ -4233,9 +4439,12 @@ function loadAllReleases(){
             artist: a.artist || "",
             art: a.thumb || "",
             id: a.browseId || "",
-            releaseDate: a.year || ""
+            releaseDate: a.year || "",
+            kind: a.kind || "album",
+            explicit: !!a.explicit
           };
         }).filter(function(x){ return x.name && x.artist; });
+        allReleasesCacheTime = Date.now();
         renderAllReleases(allReleasesCache);
         return;
       }
@@ -4243,40 +4452,97 @@ function loadAllReleases(){
   } catch(e) { }
   box.innerHTML = "<p style='color:#999'>Couldn't load releases.</p>";
 }
+function releaseKindLabel(k){
+  k = String(k || "album").toLowerCase();
+  if(k === "single") return "Single";
+  if(k === "ep") return "EP";
+  return "Album";
+}
 function renderAllReleases(items){
   var box = $("allReleases");
   if(!box) return;
   box.innerHTML = items.map(function(x){
+    var sub = releaseKindLabel(x.kind) + " • " + x.artist;
     return "<div class='card' style='min-width:150px;max-width:150px'>" +
       "<img src='" + esc(x.art) + "' alt='' style='width:100%;border-radius:8px'>" +
-      "<div style='font-weight:bold;font-size:14px'>" + esc(x.name) + "</div>" +
-      "<div class='hint'>" + esc(x.artist) + "</div>" +
+      "<div style='font-weight:bold;font-size:14px'>" + (x.explicit ? "<span class='explicitBadge' aria-label='Explicit'>E</span> " : "") + esc(x.name) + "</div>" +
+      "<div class='hint'>" + esc(sub) + "</div>" +
       "<button class='btn small' data-allrel='" + x.id + "'>View</button></div>";
   }).join("");
   box.querySelectorAll("[data-allrel]").forEach(function(b){
     b.addEventListener("click", function(){
-      openITunesAlbum(b.getAttribute("data-allrel"));
+      openAlbumById(b.getAttribute("data-allrel"));
+    });
+  });
+}
+/* v2.2.82: route MPRE browseIds (YouTube Music albums) to the Python album
+   page; numeric iTunes collectionIds keep the legacy path. Previously every
+   new-release tap hit the dead iTunes lookup and failed. */
+function openAlbumById(id, title, artist, art){
+  if(/^MPRE/i.test(String(id || ""))){
+    openPythonAlbum(id, title || "", artist || "", art || "");
+  } else {
+    openITunesAlbum(id);
+  }
+}
+/* v2.2.82: "Albums & singles" — one combined 2-column grid per his screenshot. */
+function openAlbumsSinglesSeeAll(items){
+  if(!items || !items.length){ say("New releases are still loading."); return; }
+  openSeeAll("Albums & singles", function(grid){
+    /* v2.2.82: search icon in the header row, per his screenshot — filters this list. */
+    grid.innerHTML = "<div class='asSearchRow'><button class='iconbtn' id='asSearchToggle' aria-label='Search this list' aria-expanded='false'>🔍</button>" +
+      "<input id='asSearchInput' hidden type='search' placeholder='Search albums & singles' aria-label='Search albums and singles'></div>" +
+      "<div class='asGrid' id='asGridEl'>" + items.map(function(x, i){
+      var sub = releaseKindLabel(x.kind) + " • " + x.artist;
+      return "<button class='asCard' data-asidx='" + i + "' aria-label='" + esc(x.name) + ", " + esc(sub) + "'>" +
+        (x.art ? "<img src='" + esc(x.art) + "' alt=''>" : "") +
+        "<div class='an'>" + (x.explicit ? "<span class='explicitBadge' aria-label='Explicit'>E</span> " : "") + esc(x.name) + "</div>" +
+        "<div class='aa'>" + esc(sub) + "</div></button>";
+    }).join("") + "</div>";
+    var gridEl = grid.querySelector("#asGridEl");
+    var input = grid.querySelector("#asSearchInput");
+    var toggle = grid.querySelector("#asSearchToggle");
+    toggle.addEventListener("click", function(){
+      var show = input.hidden;
+      input.hidden = !show;
+      toggle.setAttribute("aria-expanded", show ? "true" : "false");
+      if(show){ input.focus(); say("Type to filter the list."); }
+    });
+    input.addEventListener("input", function(){
+      var q = input.value.toLowerCase();
+      gridEl.querySelectorAll("[data-asidx]").forEach(function(card){
+        var x = items[parseInt(card.getAttribute("data-asidx"), 10)];
+        var hay = ((x.name || "") + " " + (x.artist || "")).toLowerCase();
+        card.style.display = (!q || hay.indexOf(q) >= 0) ? "" : "none";
+      });
+    });
+    grid.querySelectorAll("[data-asidx]").forEach(function(b){
+      b.addEventListener("click", function(){
+        var x = items[parseInt(b.getAttribute("data-asidx"), 10)];
+        if(!x) return;
+        if(x.videoId && !x.id){
+          playVideo({ videoId: x.videoId, title: x.name, channel: x.artist, thumb: x.art, art: x.art,
+            resolveQuery: x.artist + " " + x.name + " official audio",
+            fallbackQuery: x.artist + " " + x.name }, [{ videoId: x.videoId }], 0);
+        } else if(x.id){
+          openAlbumById(x.id, x.name, x.artist, x.art);
+        } else if(x.resolveQuery){
+          /* v2.2.82: singles from the Home shelf are playable tracks, not albums. */
+          var tr = { videoId: "", title: x.name, channel: x.artist, thumb: x.art, art: x.art,
+            resolveQuery: x.resolveQuery, fallbackQuery: x.fallbackQuery || (x.artist + " " + x.name) };
+          playVideo(tr, [tr], 0);
+        }
+      });
     });
   });
 }
 $("allReleasesSeeAllBtn").addEventListener("click", function(){
-  if(!allReleasesCache || !allReleasesCache.length){ say("New releases are still loading."); return; }
-  openSeeAll("New releases", function(grid){
-    grid.innerHTML = allReleasesCache.map(function(x){
-      return "<div class='card' style='width:150px'>" +
-        "<img src='" + esc(x.art) + "' alt='' style='width:100%;border-radius:8px'>" +
-        "<div style='font-weight:bold;font-size:14px'>" + esc(x.name) + "</div>" +
-        "<div class='hint'>" + esc(x.artist) + "</div>" +
-        "<button class='btn small' data-allrel2='" + x.id + "'>View</button></div>";
-    }).join("");
-    grid.querySelectorAll("[data-allrel2]").forEach(function(b){
-      b.addEventListener("click", function(){ openITunesAlbum(b.getAttribute("data-allrel2")); });
-    });
-  });
+  openAlbumsSinglesSeeAll(allReleasesCache);
 });
 /* v2.2.81: YouTube Music-style Explore — category cards, new albums & singles,
    striped genre pills, ranked trending list. Music only: no podcasts, no videos. */
 var exploreNewCache = null, exploreChartsCache = null;
+var exploreNewCacheTime = 0, exploreChartsCacheTime = 0;
 var GENRE_STRIPES = ["#a855f7","#eab308","#14b8a6","#3b82f6","#22c55e","#f97316","#ec4899","#06b6d4","#f43f5e","#8b5cf6","#10b981","#f59e0b"];
 function renderExplore(){
   renderExploreCats();
@@ -4323,14 +4589,15 @@ function renderExplorePills(){
 function loadExploreNew(){
   var box = $("exploreNew");
   if(!box) return;
-  if(exploreNewCache){ renderExploreNew(exploreNewCache); return; }
+  if(exploreNewCache && (Date.now() - exploreNewCacheTime) < RELEASES_TTL){ renderExploreNew(exploreNewCache); return; }
   box.innerHTML = "<p class='hint'>Loading…</p>";
   var albums = [], singles = [];
   try {
     if(typeof LynxosYTM !== "undefined" && LynxosYTM.getNewReleases){
       var a = JSON.parse(LynxosYTM.getNewReleases(60));
       if(a && !a.error){ albums = (a || []).filter(function(x){ return x.title; }).slice(0, 12).map(function(x){
-        return { kind: "album", name: x.title || "", artist: x.artist || "", art: x.thumb || "", id: x.browseId || "" };
+        return { kind: x.kind || "album", name: x.title || "", artist: x.artist || "", art: x.thumb || "",
+                 id: x.browseId || "", explicit: !!x.explicit };
       }); }
     }
   } catch(e){}
@@ -4344,15 +4611,16 @@ function loadExploreNew(){
     }
   } catch(e){}
   exploreNewCache = albums.concat(singles);
+  exploreNewCacheTime = Date.now();
   if(!exploreNewCache.length){ box.innerHTML = "<p class='hint'>Couldn't load new music.</p>"; return; }
   renderExploreNew(exploreNewCache);
 }
 function exploreNewCard(x){
-  var sub = (x.kind === "album" ? "Album" : "Single") + " • " + x.artist;
+  var sub = releaseKindLabel(x.kind) + " • " + x.artist;
   return "<button class='albumCard' data-expkind='" + x.kind + "' data-expid='" + esc(x.id || x.videoId || "") + "'" +
     " aria-label='" + esc(x.name) + ", " + esc(sub) + "'>" +
     (x.art ? "<img src='" + esc(x.art) + "' alt=''>" : "") +
-    "<div class='an'>" + esc(x.name) + "</div><div class='aa'>" + esc(sub) + "</div></button>";
+    "<div class='an'>" + (x.explicit ? "<span class='explicitBadge' aria-label='Explicit'>E</span> " : "") + esc(x.name) + "</div><div class='aa'>" + esc(sub) + "</div></button>";
 }
 function renderExploreNew(items){
   var box = $("exploreNew");
@@ -4367,7 +4635,7 @@ function bindExploreNewCards(root, items){
       var x = null;
       items.forEach(function(it){ if((it.id || it.videoId) === id) x = it; });
       if(!x) return;
-      if(kind === "album" && x.id){ openITunesAlbum(x.id); }
+      if((x.kind === "album" || x.kind === "ep") && x.id){ openAlbumById(x.id, x.name, x.artist, x.art); }
       else if(x.videoId){
         playVideo({ videoId: x.videoId, title: x.name, channel: x.artist, thumb: x.art, art: x.art,
           resolveQuery: x.artist + " " + x.name + " official audio",
@@ -4377,17 +4645,13 @@ function bindExploreNewCards(root, items){
   });
 }
 function openExploreNewSeeAll(){
-  if(!exploreNewCache || !exploreNewCache.length){ say("New releases are still loading."); return; }
-  var items = exploreNewCache;
-  openSeeAll("New albums & singles", function(grid){
-    grid.innerHTML = "<div class='hscroll' style='flex-wrap:wrap'>" + items.map(exploreNewCard).join("") + "</div>";
-    bindExploreNewCards(grid, items);
-  });
+  /* v2.2.82: the combined "Albums & singles" 2-column grid from his screenshot. */
+  openAlbumsSinglesSeeAll(exploreNewCache);
 }
 function loadExploreTrending(){
   var box = $("exploreTrending");
   if(!box) return;
-  if(exploreChartsCache){ renderExploreTrending(exploreChartsCache); return; }
+  if(exploreChartsCache && (Date.now() - exploreChartsCacheTime) < RELEASES_TTL){ renderExploreTrending(exploreChartsCache); return; }
   box.innerHTML = "<p class='hint'>Loading…</p>";
   try {
     if(typeof LynxosYTM !== "undefined" && LynxosYTM.getCharts){
@@ -4399,6 +4663,7 @@ function loadExploreTrending(){
                    resolveQuery: (x.channel || "") + " " + (x.title || "") + " official audio",
                    fallbackQuery: (x.channel || "") + " " + (x.title || "") };
         });
+        exploreChartsCacheTime = Date.now();
         renderExploreTrending(exploreChartsCache);
         return;
       }
@@ -4721,7 +4986,8 @@ function openAlbumPanel(artist, name, colId){
         $("albumArt").src = tracks[0].artworkUrl100.replace("100x100bb", "600x600bb");
       renderAlbumTracks();
       /* v2.1.4: a single saves to Songs, not Albums. */
-      try { $("albumSaveBtn").textContent = albumTracks.length === 1 ? "💾 Save song" : "💾 Save album"; } catch(e){}
+      /* v2.2.82: icon button now — update the label, not the icon. */
+      try { $("albumSaveBtn").setAttribute("aria-label", albumTracks.length === 1 ? "Save song to library" : "Save album to library"); } catch(e){}
       say(name + " loaded. " + albumTracks.length + " tracks. Tap Play to start.");
     })
     .catch(function(){
@@ -4772,6 +5038,43 @@ function closeAlbumPanel(){
   }
 }
 $("albumBackBtn").addEventListener("click", closeAlbumPanel);
+/* v2.2.82: YTM-style album action row wiring. */
+$("albumRadioBtn").addEventListener("click", function(){
+  var a = $("albumArtistTop").textContent || $("albumArtist").textContent || "";
+  if(a){ startRadio(a); } else { say("No artist found for radio."); }
+});
+$("albumShareBtn").addEventListener("click", function(){
+  var name = $("albumName").textContent || "this album";
+  var artist = $("albumArtist").textContent || "";
+  var text = name + (artist ? " by " + artist : "");
+  if(navigator.clipboard){ navigator.clipboard.writeText(text).then(function(){ say("Album name copied."); }).catch(function(){ say(text); }); }
+  else { say(text); }
+});
+$("albumMoreBtn").addEventListener("click", function(){
+  var m = $("albumMoreMenu");
+  var tracks = getCurrentAlbumTracks();
+  var name = $("albumName").textContent || "Album";
+  var items = [
+    { label: "▶ Play all", fn: function(){ if(tracks.length){ state.radio = null; state.queue = tracks.slice(); playQueueIndex(0, true); say("Playing " + name + "."); } } },
+    { label: "＋ Play next", fn: function(){ if(tracks.length){ for(var i = tracks.length - 1; i >= 0; i--){ state.queue.splice(state.qi + 1, 0, tracks[i]); } say("Album will play next."); } } },
+    { label: "💾 Save album", fn: function(){ $("albumSaveBtn").click(); } },
+    { label: "↗ Share album", fn: function(){ $("albumShareBtn").click(); } }
+  ];
+  if(m.hidden){
+    m.innerHTML = "";
+    items.forEach(function(it){
+      var b = document.createElement("button");
+      b.textContent = it.label;
+      b.setAttribute("role", "menuitem");
+      b.addEventListener("click", function(){ m.hidden = true; it.fn(); });
+      m.appendChild(b);
+    });
+    m.hidden = false;
+    say("Album options.");
+  } else {
+    m.hidden = true;
+  }
+});
 /* v2.2.61: Album buttons are bound per-album in openPythonAlbum (deep fix) */
 function getCurrentAlbumTracks(){
   if(state.albumTracks && state.albumTracks.length) return state.albumTracks;
