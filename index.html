@@ -525,7 +525,7 @@
 <!-- v2.2.89: TV-visible toast (say() shows it on TV; phones never see it). -->
 <div id="tvToast" hidden></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.92</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.93</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -699,7 +699,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.92. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.93. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -898,7 +898,7 @@ function scheduleCloudUpload(){
     var tokens = sbGetTokens(); if(!tokens) return;
     setLocalLibTs(new Date().toISOString());
     if(_syncTimer) clearTimeout(_syncTimer);
-    _syncTimer = setTimeout(function(){ cloudUploadNow(); }, 4000);
+    _syncTimer = setTimeout(function(){ cloudUploadNow(true); }, 4000);
   } catch(e){}
 }
 function localLibCount(){
@@ -917,21 +917,28 @@ function cloudRowCount(row){
     return a + l + h + pc;
   } catch(e){ return 0; }
 }
-function setSyncMsg(msg){
+var _syncQuiet = false; /* v2.2.93: true during automatic syncs — status text updates but nothing is announced aloud. */
+function setSyncMsg(msg, quiet){
   try {
     var el = $("syncStatus");
     if(el) el.textContent = msg;
   } catch(e){}
-  try { say(msg); } catch(e){}
+  /* v2.2.93: only speak sync status when the user asked for it (tapped
+     "Sync now"). Automatic syncs on app start stay silent — no more
+     error/status chatter every time the app opens. */
+  if(!(quiet || _syncQuiet)){ try { say(msg); } catch(e){} }
 }
 /* v2.2.92: one bidirectional sync. Never overwrites a non-empty library with
    an empty one in either direction. Reports what actually happened. */
-function cloudSyncNow(){
+function cloudSyncNow(quiet){
+  /* v2.2.93: quiet=true for automatic syncs (app start) — no announcements. */
+  _syncQuiet = !!quiet;
+  function done(){ _syncBusy = false; _syncQuiet = false; }
   try {
-    if(typeof sbGetTokens === "undefined" || typeof sbGetUser === "undefined"){ setSyncMsg("Sign in to sync."); return; }
-    var tokens = sbGetTokens(); if(!tokens){ setSyncMsg("Sign in to sync."); return; }
-    var user = sbGetUser(); if(!user || !user.id){ setSyncMsg("Sign in to sync."); return; }
-    if(_syncBusy){ setSyncMsg("Sync already running."); return; }
+    if(typeof sbGetTokens === "undefined" || typeof sbGetUser === "undefined"){ setSyncMsg("Sign in to sync."); done(); return; }
+    var tokens = sbGetTokens(); if(!tokens){ setSyncMsg("Sign in to sync."); done(); return; }
+    var user = sbGetUser(); if(!user || !user.id){ setSyncMsg("Sign in to sync."); done(); return; }
+    if(_syncBusy){ setSyncMsg("Sync already running."); done(); return; }
     _syncBusy = true;
     setSyncMsg("Syncing…");
     fetch(SUPABASE_URL + "/rest/v1/" + CLOUD_TABLE + "?user_id=eq." + encodeURIComponent(user.id) + "&select=*", {
@@ -942,40 +949,42 @@ function cloudSyncNow(){
     }).then(function(rows){
       var localCount = localLibCount(), localTs = getLocalLibTs();
       if(!(rows && rows.length)){
-        _syncBusy = false;
-        if(localCount > 0){ cloudUploadNow(); }
+        done();
+        if(localCount > 0){ cloudUploadNow(quiet); }
         else { setSyncMsg("Nothing to sync yet."); }
         return;
       }
       var row = rows[0], cloudTs = row.updated_at || "", cloudCount = cloudRowCount(row);
       if(cloudCount === 0 && localCount > 0){
-        _syncBusy = false; cloudUploadNow(); return;
+        done(); cloudUploadNow(quiet); return;
       }
       if(localCount === 0 && cloudCount > 0){
-        _syncBusy = false; applyCloudRow(row);
+        done(); applyCloudRow(row);
         setSyncMsg("Downloaded " + cloudCount + " items from cloud."); return;
       }
       if(cloudTs && (!localTs || cloudTs > localTs)){
-        _syncBusy = false; applyCloudRow(row);
+        done(); applyCloudRow(row);
         setSyncMsg("Downloaded " + cloudCount + " items from cloud."); return;
       }
       if(localTs && localTs > cloudTs && localCount > 0){
-        _syncBusy = false; cloudUploadNow(); return;
+        done(); cloudUploadNow(quiet); return;
       }
-      _syncBusy = false;
+      done();
       setSyncMsg(localCount === 0 && cloudCount === 0 ? "Nothing to sync yet." : "Already up to date.");
     }).catch(function(err){
-      _syncBusy = false;
+      done();
       setSyncMsg("Sync failed: " + (err && err.message ? err.message : "network error"));
     });
-  } catch(e){ _syncBusy = false; setSyncMsg("Sync failed."); }
+  } catch(e){ done(); setSyncMsg("Sync failed."); }
 }
-function cloudUploadNow(){
+function cloudUploadNow(quiet){
   _syncTimer = null;
+  _syncQuiet = !!quiet;
+  function done(){ _syncBusy = false; _syncQuiet = false; }
   try {
-    if(typeof sbGetTokens === "undefined" || typeof sbGetUser === "undefined") return;
-    var tokens = sbGetTokens(); if(!tokens || _syncBusy) return;
-    var user = sbGetUser(); if(!user || !user.id) return;
+    if(typeof sbGetTokens === "undefined" || typeof sbGetUser === "undefined"){ done(); return; }
+    var tokens = sbGetTokens(); if(!tokens || _syncBusy){ done(); return; }
+    var user = sbGetUser(); if(!user || !user.id){ done(); return; }
     _syncBusy = true;
     var now = new Date().toISOString();
     var body = {
@@ -991,7 +1000,7 @@ function cloudUploadNow(){
                  "Content-Type": "application/json", "Prefer": "resolution=merge-duplicates" },
       body: JSON.stringify(body)
     }).then(function(r){
-      _syncBusy = false;
+      done();
       if(r.ok){
         setLastSyncOk(new Date().toISOString()); setLocalLibTs(now);
         setSyncMsg("Uploaded " + n + " items to cloud.");
@@ -999,14 +1008,14 @@ function cloudUploadNow(){
         setSyncMsg("Upload failed: HTTP " + r.status);
       }
     }).catch(function(){
-      _syncBusy = false;
+      done();
       setSyncMsg("Upload failed: network error.");
     });
-  } catch(e){ _syncBusy = false; setSyncMsg("Upload failed."); }
+  } catch(e){ done(); setSyncMsg("Upload failed."); }
 }
-function cloudDownloadNow(cb){
+function cloudDownloadNow(cb, quiet){
   /* v2.2.92: kept for compatibility — full bidirectional sync now lives in cloudSyncNow. */
-  try { cloudSyncNow(); if(cb) cb(false); } catch(e){ if(cb) cb(false); }
+  try { cloudSyncNow(quiet); if(cb) cb(false); } catch(e){ if(cb) cb(false); }
 }
 function applyCloudRow(row){
   _syncApplying = true;
@@ -4045,38 +4054,31 @@ function takeoutTrack(id, title, channel, album){
 /* Resolve video IDs to titles/artists via the Data API, 50 per call.
    Falls back to playable ID-only tracks if the API is unreachable. */
 function takeoutResolveIds(ids, onTick){
-  /* v2.2.71: resolves via Python ytmusicapi - no YouTube API key needed */
-  var map = {}, queue = ids.slice(), done = 0, total = ids.length;
-  function next(){
-    if(!queue.length) return Promise.resolve(map);
-    var id = queue.shift();
-    try {
-      if (typeof LynxosYTM !== "undefined" && LynxosYTM.getSong) {
-        var d = JSON.parse(LynxosYTM.getSong(id));
-        if (d && !d.error && d.title) {
-          map[id] = {
-            videoId: id, title: d.title, channel: d.channel || "",
-            thumb: d.thumb || ("https://i.ytimg.com/vi/" + id + "/hqdefault.jpg"),
-            art: d.art || ("https://i.ytimg.com/vi/" + id + "/hqdefault.jpg")
-          };
-        } else {
-          map[id] = takeoutTrack(id);
-        }
-      } else {
-        map[id] = takeoutTrack(id);
-      }
-    } catch(e) {
-      map[id] = takeoutTrack(id);
-    }
-    done++;
-    if(onTick) onTick(done, total);
-    return next();
-  }
-  return next();
+  /* v2.2.93: NO more per-song Python lookups. The old code called
+     LynxosYTM.getSong() once per song — a synchronous blocking bridge call.
+     On a large Takeout (hundreds of songs) that froze the UI thread until
+     Android killed the app (force close). Playlist tracks now use the title
+     from the CSV when present, falling back to a playable ID-based track. */
+  var map = {};
+  (ids || []).forEach(function(id){
+    var key = id, title = "", channel = "";
+    if(id && typeof id === "object"){ key = id.id; title = id.title || ""; channel = id.channel || ""; }
+    key = String(key || "").trim();
+    if(key) map[key] = takeoutTrack(key, title, channel);
+  });
+  var n = ids ? ids.length : 0;
+  if(onTick){ try { onTick(n, n); } catch(e){} }
+  return Promise.resolve(map);
+}
+function takeoutIdKey(id){
+  return String((id && typeof id === "object") ? id.id : id || "").trim();
 }
 function takeoutDedupe(ids){
   var seen = {}, out = [];
-  ids.forEach(function(id){ if(!seen[id]){ seen[id] = 1; out.push(id); } });
+  ids.forEach(function(id){
+    var k = takeoutIdKey(id);
+    if(k && !seen[k]){ seen[k] = 1; out.push(id); }
+  });
   return out;
 }
 $("takeoutImportBtn").addEventListener("click", function(){
@@ -4125,8 +4127,17 @@ $("takeoutImportBtn").addEventListener("click", function(){
       var ids = [];
       for(i = 1; i < rows.length; i++){
         id = String(rows[i][0] || "").trim();
-        if(takeoutValidId(id)) ids.push(id);
-        else skipped++;
+        if(!takeoutValidId(id)){ skipped++; continue; }
+        /* v2.2.93: capture the title/channel from the CSV when present so
+           playlists don't need the (now removed) per-song Python lookup. */
+        var ptitle = "", pchan = "";
+        for(var ci = 1; ci < rows[i].length; ci++){
+          var cv = String(rows[i][ci] || "").trim();
+          if(!cv || /^https?:\/\//i.test(cv) || takeoutValidId(cv)) continue;
+          if(!ptitle) ptitle = cv;
+          else if(!pchan){ pchan = cv; break; }
+        }
+        ids.push({ id: id, title: ptitle, channel: pchan });
       }
       if(!ids.length) return;
       if(takeoutIsLikedPlaylist(pname)) likedIds = likedIds.concat(ids);
@@ -4142,9 +4153,9 @@ $("takeoutImportBtn").addEventListener("click", function(){
     var allIds = likedIds.slice();
     plNames.forEach(function(n){ allIds = allIds.concat(plIds[n]); });
     allIds = takeoutDedupe(allIds);
-    takeoutStatus("Looking up song titles: 0 of " + allIds.length + "...");
+    takeoutStatus("Importing " + allIds.length + " songs...");
     takeoutResolveIds(allIds, function(done, total){
-      takeoutStatus("Looking up song titles: " + done + " of " + total + "...");
+      takeoutStatus("Importing songs: " + done + " of " + total + "...");
     }).then(function(meta){
       var addedLiked = 0, addedPl = {}, mergedPl = 0;
       var liked = getLiked();
@@ -4156,7 +4167,7 @@ $("takeoutImportBtn").addEventListener("click", function(){
         liked.push(t);
         addedLiked++;
       }
-      likedIds.forEach(function(id){ if(meta[id]) pushLiked(meta[id]); });
+      likedIds.forEach(function(id){ var k = takeoutIdKey(id); if(k && meta[k]) pushLiked(meta[k]); });
       /* v2.0: album groups with 2+ tracks merge into the Albums library;
          singletons are just liked songs. */
       var albums = getAlbums();
@@ -4197,7 +4208,8 @@ $("takeoutImportBtn").addEventListener("click", function(){
         pls[n].forEach(function(v){ have[v.videoId] = 1; });
         var added = 0;
         plIds[n].forEach(function(id){
-          if(meta[id] && !have[id]){ have[id] = 1; pls[n].push(meta[id]); added++; }
+          var k = takeoutIdKey(id);
+          if(k && meta[k] && !have[k]){ have[k] = 1; pls[n].push(meta[k]); added++; }
         });
         if(added){ addedPl[n] = added; if(!isNew) mergedPl++; }
       });
@@ -6539,8 +6551,8 @@ function fetchUserInfo(accessToken){
     if(user && user.id){
       try { localStorage.setItem("lm_sb_user", JSON.stringify(user)); } catch(e){}
       renderAccount();
-      /* v2.2.90: user info just arrived — pull the cloud library now. */
-      try { cloudDownloadNow(function(changed){ if(changed) renderAccount(); }); } catch(e){}
+      /* v2.2.90: user info just arrived — pull the cloud library now. v2.2.93: quiet. */
+      try { cloudDownloadNow(function(changed){ if(changed) renderAccount(); }, true); } catch(e){}
     } else {
       sbClearTokens();
       if(box) box.innerHTML = "<p>Session expired. Please sign in again.</p>";
@@ -6627,8 +6639,8 @@ try { $("accountBackBtn").addEventListener("click", closeAccount); } catch(e){}
 renderRecentSearches();
 updateSleepBtn();
 renderHome();
-/* v2.2.90: pull the cloud library on start when signed in. */
-try { cloudDownloadNow(); } catch(e){}
+/* v2.2.90: pull the cloud library on start when signed in. v2.2.93: quiet — no announcements. */
+try { cloudDownloadNow(null, true); } catch(e){}
 /* v2.2.89: TV needs initial D-pad focus at launch — with no focused element
    the first remote presses do nothing. Phone is untouched. */
 try {
