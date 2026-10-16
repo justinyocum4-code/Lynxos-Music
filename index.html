@@ -161,6 +161,51 @@
   .albumCard .an { font-size: 14px; padding: 6px 2px 0; font-weight: 400; color: var(--text); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .albumCard .aa { font-size: 14px; color: var(--muted); padding: 2px 2px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .albumCard .ad { font-size: 12px; color: var(--muted); padding: 2px 2px 0; }
+  /* v2.2.81: Library + Explore redo — YouTube Music patterns. */
+  .libHead { font-size: 28px; font-weight: 800; color: var(--text); margin: 6px 0 8px; padding: 0 4px; }
+  .libChips { display: flex; gap: 8px; overflow-x: auto; padding: 4px 2px 10px; scrollbar-width: none; }
+  .libChips::-webkit-scrollbar { display: none; }
+  .libChips button { flex: 0 0 auto; background: var(--surface2); border: none; color: var(--text); border-radius: 8px; padding: 10px 18px; font-size: 15px; font-weight: 600; cursor: pointer; }
+  .libChips button[aria-selected="true"] { background: var(--text); color: #111; }
+  .recentGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 12px; }
+  .recentCard { background: transparent; border: none; padding: 0; text-align: left; color: var(--text); cursor: pointer; }
+  .recentCard img { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; background: var(--surface2); }
+  .recentCard img.rrect { border-radius: 8px; }
+  .recentCard img.rcirc { border-radius: 50%; }
+  .recentCard .rt { font-size: 14px; font-weight: 600; padding: 6px 2px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .recentCard .rs { font-size: 13px; color: var(--muted); padding: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #newFab { position: fixed; right: 16px; bottom: 150px; z-index: 30; background: #fff; color: #111; border: none; border-radius: 28px; padding: 14px 22px; font-size: 17px; font-weight: 700; display: flex; align-items: center; gap: 8px; box-shadow: 0 4px 14px rgba(0,0,0,.55); cursor: pointer; }
+  #newFab[hidden] { display: none; }
+  #newFab .fplus { font-size: 24px; font-weight: 400; line-height: 1; }
+  #newSheetScrim { position: fixed; inset: 0; background: rgba(0,0,0,.65); z-index: 60; }
+  #newSheetScrim[hidden] { display: none; }
+  #newSheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 61; background: var(--surface); border-radius: 16px 16px 0 0; padding: 6px 18px 28px; max-height: 82vh; overflow-y: auto; }
+  #newSheet[hidden] { display: none; }
+  #newSheet .grabber { width: 44px; height: 5px; border-radius: 3px; background: #5a5a5a; margin: 10px auto 4px; }
+  #newSheet h2 { color: var(--text); font-size: 24px; font-weight: 800; margin: 8px 0 2px; }
+  .newOpt { display: flex; align-items: center; gap: 16px; width: 100%; background: transparent; border: none; color: var(--text); text-align: left; padding: 15px 4px; cursor: pointer; }
+  .newOpt .nico { font-size: 28px; width: 38px; text-align: center; flex: 0 0 auto; }
+  .newOpt .nt { font-size: 17px; font-weight: 700; }
+  .newOpt .ns { font-size: 14px; color: var(--muted); margin-top: 3px; }
+  .newInline { padding: 8px 4px; }
+  .newInline input { width: 100%; margin: 8px 0; }
+  .catGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 8px; }
+  .catCard { background: var(--surface2); border: none; border-radius: 12px; padding: 18px 16px; min-height: 112px; display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start; color: var(--text); text-align: left; cursor: pointer; }
+  .catCard .cico { font-size: 30px; }
+  .catCard .clab { font-size: 17px; font-weight: 600; margin-top: 10px; }
+  .pillRow { display: flex; gap: 12px; overflow-x: auto; padding: 4px 2px 8px; }
+  .genrePill { position: relative; flex: 0 0 auto; min-width: 168px; background: var(--surface2); border: none; border-radius: 8px; padding: 18px 14px 18px 24px; color: var(--text); font-size: 16px; font-weight: 600; text-align: left; overflow: hidden; cursor: pointer; }
+  .genrePill::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 8px; background: var(--stripe, #d4af37); }
+  .trank { display: flex; align-items: center; gap: 12px; width: 100%; background: transparent; border: none; border-bottom: 1px solid #2a2a2a; padding: 10px 4px; color: var(--text); text-align: left; cursor: pointer; }
+  .trank .rnum { font-size: 30px; font-weight: 800; color: var(--muted); min-width: 40px; text-align: center; flex: 0 0 auto; }
+  .trank img { width: 56px; height: 56px; border-radius: 4px; object-fit: cover; background: var(--surface2); flex: 0 0 auto; }
+  .trank .rinfo { min-width: 0; flex: 1 1 auto; }
+  .trank .rt { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .trank .rs { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+  body.light #newFab { box-shadow: 0 4px 14px rgba(0,0,0,.25); }
+  body.light #newSheet { background: #fff; }
+  body.light .libChips button { background: #ece8dc; color: #1a1a1a; }
+  body.light .libChips button[aria-selected="true"] { background: #1a1a1a; color: #fff; }
   /* ---------- TV / 10-foot mode (Fire TV, Android TV, Google TV): body.tv is
      set by JS when a TV user agent is detected. Bigger text, strong gold focus
      ring for D-pad navigation, overscan-safe padding. ---------- */
@@ -290,7 +335,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.80</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.81</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -342,17 +387,29 @@
     </div>
   </section>
   <section id="exploreView" role="tabpanel" aria-labelledby="tab-explore" hidden>
-    <div class="homeBlock">
-      <h2>Browse genres</h2>
-      <div class="row" id="genreRow" role="group" aria-label="Music genres"></div>
+    <!-- v2.2.81: YouTube Music-style Explore (music only — no podcasts, no videos). -->
+    <div class="catGrid" id="exploreCats" role="group" aria-label="Explore categories">
+      <button class="catCard" data-cat="new" aria-label="New releases"><span class="cico" aria-hidden="true">💿</span><span class="clab">New releases</span></button>
+      <button class="catCard" data-cat="charts" aria-label="Charts"><span class="cico" aria-hidden="true">📈</span><span class="clab">Charts</span></button>
+      <button class="catCard" data-cat="genres" aria-label="Moods and genres"><span class="cico" aria-hidden="true">🙂</span><span class="clab">Moods &amp; genres</span></button>
     </div>
-    <!-- v2.2.16: trending, decades, moods -->
     <div class="homeBlock">
-      <div class="row" style="align-items:center;justify-content:space-between">
-        <h2 style="margin:0">Trending in metal</h2>
-        <button class="btn small secondary" id="trendingSeeAllBtn">See all</button>
+      <div class="shelfHead">
+        <h2>New albums &amp; singles</h2>
+        <button class="btn small secondary" id="exploreNewSeeAllBtn">See all</button>
       </div>
-      <div class="hscroll" id="trendingMetal" style="margin-top:8px"><p style="color:#999">Loading…</p></div>
+      <div class="hscroll" id="exploreNew"><p class="hint">Loading…</p></div>
+    </div>
+    <div class="homeBlock" id="exploreGenresBlock">
+      <div class="shelfHead"><h2>Moods &amp; genres</h2></div>
+      <div class="pillRow" id="explorePills" role="group" aria-label="Music genres"></div>
+    </div>
+    <div class="homeBlock">
+      <div class="shelfHead">
+        <h2>Trending</h2>
+        <button class="btn small secondary" id="exploreTrendSeeAllBtn">See all</button>
+      </div>
+      <div id="exploreTrending"><p class="hint">Loading…</p></div>
     </div>
   </section>
   <!-- v2.2.69: Account - Google login via Supabase -->
@@ -384,15 +441,21 @@
     <div id="searchResults"></div>
   </section>
   <section id="libraryView" role="tabpanel" aria-labelledby="tab-library" hidden>
-    <div class="row" style="align-items:center">
-      <div class="segbar" role="tablist" aria-label="Library sections" style="flex:1">
-        <button role="tab" id="libTab-playlists" aria-selected="true">Playlists</button>
-        <button role="tab" id="libTab-songs" aria-selected="false">Songs</button>
-        <button role="tab" id="libTab-albums" aria-selected="false">Albums</button>
-        <button role="tab" id="libTab-artists" aria-selected="false">Artists</button>
-        <button role="tab" id="libTab-history" aria-selected="false">History</button>
-      </div>
+    <!-- v2.2.81: YouTube Music-style Library header + filter chips. -->
+    <div class="row" style="align-items:center;justify-content:space-between">
+      <h2 class="libHead" style="margin:0">Library</h2>
       <button class="iconbtn gold" id="librarySettingsBtn" aria-label="Open settings">⚙️</button>
+    </div>
+    <div class="libChips" role="tablist" aria-label="Library sections">
+      <button role="tab" id="libTab-playlists" aria-selected="true">Playlists</button>
+      <button role="tab" id="libTab-songs" aria-selected="false">Songs</button>
+      <button role="tab" id="libTab-albums" aria-selected="false">Albums</button>
+      <button role="tab" id="libTab-artists" aria-selected="false">Artists</button>
+      <button role="tab" id="libTab-history" aria-selected="false">History</button>
+    </div>
+    <div class="homeBlock">
+      <div class="shelfHead"><h2>Recent activity</h2></div>
+      <div class="recentGrid" id="recentGrid"><p class="hint">Loading…</p></div>
     </div>
     <div id="libPlaylists" role="tabpanel" aria-labelledby="libTab-playlists">
       <div class="row">
@@ -437,10 +500,18 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.80. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.81. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
+<!-- v2.2.81: "+ New" floating button + bottom sheet (YouTube Music Library pattern). -->
+<button id="newFab" hidden aria-label="Create new"><span class="fplus" aria-hidden="true">+</span>New</button>
+<div id="newSheetScrim" hidden></div>
+<div id="newSheet" hidden role="dialog" aria-modal="true" aria-label="Create new">
+  <div class="grabber" aria-hidden="true"></div>
+  <h2 id="newSheetTitle">New</h2>
+  <div id="newSheetBody"></div>
+</div>
 <div id="miniPlayer" hidden>
   <div id="mpProgress" aria-hidden="true"><div id="mpProgressFill"></div></div>
   <img id="mpThumb" alt="">
@@ -650,6 +721,11 @@ function showTab(name){
   $("settingsView").hidden = true;
   $("seeAllView").hidden = true;
   $("artistView").hidden = true;
+  /* v2.2.81: the Account panel must never stay visible under tab content. */
+  $("accountView").hidden = true;
+  /* v2.2.81: the "+ New" button lives on the Library tab only. */
+  try { $("newFab").hidden = (name !== "library"); } catch(e){}
+  try { closeNewSheet(); } catch(e){}
   var label = "";
   TABS.forEach(function(t){ if(t[0] === "tab-" + name) label = t[2]; });
   say(label + " tab.");
@@ -669,6 +745,10 @@ function openSettings(){
   $("searchView").hidden = true;
   $("seeAllView").hidden = true;
   $("artistView").hidden = true;
+  /* v2.2.81: never leave the Account panel visible under Settings. */
+  $("accountView").hidden = true;
+  try { $("newFab").hidden = true; } catch(e){}
+  try { closeNewSheet(); } catch(e){}
   $("settingsView").hidden = false;
   say("Settings tab.");
 }
@@ -683,6 +763,10 @@ function openArtistPage(artistName){
   $("searchView").hidden = true;
   $("seeAllView").hidden = true;
   $("settingsView").hidden = true;
+  /* v2.2.81: never leave the Account panel visible under the artist page. */
+  $("accountView").hidden = true;
+  try { $("newFab").hidden = true; } catch(e){}
+  try { closeNewSheet(); } catch(e){}
   $("artistView").hidden = false;
   $("artistName").textContent = artistName;
   $("artistContent").innerHTML = "<p class='hint'>Loading...</p>";
@@ -1197,6 +1281,10 @@ TABS.forEach(function(t){
 });
 function openSearch(){
   TABS.forEach(function(t){ $(t[1]).hidden = true; $(t[0]).setAttribute("aria-selected","false"); });
+  /* v2.2.81: never leave the Account panel visible under search. */
+  $("accountView").hidden = true;
+  try { $("newFab").hidden = true; } catch(e){}
+  try { closeNewSheet(); } catch(e){}
   $("searchView").hidden = false;
   state.searchOpen = true;
   say("Search.");
@@ -2162,7 +2250,143 @@ function renderQueue(){
 /* ================= library ================= */
 function renderLibrary(){
   renderPlaylists(); renderLiked(); renderAlbums(); renderArtists(); renderHistory();
+  renderRecentActivity();
 }
+/* v2.2.81: Recent activity — 2-column YouTube Music-style card grid. */
+function recentArtistArt(name){
+  var all = getLiked().concat(getHistory());
+  for(var i = 0; i < all.length; i++){
+    if(trackArtist(all[i]) === name && (all[i].art || all[i].thumb)) return all[i].art || all[i].thumb;
+  }
+  return "";
+}
+function renderRecentActivity(){
+  var box = $("recentGrid");
+  if(!box) return;
+  var cards = [];
+  try {
+    var pls = getPlaylists();
+    Object.keys(pls).slice(-2).forEach(function(n){
+      var tracks = pls[n] || [];
+      var art = (tracks.length && (tracks[0].art || tracks[0].thumb)) || "";
+      cards.push({ kind: "playlist", title: n, sub: tracks.length + (tracks.length === 1 ? " song" : " songs"),
+        art: art, shape: "rrect", icon: "🎶", name: n });
+    });
+  } catch(e){}
+  try {
+    var counts = {}, order = [];
+    getLiked().concat(getHistory()).forEach(function(v){
+      var a = trackArtist(v);
+      if(!a) return;
+      if(!counts[a]){ counts[a] = 0; order.push(a); }
+      counts[a]++;
+    });
+    order.sort(function(a, b){ return counts[b] - counts[a]; });
+    order.slice(0, 2).forEach(function(a){
+      cards.push({ kind: "artist", title: a, sub: "Artist", art: recentArtistArt(a), shape: "rcirc", icon: "🎤", name: a });
+    });
+  } catch(e){}
+  try {
+    var albums = getAlbums();
+    albums.slice(-2).forEach(function(al){
+      cards.push({ kind: "album", title: al.name, sub: "Album • " + ((al.tracks && al.tracks.length) || 0) + " songs",
+        art: al.art || "", shape: "rrect", icon: "💿", idx: albums.indexOf(al) });
+    });
+  } catch(e){}
+  if(!cards.length){
+    box.innerHTML = "<p class='hint'>Play and like some music and your recent activity will show up here.</p>";
+    return;
+  }
+  box.innerHTML = "";
+  cards.slice(0, 6).forEach(function(c){
+    var b = document.createElement("button");
+    b.className = "recentCard";
+    b.setAttribute("aria-label", c.title + ", " + c.sub);
+    b.innerHTML = (c.art ? "<img class='" + c.shape + "' src='" + esc(c.art) + "' alt=''>"
+                         : "<div style='font-size:64px;text-align:center;padding:24px 0;background:var(--surface2);border-radius:" + (c.shape === "rcirc" ? "50%" : "8px") + "'>" + c.icon + "</div>") +
+      "<div class='rt'>" + esc(c.title) + "</div><div class='rs'>" + esc(c.sub) + "</div>";
+    b.addEventListener("click", function(){
+      if(c.kind === "artist"){ startRadio(c.name); }
+      else if(c.kind === "album"){ openLocalAlbum(c.idx); }
+      else { showLibSeg("playlists"); }
+    });
+    box.appendChild(b);
+  });
+}
+/* v2.2.81: "+ New" floating button + bottom sheet (YouTube Music Library pattern). */
+function openNewSheet(){
+  renderNewSheetHome();
+  $("newSheetScrim").hidden = false;
+  $("newSheet").hidden = false;
+  say("Create new. Playlist, mix, collaborative playlist, or taste match.");
+}
+function closeNewSheet(){
+  var s = $("newSheet"); if(s) s.hidden = true;
+  var sc = $("newSheetScrim"); if(sc) sc.hidden = true;
+}
+function newOptHtml(kind, icon, title, sub){
+  return "<button class='newOpt' data-newopt='" + kind + "' aria-label='" + esc(title) + ". " + esc(sub) + "'>" +
+    "<span class='nico' aria-hidden='true'>" + icon + "</span>" +
+    "<span><span class='nt'>" + esc(title) + "</span><br><span class='ns'>" + esc(sub) + "</span></span></button>";
+}
+function renderNewSheetHome(){
+  var body = $("newSheetBody");
+  if(!body) return;
+  body.innerHTML =
+    newOptHtml("playlist", "🎶", "Playlist", "Curate songs, videos, and podcasts") +
+    newOptHtml("mix", "📻", "Mix", "Pick an artist, we'll create a mix") +
+    newOptHtml("collab", "👥", "Collaborative playlist", "Create a playlist with friends") +
+    newOptHtml("taste", "🔀", "Taste match", "Blend friends' tastes into a playlist");
+  body.querySelectorAll("[data-newopt]").forEach(function(b){
+    b.addEventListener("click", function(){ newSheetPick(b.getAttribute("data-newopt")); });
+  });
+}
+function newSheetPick(kind){
+  var body = $("newSheetBody");
+  if(!body) return;
+  if(kind === "playlist"){
+    body.innerHTML = "<div class='newInline'><label for='newSheetPlName' style='font-weight:700'>Playlist name</label>" +
+      "<input type='text' id='newSheetPlName' maxlength='60' placeholder='My playlist'>" +
+      "<div class='row'><button class='btn' id='newSheetPlGo'>Create playlist</button>" +
+      "<button class='btn secondary' id='newSheetBack'>Back</button></div></div>";
+    $("newSheetBack").addEventListener("click", renderNewSheetHome);
+    $("newSheetPlGo").addEventListener("click", function(){
+      var n = $("newSheetPlName").value.trim();
+      if(!n){ say("Give the playlist a name first."); return; }
+      var p = getPlaylists();
+      if(p[n]){ say("That playlist already exists."); return; }
+      p[n] = []; savePlaylists(p);
+      say("Playlist " + n + " created.");
+      closeNewSheet();
+      showLibSeg("playlists");
+    });
+    try { $("newSheetPlName").focus(); } catch(e){}
+  } else if(kind === "mix"){
+    body.innerHTML = "<div class='newInline'><label for='newSheetMixName' style='font-weight:700'>Artist name</label>" +
+      "<input type='text' id='newSheetMixName' maxlength='80' placeholder='Artist name'>" +
+      "<div class='row'><button class='btn' id='newSheetMixGo'>Start mix</button>" +
+      "<button class='btn secondary' id='newSheetBack'>Back</button></div></div>";
+    $("newSheetBack").addEventListener("click", renderNewSheetHome);
+    $("newSheetMixGo").addEventListener("click", function(){
+      var n = $("newSheetMixName").value.trim();
+      if(!n){ say("Type an artist name first."); return; }
+      closeNewSheet();
+      startRadio(n);
+    });
+    try { $("newSheetMixName").focus(); } catch(e){}
+  } else {
+    var what = kind === "collab" ? "Collaborative playlists" : "Taste match";
+    body.innerHTML = "<div class='newInline'><p style='color:var(--muted)'>" + what +
+      " aren't available in Lynxos Music yet.</p>" +
+      "<button class='btn secondary' id='newSheetBack'>Back</button></div>";
+    say(what + " aren't available in Lynxos Music yet.");
+    $("newSheetBack").addEventListener("click", renderNewSheetHome);
+  }
+}
+try {
+  $("newFab").addEventListener("click", openNewSheet);
+  $("newSheetScrim").addEventListener("click", closeNewSheet);
+} catch(e){}
 /* ---- albums (v2.0: Takeout groups full albums here, separate from songs) ---- */
 function getAlbums(){ return getJSON("lm_albums", []); }
 function saveAlbums(a){ setJSON("lm_albums", a); }
@@ -4050,31 +4274,168 @@ $("allReleasesSeeAllBtn").addEventListener("click", function(){
     });
   });
 });
+/* v2.2.81: YouTube Music-style Explore — category cards, new albums & singles,
+   striped genre pills, ranked trending list. Music only: no podcasts, no videos. */
+var exploreNewCache = null, exploreChartsCache = null;
+var GENRE_STRIPES = ["#a855f7","#eab308","#14b8a6","#3b82f6","#22c55e","#f97316","#ec4899","#06b6d4","#f43f5e","#8b5cf6","#10b981","#f59e0b"];
 function renderExplore(){
-  renderGenres();
-  renderTrendingMetal();
+  renderExploreCats();
+  renderExplorePills();
+  loadExploreNew();
+  loadExploreTrending();
 }
-/* v2.2.16: trending metal, decades, moods */
-function renderTrendingMetal(){
-  var box = $("trendingMetal");
+var exploreCatsWired = false;
+function renderExploreCats(){
+  var box = $("exploreCats");
+  if(!box || exploreCatsWired) return;
+  exploreCatsWired = true;
+  box.querySelectorAll("[data-cat]").forEach(function(b){
+    b.addEventListener("click", function(){
+      var c = b.getAttribute("data-cat");
+      if(c === "new"){
+        if(exploreNewCache && exploreNewCache.length){ openExploreNewSeeAll(); }
+        else { say("New releases are still loading."); }
+      } else if(c === "charts"){
+        if(exploreChartsCache && exploreChartsCache.length){ openExploreChartsSeeAll(); }
+        else { say("Charts are still loading."); }
+      } else if(c === "genres"){
+        var blk = $("exploreGenresBlock");
+        if(blk){ blk.scrollIntoView(); }
+        say("Moods and genres.");
+      }
+    });
+  });
+}
+function renderExplorePills(){
+  var box = $("explorePills");
   if(!box) return;
-  box.innerHTML = "<p style=\"color:#999\">Loading…</p>";
-  /* Use iTunes search for trending metal */
-  fetch("https://disabled.invalid/itunes/search?term=metal&media=music&entity=song&limit=10")
-    .then(function(r){ return r.json(); })
-    .then(function(d){
-      box.innerHTML = "";
-      (d.results || []).forEach(function(t){
-        var b = document.createElement("button");
-        b.className = "cardBtn";
-        b.setAttribute("aria-label", t.trackName + " by " + t.artistName);
-        b.innerHTML = "<b>" + esc(t.trackName) + "</b><small>" + esc(t.artistName) + "</small>";
-        b.addEventListener("click", function(){ startRadio(t.trackName + " " + t.artistName); });
-        box.appendChild(b);
-      });
-    })
-    .catch(function(){ box.innerHTML = "<p style=\"color:#999\">Couldn't load trending.</p>"; });
+  box.innerHTML = "";
+  GENRES.forEach(function(g, i){
+    var b = document.createElement("button");
+    b.className = "genrePill";
+    b.style.setProperty("--stripe", GENRE_STRIPES[i % GENRE_STRIPES.length]);
+    b.setAttribute("aria-label", "Start " + g[1] + " radio");
+    b.textContent = g[1];
+    b.addEventListener("click", function(){ startRadio(g[1]); });
+    box.appendChild(b);
+  });
 }
+function loadExploreNew(){
+  var box = $("exploreNew");
+  if(!box) return;
+  if(exploreNewCache){ renderExploreNew(exploreNewCache); return; }
+  box.innerHTML = "<p class='hint'>Loading…</p>";
+  var albums = [], singles = [];
+  try {
+    if(typeof LynxosYTM !== "undefined" && LynxosYTM.getNewReleases){
+      var a = JSON.parse(LynxosYTM.getNewReleases(60));
+      if(a && !a.error){ albums = (a || []).filter(function(x){ return x.title; }).slice(0, 12).map(function(x){
+        return { kind: "album", name: x.title || "", artist: x.artist || "", art: x.thumb || "", id: x.browseId || "" };
+      }); }
+    }
+  } catch(e){}
+  try {
+    if(typeof LynxosYTM !== "undefined" && LynxosYTM.getCharts){
+      var c = JSON.parse(LynxosYTM.getCharts("US", 60));
+      if(c && !c.error){ singles = (c || []).filter(function(x){ return x.title; }).slice(0, 12).map(function(x){
+        return { kind: "single", name: x.title || "", artist: x.channel || x.ownerChannel || "",
+                 art: x.thumb || x.art || "", videoId: x.videoId || "" };
+      }); }
+    }
+  } catch(e){}
+  exploreNewCache = albums.concat(singles);
+  if(!exploreNewCache.length){ box.innerHTML = "<p class='hint'>Couldn't load new music.</p>"; return; }
+  renderExploreNew(exploreNewCache);
+}
+function exploreNewCard(x){
+  var sub = (x.kind === "album" ? "Album" : "Single") + " • " + x.artist;
+  return "<button class='albumCard' data-expkind='" + x.kind + "' data-expid='" + esc(x.id || x.videoId || "") + "'" +
+    " aria-label='" + esc(x.name) + ", " + esc(sub) + "'>" +
+    (x.art ? "<img src='" + esc(x.art) + "' alt=''>" : "") +
+    "<div class='an'>" + esc(x.name) + "</div><div class='aa'>" + esc(sub) + "</div></button>";
+}
+function renderExploreNew(items){
+  var box = $("exploreNew");
+  if(!box) return;
+  box.innerHTML = items.map(exploreNewCard).join("");
+  bindExploreNewCards(box, items);
+}
+function bindExploreNewCards(root, items){
+  root.querySelectorAll("[data-expkind]").forEach(function(b){
+    b.addEventListener("click", function(){
+      var kind = b.getAttribute("data-expkind"), id = b.getAttribute("data-expid");
+      var x = null;
+      items.forEach(function(it){ if((it.id || it.videoId) === id) x = it; });
+      if(!x) return;
+      if(kind === "album" && x.id){ openITunesAlbum(x.id); }
+      else if(x.videoId){
+        playVideo({ videoId: x.videoId, title: x.name, channel: x.artist, thumb: x.art, art: x.art,
+          resolveQuery: x.artist + " " + x.name + " official audio",
+          fallbackQuery: x.artist + " " + x.name }, [{ videoId: x.videoId }], 0);
+      } else { say("Couldn't open that one."); }
+    });
+  });
+}
+function openExploreNewSeeAll(){
+  if(!exploreNewCache || !exploreNewCache.length){ say("New releases are still loading."); return; }
+  var items = exploreNewCache;
+  openSeeAll("New albums & singles", function(grid){
+    grid.innerHTML = "<div class='hscroll' style='flex-wrap:wrap'>" + items.map(exploreNewCard).join("") + "</div>";
+    bindExploreNewCards(grid, items);
+  });
+}
+function loadExploreTrending(){
+  var box = $("exploreTrending");
+  if(!box) return;
+  if(exploreChartsCache){ renderExploreTrending(exploreChartsCache); return; }
+  box.innerHTML = "<p class='hint'>Loading…</p>";
+  try {
+    if(typeof LynxosYTM !== "undefined" && LynxosYTM.getCharts){
+      var c = JSON.parse(LynxosYTM.getCharts("US", 100));
+      if(c && !c.error && c.length){
+        exploreChartsCache = c.filter(function(x){ return x.title; }).slice(0, 25).map(function(x){
+          return { videoId: x.videoId || "", title: x.title || "", channel: x.channel || x.ownerChannel || "",
+                   thumb: x.thumb || x.art || "", art: x.thumb || x.art || "",
+                   resolveQuery: (x.channel || "") + " " + (x.title || "") + " official audio",
+                   fallbackQuery: (x.channel || "") + " " + (x.title || "") };
+        });
+        renderExploreTrending(exploreChartsCache);
+        return;
+      }
+    }
+  } catch(e){}
+  box.innerHTML = "<p class='hint'>Couldn't load trending.</p>";
+}
+function renderExploreTrending(tracks){
+  var box = $("exploreTrending");
+  if(!box) return;
+  box.innerHTML = tracks.map(function(t, i){
+    return "<button class='trank' data-trank='" + i + "' aria-label='Play " + esc(t.title) + " by " + esc(t.channel) + ", ranked " + (i + 1) + "'>" +
+      "<span class='rnum' aria-hidden='true'>" + (i + 1) + "</span>" +
+      (t.thumb ? "<img src='" + esc(t.thumb) + "' alt=''>" : "") +
+      "<span class='rinfo'><span class='rt'>" + esc(t.title) + "</span><span class='rs'>" + esc(t.channel) + "</span></span></button>";
+  }).join("");
+  box.querySelectorAll("[data-trank]").forEach(function(b){
+    b.addEventListener("click", function(){
+      var t = tracks[parseInt(b.getAttribute("data-trank"), 10)];
+      if(t) playVideo(t, tracks, tracks.indexOf(t));
+    });
+  });
+}
+function openExploreChartsSeeAll(){
+  if(!exploreChartsCache || !exploreChartsCache.length){ say("Charts are still loading."); return; }
+  var tracks = exploreChartsCache;
+  openSeeAll("Charts", function(grid){
+    grid.innerHTML = "<div id='exploreChartsList'>" + tracks.map(function(v, i){ return trackRow(v, i); }).join("") + "</div>";
+    bindTrackButtons($("exploreChartsList"), tracks);
+  });
+}
+try {
+  $("exploreNewSeeAllBtn").addEventListener("click", openExploreNewSeeAll);
+  $("exploreTrendSeeAllBtn").addEventListener("click", openExploreChartsSeeAll);
+} catch(e){}
+/* v2.2.81: renderTrendingMetal removed — replaced by loadExploreTrending (ranked rows).
+   renderGenres removed — replaced by renderExplorePills (striped pills). */
 
 /* ================= genres ================= */
 var GENRES = [
@@ -4082,19 +4443,6 @@ var GENRES = [
   ["🎤", "Hip-Hop"], ["✨", "Pop"], ["🤠", "Country"], ["🎷", "Jazz"],
   ["🎻", "Classical"], ["🎧", "Electronic"], ["🌊", "R&B"], ["🔥", "Punk"]
 ];
-function renderGenres(){
-  var box = $("genreRow");
-  if(!box) return;
-  box.innerHTML = "";
-  GENRES.forEach(function(g){
-    var b = document.createElement("button");
-    b.className = "visualCard";
-    b.setAttribute("aria-label", "Start " + g[1] + " radio");
-    b.innerHTML = "<div style='font-size:48px;padding:16px 0 8px'>" + g[0] + "</div><div class='vlabel'>" + g[1] + "</div>";
-    b.addEventListener("click", function(){ startRadio(g[1]); });
-    box.appendChild(b);
-  });
-}
 function mixDefs(){
   return [
     { icon: "❤️", name: "Liked Mix", sub: getLiked().length + " songs", go: playLikedMix },
@@ -4129,6 +4477,10 @@ function openSeeAll(title, build){
   /* v2.2.53: Also hide artist and album views so See All is visible */
   try { $("artistView").hidden = true; } catch(e){}
   try { $("albumPanel").hidden = true; } catch(e){}
+  /* v2.2.81: never leave the Account panel visible under See All. */
+  try { $("accountView").hidden = true; } catch(e){}
+  try { $("newFab").hidden = true; } catch(e){}
+  try { closeNewSheet(); } catch(e){}
   $("seeAllView").hidden = false;
   state.tab = "seeall";
   say(title + ". Full list — scroll up and down.");
@@ -4721,6 +5073,9 @@ function openAccount(){
   $("settingsView").hidden = true;
   $("seeAllView").hidden = true;
   $("artistView").hidden = true;
+  /* v2.2.81: the "+ New" button must not float over the Account panel. */
+  try { $("newFab").hidden = true; } catch(e){}
+  try { closeNewSheet(); } catch(e){}
   $("accountView").hidden = false;
   state.tab = "account";
   renderAccount();
