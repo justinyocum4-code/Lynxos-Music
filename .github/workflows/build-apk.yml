@@ -926,19 +926,6 @@ jobs:
               }
 
               @Override
-              protected void onSaveInstanceState(Bundle outState) {
-                  /* v2.2.94: FIX for TransactionTooLargeException. When the
-                     activity stops (e.g., the file picker opens), Android
-                     parcels the saved state — and the WebView's state can
-                     exceed the ~1MB binder limit, crashing the app with
-                     "data parcel size 539152 bytes". This app reinitializes
-                     from index.html on every launch and never uses saved
-                     state, so we clear the bundle to keep the parcel tiny. */
-                  super.onSaveInstanceState(outState);
-                  try { outState.clear(); } catch (Exception ignored) {}
-              }
-
-              @Override
               protected void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
                   installCrashCapture();
@@ -1152,8 +1139,15 @@ jobs:
 
               @Override
               protected void onSaveInstanceState(Bundle outState) {
+                  /* v2.2.94: FIX for TransactionTooLargeException. The old
+                     code called webView.saveState(outState), which stuffed
+                     ~539KB into the parcel and crashed the app with
+                     "data parcel size 539152 bytes" whenever the activity
+                     stopped (e.g., opening the file picker). This app
+                     reinitializes from index.html on every launch and never
+                     uses saved state, so we clear the bundle instead. */
                   super.onSaveInstanceState(outState);
-                  try { webView.saveState(outState); } catch (Exception ignored) {}
+                  try { outState.clear(); } catch (Exception ignored) {}
               }
 
               @Override
