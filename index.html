@@ -525,7 +525,7 @@
 <!-- v2.2.89: TV-visible toast (say() shows it on TV; phones never see it). -->
 <div id="tvToast" hidden></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.95</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.96</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -699,7 +699,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.95. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.96. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -2076,7 +2076,14 @@ if(tvMenu){
 document.addEventListener("keydown", function(e){
   if(!IS_TV || e.key !== "ArrowLeft") return;
   if(!$("fullPlayer").hidden) return;
-  if(tvMenuOpen()){ closeTvMenu(); e.preventDefault(); return; }
+  if(tvMenuOpen()){
+    closeTvMenu();
+    e.preventDefault();
+    /* v2.2.96: return D-pad focus to the content when the menu closes. */
+    tvFocusRescue();
+    say("Menu closed.");
+    return;
+  }
   var ae = document.activeElement;
   if(!ae || !ae.getBoundingClientRect) return;
   var tag = (ae.tagName || "").toLowerCase();
@@ -2110,20 +2117,34 @@ document.addEventListener("keydown", function(e){
     }
   } catch(err){}
 });
-/* v2.2.89: trap D-pad focus inside the open TV menu — RIGHT cycles through
-   the menu items instead of leaking to content behind the menu. LEFT already
-   closes the menu (handled above). */
+/* v2.2.96: TV menu rebuilt with explicit D-pad navigation. The old code
+   relied on the browser's spatial navigation (unreliable in this WebView)
+   plus an ArrowRight-cycling hack. Now: Up/Down moves between items with
+   wrap, Left closes, Right/OK activates. Focus can never get stuck. */
 document.addEventListener("keydown", function(e){
-  if(!IS_TV || e.key !== "ArrowRight" || !tvMenuOpen()) return;
+  if(typeof IS_TV === "undefined" || !IS_TV) return;
+  if(!tvMenuOpen()) return;
   var ae = document.activeElement;
   if(!tvMenu || !tvMenu.contains(ae)) return;
   var items = tvMenu.querySelectorAll("button");
   if(!items.length) return;
-  e.preventDefault();
   var idx = -1;
   for(var i = 0; i < items.length; i++){ if(items[i] === ae){ idx = i; break; } }
-  var next = items[(idx + 1) % items.length];
-  if(next) next.focus();
+  if(idx < 0) idx = 0;
+  if(e.key === "ArrowDown"){
+    e.preventDefault();
+    var next = items[(idx + 1) % items.length];
+    if(next){ next.focus(); say(next.textContent.trim()); }
+  } else if(e.key === "ArrowUp"){
+    e.preventDefault();
+    var prev = items[(idx - 1 + items.length) % items.length];
+    if(prev){ prev.focus(); say(prev.textContent.trim()); }
+  } else if(e.key === "ArrowRight"){
+    /* Activate the focused item (same as pressing OK). */
+    e.preventDefault();
+    try { ae.click(); } catch(err){}
+  }
+  /* ArrowLeft and Back are handled by the existing closer above. */
 });
 /* Remote media-key hooks, called by the native wrapper on TV:
    play/pause toggles, next skips forward, previous restarts the song
