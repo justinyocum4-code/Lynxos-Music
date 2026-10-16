@@ -197,6 +197,18 @@
   .albumCard .an { font-size: 14px; padding: 6px 2px 0; font-weight: 400; color: var(--text); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .albumCard .aa { font-size: 14px; color: var(--muted); padding: 2px 2px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .albumCard .ad { font-size: 12px; color: var(--muted); padding: 2px 2px 0; }
+  /* v2.2.83: saved-albums grid fills the screen (was a 132px left column). */
+  #albumList .albumsGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 12px; width: 100%; }
+  #albumList .albumCard { min-width: 0; max-width: none; width: 100%; }
+  #albumList .albumCard img { width: 100%; height: auto; aspect-ratio: 1; }
+  /* v2.2.83: Songs 2-column grid with centered play buttons, per his YTM screenshot. */
+  .songGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 12px; width: 100%; }
+  .songCard { min-width: 0; }
+  .songCard .artBtn { position: relative; display: block; width: 100%; aspect-ratio: 1; padding: 0; border: none; border-radius: 4px; overflow: hidden; background: var(--surface2); cursor: pointer; }
+  .songCard .artBtn img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .songCard .artBtn .tri { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 52px; color: #fff; text-shadow: 0 2px 12px rgba(0,0,0,.7); line-height: 1; pointer-events: none; }
+  .songCard .sn { font-size: 14px; font-weight: 600; padding: 8px 2px 0; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .songCard .sa { font-size: 13px; color: var(--muted); padding: 2px 2px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   /* v2.2.82: "Albums & singles" 2-column grid + explicit badge, per his YTM screenshot. */
   .asGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 12px; width: 100%; }
   .asSearchRow { display: flex; gap: 8px; align-items: center; width: 100%; margin-bottom: 4px; }
@@ -390,7 +402,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.82</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.83</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -502,17 +514,21 @@
       <button class="iconbtn gold" id="librarySettingsBtn" aria-label="Open settings">⚙️</button>
     </div>
     <div class="libChips" role="tablist" aria-label="Library sections">
-      <button role="tab" id="libTab-playlists" aria-selected="true">Playlists</button>
+      <button role="tab" id="libTab-recent" aria-selected="true">Recent</button>
+      <button role="tab" id="libTab-playlists" aria-selected="false">Playlists</button>
       <button role="tab" id="libTab-songs" aria-selected="false">Songs</button>
       <button role="tab" id="libTab-albums" aria-selected="false">Albums</button>
       <button role="tab" id="libTab-artists" aria-selected="false">Artists</button>
       <button role="tab" id="libTab-history" aria-selected="false">History</button>
     </div>
-    <div class="homeBlock">
-      <div class="shelfHead"><h2>Recent activity</h2></div>
-      <div class="recentGrid" id="recentGrid"><p class="hint">Loading…</p></div>
+    <!-- v2.2.83: Recent activity is its own chip (was a static block that showLibSeg couldn't hide). -->
+    <div id="libRecent" role="tabpanel" aria-labelledby="libTab-recent">
+      <div class="homeBlock">
+        <div class="shelfHead"><h2>Recent activity</h2></div>
+        <div class="recentGrid" id="recentGrid"><p class="hint">Loading…</p></div>
+      </div>
     </div>
-    <div id="libPlaylists" role="tabpanel" aria-labelledby="libTab-playlists">
+    <div id="libPlaylists" role="tabpanel" aria-labelledby="libTab-playlists" hidden>
       <div class="row">
         <input type="text" id="newPlaylistName" placeholder="New playlist name" maxlength="60" style="flex:1">
         <button class="btn" id="createPlaylistBtn">Create</button>
@@ -555,7 +571,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.82. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.83. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -1448,7 +1464,7 @@ $("searchBackBtn").addEventListener("click", closeSearch);
 $("librarySettingsBtn").addEventListener("click", openSettings);
 $("topbarSettingsBtn").addEventListener("click", openSettings);
 $("settingsBackBtn").addEventListener("click", function(){ showTab("library"); });
-var LIBSEGS = ["playlists","songs","albums","artists","history"];
+var LIBSEGS = ["recent","playlists","songs","albums","artists","history"];
 function showLibSeg(name){
   LIBSEGS.forEach(function(s){
     $("libTab-" + s).setAttribute("aria-selected", s === name ? "true" : "false");
@@ -2554,11 +2570,14 @@ function saveAlbums(a){ setJSON("lm_albums", a); }
 function renderAlbums(){
   var box = $("albumList");
   var albums = getAlbums();
+  /* v2.2.83: cards live in a full-width 2-column grid (was a narrow left column). */
   box.innerHTML = '<div class="row"><button class="btn secondary small" id="organizeAlbumsBtn">Organize albums</button></div>' +
-    '<p class="hint">Sweeps your songs for album info and moves full albums here, out of your Songs list.</p>';
+    '<p class="hint">Sweeps your songs for album info and moves full albums here, out of your Songs list.</p>' +
+    '<div class="albumsGrid" id="albumsGrid"></div>';
   $("organizeAlbumsBtn").addEventListener("click", organizeAlbums);
+  var grid = $("albumsGrid");
   if(!albums.length){
-    box.innerHTML += '<div class="empty">No albums yet. Import your Google Takeout music library and full albums will appear here, separate from your liked songs.</div>';
+    grid.innerHTML = '<div class="empty">No albums yet. Import your Google Takeout music library and full albums will appear here, separate from your liked songs.</div>';
     return;
   }
   albums.forEach(function(a, idx){
@@ -2569,7 +2588,7 @@ function renderAlbums(){
       '<div class="an">' + esc(a.name) + '</div><div class="aa">' + esc(a.artist) + '</div>' +
       '<div class="ad">' + a.tracks.length + ' songs</div>';
     b.addEventListener("click", function(){ openLocalAlbum(idx); });
-    box.appendChild(b);
+    grid.appendChild(b);
   });
 }
 /* v2.1.3: one-tap pass that groups Liked songs carrying album info into
@@ -3012,8 +3031,24 @@ function renderLiked(){
   var l = getLiked();
   var box = $("likedList");
   if(!l.length){ box.innerHTML = '<div class="empty">No liked songs yet. Tap the heart on anything playing.</div>'; return; }
-  box.innerHTML = l.map(function(v, i){ return trackRow(v, i); }).join("");
-  bindTrackButtons(box, l);
+  /* v2.2.83: 2-column grid with a big centered play button on every art, per his YTM screenshot. */
+  box.innerHTML = '<div class="songGrid">' + l.map(function(v, i){
+    var p = parseTrack(v.title, v.channel);
+    var dur = v.dur || (v.trackTimeMillis ? fmtDur(v.trackTimeMillis) : "");
+    var sub = trackArtist(v) + (dur ? " • " + dur : "");
+    return '<div class="songCard">' +
+      '<button class="artBtn" data-songplay="' + i + '" aria-label="Play ' + esc(p.title || v.title) + '">' +
+      ((v.art || v.thumb) ? '<img src="' + esc(v.art || v.thumb) + '" alt="">' : "") +
+      '<span class="tri" aria-hidden="true">▶</span></button>' +
+      '<div class="sn">' + (v.explicit ? "<span class='explicitBadge' aria-label='Explicit'>E</span> " : "") + esc(p.title || v.title) + '</div>' +
+      '<div class="sa">' + esc(sub) + '</div></div>';
+  }).join("") + '</div>';
+  box.querySelectorAll("[data-songplay]").forEach(function(b){
+    b.addEventListener("click", function(){
+      var v = l[parseInt(b.getAttribute("data-songplay"), 10)];
+      if(v) playVideo(v, l, l.indexOf(v));
+    });
+  });
 }
 $("fpLikeBtn").addEventListener("click", function(){
   var v = currentVideo();
@@ -4339,6 +4374,8 @@ function loadAllSingles(){
             releaseDate: ""
           };
         }).filter(function(x){ return x.name && x.artist; });
+        /* v2.2.83: metal + rock first, like YouTube Music. */
+        allSinglesCache = metalRockFirst(allSinglesCache);
         renderAllSingles(allSinglesCache);
         allSinglesCacheTime = Date.now();
         return;
@@ -4444,6 +4481,8 @@ function loadAllReleases(){
             explicit: !!a.explicit
           };
         }).filter(function(x){ return x.name && x.artist; });
+        /* v2.2.83: metal + rock first, like YouTube Music. */
+        allReleasesCache = metalRockFirst(allReleasesCache);
         allReleasesCacheTime = Date.now();
         renderAllReleases(allReleasesCache);
         return;
@@ -4457,6 +4496,27 @@ function releaseKindLabel(k){
   if(k === "single") return "Single";
   if(k === "ep") return "EP";
   return "Album";
+}
+/* v2.2.83: new releases show metal + rock first, like real YouTube Music.
+   The curated feed has no per-item genre field, so we match the artist
+   against his curated metal/rock station artist lists (GENRE_ARTISTS). */
+var METAL_ROCK_SET = null;
+function isMetalRockArtist(name){
+  if(!name) return false;
+  if(!METAL_ROCK_SET){
+    METAL_ROCK_SET = {};
+    try {
+      ["metal","rock"].forEach(function(g){
+        (GENRE_ARTISTS[g] || []).forEach(function(a){ METAL_ROCK_SET[String(a).toLowerCase().trim()] = 1; });
+      });
+    } catch(e){}
+  }
+  return !!METAL_ROCK_SET[String(name).toLowerCase().trim()];
+}
+function metalRockFirst(items){
+  var hot = [], rest = [];
+  (items || []).forEach(function(x){ (isMetalRockArtist(x.artist) ? hot : rest).push(x); });
+  return hot.concat(rest);
 }
 function renderAllReleases(items){
   var box = $("allReleases");
@@ -4611,6 +4671,8 @@ function loadExploreNew(){
     }
   } catch(e){}
   exploreNewCache = albums.concat(singles);
+  /* v2.2.83: metal + rock first, like YouTube Music. */
+  exploreNewCache = metalRockFirst(exploreNewCache);
   exploreNewCacheTime = Date.now();
   if(!exploreNewCache.length){ box.innerHTML = "<p class='hint'>Couldn't load new music.</p>"; return; }
   renderExploreNew(exploreNewCache);
