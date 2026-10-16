@@ -7,7 +7,7 @@
 <!-- v2.1.6: the iframe API is loaded dynamically only when the native player
      is unavailable — loading it always wastes CPU/battery. -->
 <style>
-  :root { --gold: #d4af37; --gold-dim: #9a7b1e; --bg: #0a0a0a; --surface: #1a1a1a; --surface2: #242424; --text: #ffffff; --muted: #aaaaaa; }
+  :root { --gold: #d4af37; --gold-dim: #9a7b1e; --bg: #131313; --surface: #1d1d1d; --surface2: #282828; --text: #ffffff; --muted: #aaaaaa; }
   body.light { --gold: #8a6d00; --gold-dim: #6e5600; --bg: #f7f5ef; --surface: #ffffff; --surface2: #ece8dc; --text: #1a1a1a; --muted: #5a5a5a; }
   body.light header.topbar { border-bottom-color: #d8d2c0; }
   body.light nav.tabs { background: #ffffff; border-top-color: #d8d2c0; }
@@ -40,13 +40,12 @@
   .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   /* song rows, YouTube Music style */
   /* v2.2.41: Cleaner, more organized track rows. */
-  .track { display: flex; gap: 12px; align-items: center; padding: 10px 8px; border-bottom: 1px solid #1e1e1e; border-radius: 8px; margin-bottom: 4px; background: rgba(255,255,255,0.02); }
-  .track img { width: 56px; height: 56px; object-fit: cover; border-radius: 8px; background: var(--surface2); flex-shrink: 0; }
+  /* v2.2.80: track rows — YouTube Music list-row pattern. */
+  .track { display: flex; gap: 12px; align-items: center; padding: 8px 4px; min-height: 64px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+  .track img { width: 56px; height: 56px; object-fit: cover; border-radius: 4px; background: var(--surface2); flex-shrink: 0; }
   .track .info { flex: 1; min-width: 0; }
   .track .title { font-size: 16px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
-  .track .channel { font-size: 14px; color: var(--gold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
-  .track .actions { display: flex; gap: 4px; flex-shrink: 0; }
-  .track .channel { color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .track .channel { color: var(--muted); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
   .track .actions { display: flex; gap: 2px; flex-shrink: 0; }
   .iconbtn { background: none; border: none; color: var(--text); font-size: 20px; padding: 10px; cursor: pointer; }
   .iconbtn.gold { color: var(--gold); }
@@ -57,12 +56,15 @@
   nav.tabs button[aria-selected="true"] { color: var(--gold); }
   /* mini player */
   /* v2.2.51: Mini player above album panel (z-45) */
-  #miniPlayer { position: fixed; left: 0; right: 0; bottom: 62px; z-index: 50; display: flex; align-items: center; gap: 10px; background: var(--surface2); border-top: 1px solid #2a2a2a; padding: 6px 8px; }
+  /* v2.2.80: mini player — YouTube Music pattern: 68dp bar + thin progress line. */
+  #miniPlayer { position: fixed; left: 0; right: 0; bottom: 62px; z-index: 50; display: flex; align-items: center; gap: 10px; background: #282828; border-top: 1px solid rgba(255,255,255,0.08); padding: 8px 8px; min-height: 68px; }
   #miniPlayer[hidden] { display: none; }
   #miniPlayer img { width: 48px; height: 48px; border-radius: 4px; object-fit: cover; background: #333; }
   #miniPlayer .mpinfo { flex: 1; min-width: 0; background: none; border: none; color: var(--text); text-align: left; padding: 6px 0; cursor: pointer; }
   #miniPlayer .mptitle { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #miniPlayer .mpartist { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #mpProgress { position: absolute; top: 0; left: 0; right: 0; height: 3px; background: rgba(255,255,255,0.15); }
+  #mpProgressFill { height: 100%; width: 0%; background: var(--gold); }
   /* full player overlay */
   /* v2.2.52: Full player above album panel (z-45) */
   #fullPlayer { position: fixed; inset: 0; z-index: 55; background: var(--bg); overflow-y: auto; padding: 10px 16px 30px; }
@@ -116,15 +118,19 @@
   .queue-item { padding: 10px 4px; border-bottom: 1px solid #1e1e1e; font-size: 15px; }
   .queue-item.current { color: var(--gold); font-weight: bold; }
   .topbar { position: relative; }
-  #homeSearchBtn { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); }
+  /* v2.2.80: top bar actions flow naturally — logo left, search/account/settings right. */
   .backBtn { background: none; border: 1px solid var(--gold); color: var(--gold); border-radius: 8px; padding: 8px 14px; font-size: 16px; margin-bottom: 8px; }
-  .homeBlock { margin: 4px 0 20px; }
-  .homeBlock h2 { color: var(--gold); font-size: 18px; margin: 0 0 8px; }
+  .homeBlock { margin: 0 0 24px; }
+  /* v2.2.80: YouTube Music-style shelf headers — bold labeled sections. */
+  .homeBlock h2 { color: var(--text); font-size: 18px; font-weight: 700; margin: 0; padding: 12px 4px; }
+  .shelfHead { display: flex; align-items: center; justify-content: space-between; padding: 12px 4px; }
+  .shelfHead h2 { padding: 0; }
+  .shelfHead .btn.small { margin: 0; }
   .mixRow { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 6px; }
   /* v2.2.67: YouTube Music-style home */
   .chipRow { display: flex; gap: 8px; overflow-x: auto; padding: 8px 0 4px; scrollbar-width: none; }
   .chipRow::-webkit-scrollbar { display: none; }
-  .chip { flex: 0 0 auto; padding: 8px 16px; border-radius: 8px; background: #2a2a2a; color: #fff; border: 1px solid #444; font-size: 15px; }
+  .chip { flex: 0 0 auto; padding: 8px 16px; border-radius: 20px; background: #282828; color: #fff; border: 1px solid #3a3a3a; font-size: 15px; }
   .chip[aria-pressed="true"] { background: var(--gold); color: #000; border-color: var(--gold); font-weight: bold; }
   .speedDialWrap { overflow: hidden; }
   .speedDialPages { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; }
@@ -138,18 +144,23 @@
   .dots { display: flex; gap: 6px; justify-content: center; padding: 8px 0 4px; }
   .dots span { width: 8px; height: 8px; border-radius: 50%; background: #555; }
   .dots span.on { background: #fff; }
-  .mixCard { min-width: 140px; flex: 1 1 0; background: #161616; border: 1px solid var(--gold); border-radius: 12px; padding: 16px 10px; color: var(--gold); text-align: center; font-size: 16px; font-weight: bold; }
-  .mixCard small { display: block; color: #ccc; font-size: 12px; font-weight: normal; margin-top: 6px; }
-  /* v2.2.17: visual genre/mood cards with artwork */
-  .visualCard { min-width: 120px; max-width: 140px; flex: 1 1 120px; background: #161616; border: 1px solid var(--gold); border-radius: 12px; overflow: hidden; padding: 0; color: #fff; text-align: center; cursor: pointer; }
-  .visualCard img { width: 100%; height: 120px; object-fit: cover; display: block; }
-  .visualCard .vlabel { padding: 8px 6px; font-size: 14px; font-weight: bold; color: var(--gold); }
+  .mixCard { min-width: 140px; flex: 1 1 0; background: var(--surface); border: 1px solid #2a2a2a; border-radius: 12px; padding: 16px 10px; color: var(--gold); text-align: center; font-size: 16px; font-weight: bold; }
+  .mixCard small { display: block; color: var(--muted); font-size: 12px; font-weight: normal; margin-top: 6px; }
+  /* v2.2.80: visual cards — YouTube Music pattern: square art, white title, grey subtitle. */
+  .visualCard { min-width: 120px; max-width: 140px; flex: 1 1 120px; background: transparent; border: none; border-radius: 0; overflow: hidden; padding: 0; color: #fff; text-align: left; cursor: pointer; }
+  .visualCard img { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; border-radius: 4px; background: var(--surface2); }
+  .visualCard .vlabel { padding: 6px 2px 0; font-size: 14px; font-weight: 400; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* v2.2.80: trending rows — YouTube Music list-row pattern. */
+  .cardBtn { display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 2px; min-width: 180px; max-width: 220px; background: var(--surface); border: 1px solid #2a2a2a; border-radius: 8px; padding: 12px 14px; color: var(--text); text-align: left; cursor: pointer; }
+  .cardBtn b { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .cardBtn small { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
   .hscroll { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 6px; }
-  .albumCard { min-width: 132px; max-width: 132px; background: #111; border: 1px solid #3a3a3a; border-radius: 10px; overflow: hidden; color: #fff; padding: 0 0 8px; text-align: left; }
-  .albumCard img { width: 132px; height: 132px; object-fit: cover; display: block; }
-  .albumCard .an { font-size: 13px; padding: 6px 6px 0; font-weight: bold; }
-  .albumCard .aa { font-size: 12px; color: var(--gold); padding: 2px 6px 0; }
-  .albumCard .ad { font-size: 11px; color: #999; padding: 2px 6px 0; }
+  /* v2.2.80: album cards — YouTube Music pattern: square art, white title, grey subtitle. */
+  .albumCard { min-width: 132px; max-width: 132px; background: transparent; border: none; border-radius: 0; overflow: hidden; color: #fff; padding: 0 0 8px; text-align: left; }
+  .albumCard img { width: 132px; height: 132px; object-fit: cover; display: block; border-radius: 4px; background: var(--surface2); }
+  .albumCard .an { font-size: 14px; padding: 6px 2px 0; font-weight: 400; color: var(--text); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .albumCard .aa { font-size: 14px; color: var(--muted); padding: 2px 2px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .albumCard .ad { font-size: 12px; color: var(--muted); padding: 2px 2px 0; }
   /* ---------- TV / 10-foot mode (Fire TV, Android TV, Google TV): body.tv is
      set by JS when a TV user agent is detected. Bigger text, strong gold focus
      ring for D-pad navigation, overscan-safe padding. ---------- */
@@ -279,7 +290,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.79</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings" style="margin-left:auto">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.80</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -292,36 +303,42 @@
       </div>
       <div class="dots" id="speedDialDots" aria-hidden="true"></div>
     </div>
-    <!-- v2.2.67: Quick picks -->
+    <!-- v2.2.80: Quick picks shelf -->
     <div class="homeBlock">
-      <h2>Quick picks</h2>
-      <div class="hscroll" id="quickPicks" style="margin-top:8px"><p style="color:#999">Loading…</p></div>
+      <div class="shelfHead">
+        <h2>Quick picks</h2>
+        <button class="btn small secondary" id="quickPicksSeeAllBtn">See all</button>
+      </div>
+      <div class="hscroll" id="quickPicks"><p style="color:#999">Loading…</p></div>
     </div>
-    <!-- v2.2.67: Your mixes -->
+    <!-- v2.2.80: Your mixes shelf -->
     <div class="homeBlock">
       <h2>Your mixes</h2>
-      <div class="mixRow" id="mixRow" style="margin-top:8px"></div>
+      <div class="mixRow" id="mixRow"></div>
     </div>
-    <!-- v2.2.67: Fresh finds, old favorites -->
+    <!-- v2.2.80: Fresh finds shelf -->
     <div class="homeBlock">
-      <h2>Fresh finds, old favorites</h2>
-      <div class="hscroll" id="freshFinds" style="margin-top:8px"><p style="color:#999">Loading…</p></div>
+      <div class="shelfHead">
+        <h2>Fresh finds, old favorites</h2>
+        <button class="btn small secondary" id="freshFindsSeeAllBtn">See all</button>
+      </div>
+      <div class="hscroll" id="freshFinds"><p style="color:#999">Loading…</p></div>
     </div>
     <!-- v2.2.0: new releases across all genres, not just his artists. -->
     <div class="homeBlock">
-      <div class="row" style="align-items:center;justify-content:space-between">
-        <h2 style="margin:0">New releases</h2>
+      <div class="shelfHead">
+        <h2>New releases</h2>
         <button class="btn small secondary" id="allReleasesSeeAllBtn">See all</button>
       </div>
-      <div class="hscroll" id="allReleases" style="margin-top:8px"><p style="color:#999">Loading…</p></div>
+      <div class="hscroll" id="allReleases"><p style="color:#999">Loading…</p></div>
     </div>
     <!-- v2.2.2: top singles across all genres. -->
     <div class="homeBlock">
-      <div class="row" style="align-items:center;justify-content:space-between">
-        <h2 style="margin:0">Top singles</h2>
+      <div class="shelfHead">
+        <h2>Top singles</h2>
         <button class="btn small secondary" id="allSinglesSeeAllBtn">See all</button>
       </div>
-      <div class="hscroll" id="allSingles" style="margin-top:8px"><p style="color:#999">Loading…</p></div>
+      <div class="hscroll" id="allSingles"><p style="color:#999">Loading…</p></div>
     </div>
   </section>
   <section id="exploreView" role="tabpanel" aria-labelledby="tab-explore" hidden>
@@ -420,17 +437,19 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.30. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.80. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
 <div id="miniPlayer" hidden>
+  <div id="mpProgress" aria-hidden="true"><div id="mpProgressFill"></div></div>
   <img id="mpThumb" alt="">
   <button class="mpinfo" id="mpExpandBtn" aria-label="Expand player">
     <div class="mptitle" id="mpTitle">Nothing playing</div>
     <div class="mpartist" id="mpArtist"></div>
   </button>
   <button class="iconbtn" id="mpPlayBtn" aria-label="Play or pause">▶</button>
+  <button class="iconbtn" id="mpNextBtn" aria-label="Next song">⏭</button>
 </div>
 <nav class="tabs" role="tablist" aria-label="Main sections">
   <button role="tab" id="tab-home" aria-selected="true" aria-controls="homeView"><span class="ticon">🏠</span>Home</button>
@@ -589,6 +608,7 @@ window.lmNativeProgress = function(pos, dur, playing){
         $("fpSeek").value = Math.floor(nativeState.pos);
         $("fpCur").textContent = fmtTime(nativeState.pos);
         $("fpDur").textContent = fmtTime(nativeState.dur);
+        updateMpProgress(nativeState.pos, nativeState.dur);
       }
     } catch(e){}
   }
@@ -2018,6 +2038,13 @@ function updateNowPlaying(v){
   /* TV: lyrics live in the player's right column — load them for every song. */
   if(IS_TV) loadLyricsFor(v, true);
 }
+/* v2.2.80: thin progress line on the mini player (YouTube Music pattern). */
+function updateMpProgress(pos, dur){
+  try {
+    var el = $("mpProgressFill");
+    if(el) el.style.width = (dur > 0 ? Math.min(100, (pos / dur) * 100) : 0) + "%";
+  } catch(e){}
+}
 /* progress bar */
 var progTimer = null;
 function startProgress(){
@@ -2033,6 +2060,7 @@ function startProgress(){
         $("fpSeek").value = Math.floor(c);
         $("fpCur").textContent = fmtTime(c);
         $("fpDur").textContent = fmtTime(d);
+        updateMpProgress(c, d);
       }
     } catch(e){}
   }, 500);
@@ -2048,6 +2076,8 @@ $("fpSeek").addEventListener("change", function(){
 });
 /* player buttons */
 $("mpPlayBtn").addEventListener("click", togglePlayPause);
+/* v2.2.80: mini player next button (YouTube Music pattern). */
+$("mpNextBtn").addEventListener("click", function(){ playNext(false); });
 $("fpPlayBtn").addEventListener("click", togglePlayPause);
 $("fpNextBtn").addEventListener("click", function(){ playNext(false); });
 $("fpPrevBtn").addEventListener("click", playPrev);
@@ -3914,6 +3944,30 @@ $("allSinglesSeeAllBtn").addEventListener("click", function(){
   openSeeAll("Top singles", function(grid){
     grid.innerHTML = '<div id="seeAllSinglesList">' + tracks.map(function(t, i){ return trackRow(t, i); }).join("") + "</div>";
     bindTrackButtons($("seeAllSinglesList"), tracks);
+  });
+});
+/* v2.2.80: See-all for the Quick picks shelf (recent history as track rows). */
+$("quickPicksSeeAllBtn").addEventListener("click", function(){
+  var hist = getHistory();
+  if(!hist.length){ say("Play some music and quick picks will appear here."); return; }
+  var seen = {}, tracks = [];
+  hist.forEach(function(t){
+    if(!t || !t.title) return;
+    var k = t.videoId || t.title;
+    if(!seen[k]){ seen[k] = 1; tracks.push(t); }
+  });
+  openSeeAll("Quick picks", function(grid){
+    grid.innerHTML = '<div id="seeAllQuickPicks">' + tracks.map(function(t, i){ return trackRow(t, i); }).join("") + "</div>";
+    bindTrackButtons($("seeAllQuickPicks"), tracks);
+  });
+});
+/* v2.2.80: See-all for the Fresh finds shelf (liked songs as track rows). */
+$("freshFindsSeeAllBtn").addEventListener("click", function(){
+  var liked = getLiked();
+  if(!liked.length){ say("Like some songs and they'll show up here."); return; }
+  openSeeAll("Fresh finds, old favorites", function(grid){
+    grid.innerHTML = '<div id="seeAllFreshFinds">' + liked.map(function(t, i){ return trackRow(t, i); }).join("") + "</div>";
+    bindTrackButtons($("seeAllFreshFinds"), liked);
   });
 });
 /* v2.2.1: new releases across all genres. The "newreleases" RSS feed doesn't
