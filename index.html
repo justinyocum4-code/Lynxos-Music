@@ -42,6 +42,36 @@
   /* v2.2.41: Cleaner, more organized track rows. */
   /* v2.2.80: track rows — YouTube Music list-row pattern. */
   .track { display: flex; gap: 12px; align-items: center; padding: 8px 4px; min-height: 64px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+  /* v2.2.84: YouTube Music-style search results. */
+  .srchChips { display: flex; gap: 8px; overflow-x: auto; padding: 6px 0 12px; }
+  .schip { background: #1d1d1d; color: var(--text); border: 1px solid #333; border-radius: 16px; padding: 8px 16px; font-size: 14px; white-space: nowrap; }
+  .schip.on { background: #fff; color: #000; border-color: #fff; font-weight: 700; }
+  body.light .schip { background: #e8e2d2; color: #1a1a1a; border-color: #d8d2c0; }
+  body.light .schip.on { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
+  .srchSec { margin: 4px 0 20px; }
+  .srchSec h3 { font-size: 18px; margin: 0 0 8px; color: var(--text); }
+  .srchSecHead { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+  .srchSecHead h3 { margin: 0; }
+  .srchTop { display: flex; align-items: center; gap: 12px; background: #141414; border: 1px solid #2a2a2a; border-radius: 12px; padding: 12px; width: 100%; text-align: left; color: var(--text); }
+  body.light .srchTop { background: #f4f1e8; border-color: #d8d2c0; }
+  .srchTop img { width: 64px; height: 64px; border-radius: 8px; object-fit: cover; flex: 0 0 auto; background: var(--surface2); }
+  .srchTop img.round { border-radius: 50%; }
+  .srchTopInfo { flex: 1; min-width: 0; }
+  .srchTopType { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+  .srchTopTitle { font-size: 17px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .srchTopSub { font-size: 14px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .srchTopPlay { width: 52px; height: 52px; border-radius: 50%; background: #fff; color: #000; border: none; font-size: 20px; flex: 0 0 auto; }
+  .srow { display: flex; align-items: center; gap: 12px; padding: 8px 4px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+  .srow img { width: 52px; height: 52px; border-radius: 6px; object-fit: cover; flex: 0 0 auto; background: var(--surface2); }
+  .srowInfo { flex: 1; min-width: 0; }
+  .srowTitle { font-size: 15px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .srowSub { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .srchMenu { background: #1a1a1a; border: 1px solid #333; border-radius: 8px; margin: 2px 0 8px; overflow: hidden; }
+  .srchMenu button { display: block; width: 100%; text-align: left; background: none; border: none; color: var(--text); padding: 12px 14px; font-size: 15px; }
+  .srchArtists { display: flex; gap: 14px; overflow-x: auto; padding: 4px 0; }
+  .srchArtist { background: none; border: none; color: var(--text); display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 78px; font-size: 13px; }
+  .srchArtist img { width: 68px; height: 68px; border-radius: 50%; object-fit: cover; background: var(--surface2); }
+  .srchArtistPh { width: 68px; height: 68px; border-radius: 50%; background: #222; display: flex; align-items: center; justify-content: center; font-size: 28px; }
   .track img { width: 56px; height: 56px; object-fit: cover; border-radius: 4px; background: var(--surface2); flex-shrink: 0; }
   .track .info { flex: 1; min-width: 0; }
   .track .title { font-size: 16px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
@@ -104,6 +134,10 @@
   #albumYearTop { font-size: 12px; }
   #albumPanel #albumArt { width: min(68vw, 320px); height: min(68vw, 320px); margin: 16px auto; }
   #albumPanel #albumName { font-size: 26px; font-weight: 800; }
+  /* v2.2.84: album description with More expander. */
+  #albumDescWrap { max-width: 560px; margin: 8px auto 0; padding: 0 8px; }
+  #albumDesc { color: var(--muted); font-size: 14px; line-height: 1.55; margin: 0 0 2px; }
+  #albumDescMore { background: none; border: none; color: var(--gold); font-size: 14px; font-weight: 600; padding: 4px 8px; }
   .ap-actions { display: flex; align-items: center; justify-content: center; gap: 14px; margin: 14px 0 6px; }
   .ap-btn { width: 52px; height: 52px; border-radius: 50%; border: none; background: #1d1d1d; color: var(--text); font-size: 22px; display: flex; align-items: center; justify-content: center; }
   .ap-btn.ap-play { width: 68px; height: 68px; font-size: 28px; background: #fff; color: #000; }
@@ -402,7 +436,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.83</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.84</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -501,9 +535,7 @@
     <label for="searchBox" class="sr-only">Search songs or artists</label>
     <input type="search" id="searchBox" placeholder="Search songs, artists" autocomplete="off">
     <button class="btn" id="searchBtn">Search</button>
-    <button class="btn secondary" id="searchRadioBtn" aria-label="Start radio for the artist typed above">📻 Radio</button>
-    <!-- v2.2.0: jump to an artist page from search. -->
-    <button class="btn secondary" id="searchArtistBtn" aria-label="Open artist page for the name typed above">👤 Artist page</button>
+    <!-- v2.2.84: Radio and Artist page buttons removed (his call) — search results are YTM-style now. -->
     <div id="recentSearches" class="row" style="margin-top:4px"></div>
     <div id="searchResults"></div>
   </section>
@@ -571,7 +603,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.83. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.84. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -694,6 +726,10 @@
   <img id="albumArt" alt="Album cover">
   <h2 id="albumName"></h2>
   <div id="albumArtist"></div>
+  <!-- v2.2.84: album description with More expander (from ytmusicapi get_album). -->
+  <div id="albumDescWrap" hidden>
+    <p id="albumDesc"></p><button id="albumDescMore" class="linkbtn" aria-expanded="false">More</button>
+  </div>
   <div class="ap-actions" role="group" aria-label="Album actions">
     <button class="ap-btn" id="albumShuffleBtn" aria-label="Shuffle album">🔀</button>
     <button class="ap-btn" id="albumSaveBtn" aria-label="Save album to library">🔖</button>
@@ -750,11 +786,21 @@ function nativeAppendJson(tracks){
   }));
 }
 /* Called by Java when the native service starts a track. */
+/* v2.2.84: skip-path instrumentation — records WHY a track was skipped so
+   future reports can be diagnosed instead of guessed at. */
+function noteSkipTrack(v, reason){
+  try {
+    state.lastSkip = { title: (v && v.title) || "", videoId: (v && v.videoId) || "",
+      reason: reason, at: new Date().toISOString() };
+  } catch(e){}
+}
 window.lmNativeTrack = function(i){
   i = parseInt(i, 10);
   if(isNaN(i) || i < 0 || i >= state.queue.length) return;
   state.qi = i;
   var v = state.queue[i];
+  /* v2.2.84: a track is genuinely playing — clear resolve-retry counters. */
+  state._resolveRetries = {};
   updateNowPlaying(v);
   logHistory(v);
   var p = parseTrack(v.title, v.channel);
@@ -792,6 +838,7 @@ window.lmNativeError = function(msg){
     return;
   }
   say("That song wouldn't play. Trying the next one.");
+  noteSkipTrack(v, "player-error");
   playNext(true);
 };
 /* Called by Java when the native player reaches the end of a track.
@@ -846,9 +893,9 @@ function openSettings(){
   say("Settings tab.");
 }
 /* ================= v2.2.0: artist page ================= */
-function openArtistPage(artistName){
+function openArtistPage(artistName, browseId){
   artistName = String(artistName || "").trim();
-  if(!artistName){ say("No artist name."); return; }
+  if(!artistName && !browseId){ say("No artist name."); return; }
   /* v2.2.1: collapse the player — the artist page opens behind it otherwise. */
   try { if(!$("fullPlayer").hidden) collapsePlayer(); } catch(e){}
   /* Hide other views. */
@@ -861,54 +908,166 @@ function openArtistPage(artistName){
   try { $("newFab").hidden = true; } catch(e){}
   try { closeNewSheet(); } catch(e){}
   $("artistView").hidden = false;
-  $("artistName").textContent = artistName;
+  $("artistName").textContent = artistName || "Artist";
   $("artistContent").innerHTML = "<p class='hint'>Loading...</p>";
-  say("Artist page for " + artistName + ".");
+  say("Artist page for " + (artistName || "artist") + ".");
   /* v2.2.43: Python-only artist page via ytmusicapi. */
-  ytmSearchArtists(artistName).then(function(artists){
-    artists = artists || [];
-    if(!artists.length) throw new Error("no artist");
-    var aq = artistName.toLowerCase();
-    var best = artists[0];
-    artists.forEach(function(a){
-      var an = String(a.artist || a.name || "").toLowerCase();
-      if(an === aq) best = a;
-    });
-    var artistId = best.browseId || best.artistId || best.id;
-    if(!artistId) throw new Error("no artist id");
-    return Promise.all([
-      ytmGetArtistInfo(artistId),
-      ytmGetArtistTopSongs(artistId),
-      ytmGetArtistAlbums(artistId)
+  /* v2.2.84: when the caller already has a browseId (search results), skip
+     the extra search round-trip. */
+  var loadP;
+  if(browseId){
+    loadP = Promise.all([
+      ytmGetArtistInfo(browseId),
+      ytmGetArtistTopSongs(browseId),
+      ytmGetArtistAlbums(browseId)
     ]).then(function(res){
       var albumData = res[2] || {};
-      return { artist: best.artist || best.name || artistName,
+      return { artist: artistName || ((res[0] || {}).name) || "Artist",
                info: res[0] || {},
                songs: res[1] || [],
                albums: albumData.albums || [],
                singles: albumData.singles || [] };
     });
-  })
-    .then(function(data){
+  } else {
+    loadP = ytmSearchArtists(artistName).then(function(artists){
+      artists = artists || [];
+      if(!artists.length) throw new Error("no artist");
+      var aq = artistName.toLowerCase();
+      var best = artists[0];
+      artists.forEach(function(a){
+        var an = String(a.artist || a.name || "").toLowerCase();
+        if(an === aq) best = a;
+      });
+      var artistId = best.browseId || best.artistId || best.id;
+      if(!artistId) throw new Error("no artist id");
+      return Promise.all([
+        ytmGetArtistInfo(artistId),
+        ytmGetArtistTopSongs(artistId),
+        ytmGetArtistAlbums(artistId)
+      ]).then(function(res){
+        var albumData = res[2] || {};
+        return { artist: best.artist || best.name || artistName,
+                 info: res[0] || {},
+                 songs: res[1] || [],
+                 albums: albumData.albums || [],
+                 singles: albumData.singles || [] };
+      });
+    });
+  }
+  loadP.then(function(data){
       renderArtistPagePython(data);
     })
     .catch(function(){
-      $("artistContent").innerHTML = "<p class='hint'>Couldn't load " + esc(artistName) + ".</p>";
+      $("artistContent").innerHTML = "<p class='hint'>Couldn't load " + esc(artistName || "artist") + ".</p>";
       say("Couldn't load the artist page.");
     });
 }
 /* v2.2.49: Open an album from Python - shows tracks, allows playback. */
-function openPythonAlbum(browseId, title, artist, thumb){
-  if(!browseId){ say("No album ID."); return; }
-  /* v2.2.50: Remember if we came from artist page for back navigation */
+/* ================= v2.2.84: unified album detail page =================
+   One renderer for both album paths: searched albums (openPythonAlbum) and
+   saved albums from the Library (openLocalAlbum). Centered art, title,
+   description with More expander, action row, numbered tracks. */
+function setAlbumDescription(text){
+  var wrap = $("albumDescWrap"), p = $("albumDesc"), more = $("albumDescMore");
+  if(!wrap || !p || !more) return;
+  text = String(text || "").trim();
+  if(!text){ wrap.hidden = true; p.textContent = ""; return; }
+  wrap.hidden = false;
+  wrap.setAttribute("aria-label", "About this album");
+  var TRUNC = 160;
+  function render(expanded){
+    if(expanded || text.length <= TRUNC){
+      p.textContent = text;
+      more.textContent = "Less";
+      more.setAttribute("aria-expanded", "true");
+    } else {
+      p.textContent = text.substring(0, TRUNC).trim() + "…";
+      more.textContent = "More";
+      more.setAttribute("aria-expanded", "false");
+    }
+    more.hidden = text.length <= TRUNC;
+    more.style.display = text.length <= TRUNC ? "none" : "";
+  }
+  more.onclick = function(){ render(more.getAttribute("aria-expanded") !== "true"); say(more.getAttribute("aria-expanded") === "true" ? "Full description." : "Description collapsed."); };
+  render(false);
+}
+function renderAlbumTrackList(tracks){
+  var html = "<div class='trackList'>";
+  tracks.forEach(function(t, i){ html += albumTrackRow(t, i); });
+  html += "</div>";
+  $("albumTracks").innerHTML = html;
+  bindAlbumTrackButtons($("albumTracks"), tracks);
+  state.albumTracks = tracks;
+  try { albumTracks = tracks; } catch(e){}
+}
+/* v2.2.61: bind Play/Shuffle/Save directly to the given tracks (deep fix). */
+function bindAlbumPanelActions(title, artist, art, browseId, tracks){
+  var playBtn = $("albumPlayBtn"), shuffleBtn = $("albumShuffleBtn"), saveBtn = $("albumSaveBtn");
+  if(playBtn){
+    playBtn.onclick = function(){
+      if(!tracks.length){ say("No tracks."); return; }
+      state.radio = null;
+      state.queue = tracks.slice();
+      playQueueIndex(0, true);
+      say("Playing " + title + ".");
+    };
+  }
+  if(shuffleBtn){
+    shuffleBtn.onclick = function(){
+      if(!tracks.length){ say("No tracks."); return; }
+      state.radio = null;
+      var q = tracks.slice();
+      shuffleList(q);
+      state.queue = q;
+      playQueueIndex(0, true);
+      say("Shuffling " + title + ".");
+    };
+  }
+  if(saveBtn){
+    saveBtn.onclick = function(){ saveAlbumFromPanel(title, artist, art, browseId, tracks); };
+  }
+}
+function saveAlbumFromPanel(title, artist, art, browseId, tracks){
+  var albums = getAlbums();
+  var key = (title || "").toLowerCase() + "  " + (artist || "").toLowerCase();
+  var foundIdx = -1;
+  for(var i = 0; i < albums.length; i++){
+    if(albums[i].name.toLowerCase() + "  " + String(albums[i].artist || "").toLowerCase() === key){
+      foundIdx = i;
+      break;
+    }
+  }
+  try { if(!art) art = $("albumArt").src || ""; } catch(e){}
+  var newEntry = {
+    name: title || "Album", artist: artist || "", art: art || "", browseId: browseId || "",
+    tracks: tracks.map(function(t){
+      return { videoId: t.videoId || "", title: t.title, channel: t.channel,
+        thumb: t.thumb, art: t.art, resolveQuery: t.resolveQuery, fallbackQuery: t.fallbackQuery };
+    })
+  };
+  if(foundIdx >= 0){
+    albums[foundIdx] = newEntry;
+    say("Updated " + title + " with " + tracks.length + " tracks.");
+  } else {
+    albums.push(newEntry);
+    say("Saved " + title + " to your albums.");
+  }
+  saveAlbums(albums);
+  renderAlbums();
+}
+/* cfg: {title, artist, art, year, browseId, tracks, description, returnTo,
+         isSavedLocal, localIdx} */
+function showAlbumPage(cfg){
+  cfg = cfg || {};
+  var title = cfg.title || "Album", artist = cfg.artist || "", art = cfg.art || "";
+  var tracks = cfg.tracks || [];
   state.albumFromArtist = !$("artistView").hidden;
-  /* v2.2.54: Track browseId for saving */
-  state.currentAlbumBrowseId = browseId;
-  /* v2.2.66: Remember where we came from for back navigation */
   if(!$("artistView").hidden) state.albumReturnTo = "artist";
   else if(state.searchOpen) state.albumReturnTo = "search";
-  else state.albumReturnTo = state.tab || "home";
-  /* Hide other views, show album panel */
+  else state.albumReturnTo = cfg.returnTo || state.tab || "home";
+  state.albumIsSavedLocal = !!cfg.isSavedLocal;
+  state.albumLocalIdx = (cfg.localIdx != null ? cfg.localIdx : -1);
+  state.currentAlbumBrowseId = cfg.browseId || "";
   TABS.forEach(function(t){ $(t[1]).hidden = true; });
   $("searchView").hidden = true;
   $("seeAllView").hidden = true;
@@ -917,27 +1076,39 @@ function openPythonAlbum(browseId, title, artist, thumb){
   try { $("accountView").hidden = true; } catch(e){}
   var panel = $("albumPanel");
   if(panel) panel.hidden = false;
-  $("albumArt").src = thumb || "";
+  $("albumArt").src = art;
   $("albumArt").alt = title + " cover";
-  $("albumName").textContent = title || "Album";
-  $("albumArtist").textContent = artist || "";
+  $("albumName").textContent = title;
+  $("albumArtist").textContent = artist;
   /* v2.2.82: YTM-style header — artist avatar + name, year below. */
-  $("albumArtistTop").textContent = artist || "";
-  $("albumYearTop").textContent = "";
+  $("albumArtistTop").textContent = artist;
+  $("albumYearTop").textContent = cfg.year || "";
   var avEl = $("albumArtistAvatar");
   avEl.hidden = true; avEl.src = "";
-  ytmGetAlbumInfo(browseId).then(function(info){
-    info = info || {};
-    if(info.year){ $("albumYearTop").textContent = info.year; }
-    var aName = info.artist || artist;
-    if(aName){ $("albumArtistTop").textContent = aName; }
-    var aId = info.artistId || "";
-    if(aId){
-      ytmGetArtistInfo(aId).then(function(ai){
-        if(ai && ai.thumb && !ai.error){ avEl.src = ai.thumb; avEl.alt = aName; avEl.hidden = false; }
-      }).catch(function(){});
-    }
-  }).catch(function(){});
+  setAlbumDescription(cfg.description || "");
+  if(cfg.browseId){
+    ytmGetAlbumInfo(cfg.browseId).then(function(info){
+      info = info || {};
+      if(info.year){ $("albumYearTop").textContent = info.year; }
+      var aName = info.artist || artist;
+      if(aName){ $("albumArtistTop").textContent = aName; }
+      /* v2.2.84: album description from ytmusicapi (omitted when absent — never faked). */
+      if(info.description && !cfg.description){ setAlbumDescription(info.description); }
+      var aId = info.artistId || "";
+      if(aId){
+        ytmGetArtistInfo(aId).then(function(ai){
+          if(ai && ai.thumb && !ai.error){ avEl.src = ai.thumb; avEl.alt = aName; avEl.hidden = false; }
+        }).catch(function(){});
+      }
+    }).catch(function(){});
+  }
+  renderAlbumTrackList(tracks);
+  bindAlbumPanelActions(title, artist, art, cfg.browseId, tracks);
+}
+function openPythonAlbum(browseId, title, artist, thumb){
+  if(!browseId){ say("No album ID."); return; }
+  /* v2.2.84: unified album page (shared with saved albums). */
+  showAlbumPage({ title: title, artist: artist, art: thumb, browseId: browseId, tracks: [] });
   $("albumTracks").innerHTML = "<p style='color:#999'>Loading tracks...</p>";
   say("Loading " + title + ".");
   ytmGetAlbum(browseId).then(function(tracks){
@@ -948,75 +1119,8 @@ function openPythonAlbum(browseId, title, artist, thumb){
       return;
     }
     /* v2.2.82: YTM-style numbered rows — big number, title, "Artist • duration", 3-dot menu. */
-    var html = "<div class='trackList'>";
-    tracks.forEach(function(t, i){ html += albumTrackRow(t, i); });
-    html += "</div>";
-    $("albumTracks").innerHTML = html;
-    bindAlbumTrackButtons($("albumTracks"), tracks);
-    /* Store for queue playback */
-    state.albumTracks = tracks;
-    /* v2.2.55: Set global albumTracks and name/artist so save button works */
-    try { albumTracks = tracks; } catch(e){}
-    try {
-      var anEl = $("albumName"); if(anEl) anEl.textContent = title || "";
-      var arEl = $("albumArtist"); if(arEl) arEl.textContent = artist || "";
-    } catch(e2){}
-    /* v2.2.61: Deep fix - bind Play/Shuffle directly to these tracks */
-    /* v2.2.63: Also bind Save directly */
-    try {
-      var playBtn = $("albumPlayBtn");
-      var shuffleBtn = $("albumShuffleBtn");
-      var saveBtn = $("albumSaveBtn");
-      if(playBtn){
-        playBtn.onclick = function(){
-          state.radio = null;
-          state.queue = tracks.slice();
-          playQueueIndex(0, true);
-          say("Playing " + title + ".");
-        };
-      }
-      if(shuffleBtn){
-        shuffleBtn.onclick = function(){
-          state.radio = null;
-          var q = tracks.slice();
-          shuffleList(q);
-          state.queue = q;
-          playQueueIndex(0, true);
-          say("Shuffling " + title + ".");
-        };
-      }
-      if(saveBtn){
-        saveBtn.onclick = function(){
-          var albums = getAlbums();
-          var key = (title || "").toLowerCase() + "  " + (artist || "").toLowerCase();
-          var foundIdx = -1;
-          for(var i = 0; i < albums.length; i++){
-            if(albums[i].name.toLowerCase() + "  " + String(albums[i].artist || "").toLowerCase() === key){
-              foundIdx = i;
-              break;
-            }
-          }
-          var art = thumb || "";
-          try { if(!art) art = $("albumArt").src || ""; } catch(e){}
-          var newEntry = {
-            name: title || "Album", artist: artist || "", art: art, browseId: browseId,
-            tracks: tracks.map(function(t){
-              return { videoId: t.videoId || "", title: t.title, channel: t.channel,
-                thumb: t.thumb, art: t.art, resolveQuery: t.resolveQuery, fallbackQuery: t.fallbackQuery };
-            })
-          };
-          if(foundIdx >= 0){
-            albums[foundIdx] = newEntry;
-            say("Updated " + title + " with " + tracks.length + " tracks.");
-          } else {
-            albums.push(newEntry);
-            say("Saved " + title + " to your albums.");
-          }
-          saveAlbums(albums);
-          renderAlbums();
-        };
-      }
-    } catch(e3){}
+    renderAlbumTrackList(tracks);
+    bindAlbumPanelActions(title, artist, thumb, browseId, tracks);
     say(title + " loaded with " + tracks.length + " tracks.");
   }).catch(function(){
     $("albumTracks").innerHTML = "<p class='hint'>Couldn't load album.</p>";
@@ -1784,28 +1888,240 @@ function trackArtist(v){
   var p = parseTrack(v.title, v.channel);
   return p.artist || cleanArtistName(v.channel);
 }
+/* ================= v2.2.84: YouTube Music-style search =================
+   Typed results with filter chips (All, Songs, Albums, Artists), a top-result
+   card, and sections. Music only — no videos/podcasts. */
+var SEARCH_FILTERS = ["all", "songs", "albums", "artists"];
 function doSearch(){
   var q = $("searchBox").value.trim();
   if(!q){ say("Type something to search for first."); return; }
+  state.searchFilter = "all";
   $("searchResults").innerHTML = '<div class="empty">Searching…</div>';
   say("Searching for " + q);
-  ytSearch(q).then(function(videos){
-    state.lastResults = videos;
+  Promise.all([
+    ytmSearchSongs(q, 15).catch(function(){ return []; }),
+    ytmSearchAlbums(q, 10).catch(function(){ return []; }),
+    ytmSearchArtists(q, 8).catch(function(){ return []; })
+  ]).then(function(res){
+    var songs = (res[0] || []).filter(function(v){ return !NON_MUSIC_RE.test(v.title || ""); });
+    songs.sort(function(a, b){ return (isOfficialMusic(b) ? 1 : 0) - (isOfficialMusic(a) ? 1 : 0); });
+    state.typedResults = { songs: songs, albums: res[1] || [], artists: res[2] || [] };
+    state.lastResults = songs;
     state.lastQuery = q;
-    renderResults();
+    renderSearchResults();
     saveRecentSearch(q);
-    say(videos.length + " results. All of these play inside the app.");
+    var n = songs.length + state.typedResults.albums.length + state.typedResults.artists.length;
+    say(n + " results.");
   }).catch(function(err){
     var msg = (err && err.message) || "connection problem";
     $("searchResults").innerHTML = '<div class="empty">Search failed: ' + esc(msg) + '</div>';
     say("Search failed.");
   });
 }
-$("searchArtistBtn").addEventListener("click", function(){
-  var q = $("searchBox").value.trim();
-  if(!q){ say("Type an artist name first."); return; }
-  openArtistPage(q);
-});
+function pickTopResult(R, q){
+  var ql = String(q || "").toLowerCase().trim();
+  for(var i = 0; i < R.artists.length; i++){
+    var an = String(R.artists[i].name || "").toLowerCase();
+    if(an && (an === ql || ql.indexOf(an) === 0 || an.indexOf(ql) === 0)) return { kind: "artist", item: R.artists[i] };
+  }
+  if(R.songs.length) return { kind: "song", item: R.songs[0] };
+  if(R.albums.length) return { kind: "album", item: R.albums[0] };
+  if(R.artists.length) return { kind: "artist", item: R.artists[0] };
+  return null;
+}
+function searchTopResultHtml(R){
+  var top = pickTopResult(R, state.lastQuery);
+  if(!top) return "";
+  var html = "<div class='srchSec'><h3>Top result</h3>";
+  if(top.kind === "song"){
+    var v = top.item, p = parseTrack(v.title, v.channel);
+    html += '<div class="srchTop" data-top="song" role="button" tabindex="0" aria-label="Top result: ' + esc(p.title) + " by " + esc(p.artist) + '. Activate to play.">' +
+      (v.thumb ? '<img src="' + esc(v.thumb) + '" alt="">' : "") +
+      '<div class="srchTopInfo"><div class="srchTopType">Song</div><div class="srchTopTitle">' + esc(p.title) + '</div><div class="srchTopSub">' + esc(p.artist) + "</div></div>" +
+      '<button class="srchTopPlay" data-topplay="song" aria-label="Play top result">▶</button></div>';
+  } else if(top.kind === "artist"){
+    var a = top.item, nm = a.name || "Unknown";
+    html += '<div class="srchTop" data-top="artist" role="button" tabindex="0" aria-label="Top result: artist ' + esc(nm) + '. Activate to open the artist page.">' +
+      (a.thumb ? '<img class="round" src="' + esc(a.thumb) + '" alt="">' : '<span class="srchArtistPh" aria-hidden="true">🎤</span>') +
+      '<div class="srchTopInfo"><div class="srchTopType">Artist</div><div class="srchTopTitle">' + esc(nm) + "</div></div></div>";
+  } else {
+    var al = top.item;
+    html += '<div class="srchTop" data-top="album" role="button" tabindex="0" aria-label="Top result: album ' + esc(al.title || "") + " by " + esc(al.artist || "") + '. Activate to open the album.">' +
+      (al.thumb ? '<img src="' + esc(al.thumb) + '" alt="">' : "") +
+      '<div class="srchTopInfo"><div class="srchTopType">Album</div><div class="srchTopTitle">' + esc(al.title || "") + '</div><div class="srchTopSub">' + esc(al.artist || "") + "</div></div></div>";
+  }
+  return html + "</div>";
+}
+function searchSongRow(v, idx){
+  var p = parseTrack(v.title, v.channel);
+  var sub = esc(p.artist) + (v.dur ? " • " + esc(v.dur) : "");
+  return '<div class="srow" data-srow="' + idx + '" role="button" tabindex="0" aria-label="Play ' + esc(p.title) + " by " + esc(p.artist) + '">' +
+    (v.thumb ? '<img src="' + esc(v.thumb) + '" alt="">' : "") +
+    '<div class="srowInfo"><div class="srowTitle">' + esc(p.title) + '</div><div class="srowSub">' + sub + '</div></div>' +
+    '<button class="iconbtn" data-smenu="' + idx + '" aria-label="Options for ' + esc(p.title) + '" aria-haspopup="menu">⋮</button></div>';
+}
+function searchSongsSectionHtml(songs, full){
+  if(!songs.length) return "";
+  var list = full ? songs : songs.slice(0, 5);
+  var html = "<div class='srchSec'><div class='srchSecHead'><h3>Songs</h3>";
+  if(!full && songs.length > 5) html += "<button class='btn small secondary' data-seeall='songs'>See all</button>";
+  html += "</div>";
+  list.forEach(function(v, i){ html += searchSongRow(v, songs.indexOf(v)); });
+  return html + "</div>";
+}
+function searchArtistsSectionHtml(artists){
+  if(!artists.length) return "";
+  var html = "<div class='srchSec'><h3>Artists</h3><div class='srchArtists'>";
+  artists.forEach(function(a, i){
+    var nm = a.name || "Unknown";
+    html += '<button class="srchArtist" data-artist="' + i + '" aria-label="Open artist page for ' + esc(nm) + '">' +
+      (a.thumb ? '<img src="' + esc(a.thumb) + '" alt="">' : '<span class="srchArtistPh" aria-hidden="true">🎤</span>') +
+      "<span>" + esc(nm) + "</span></button>";
+  });
+  return html + "</div></div>";
+}
+function searchAlbumsSectionHtml(albums){
+  if(!albums.length) return "";
+  var html = "<div class='srchSec'><h3>Albums</h3><div class='hscroll'>";
+  albums.forEach(function(a, i){
+    var aname = a.title || "Unknown", aartist = a.artist || "", aart = a.thumb || "";
+    html += '<button class="albumCard" data-album="' + i + '" aria-label="Open album ' + esc(aname) + " by " + esc(aartist) + '">' +
+      (aart ? '<img src="' + esc(aart) + '" alt="">' : "") +
+      '<div class="an">' + esc(aname) + '</div><div class="aa">' + esc(aartist) + "</div>" +
+      (a.year ? '<div class="ad">' + esc(a.year) + "</div>" : "") + "</button>";
+  });
+  return html + "</div></div>";
+}
+function renderSearchResults(){
+  var box = $("searchResults");
+  closeSearchMenu();
+  var R = state.typedResults || { songs: [], albums: [], artists: [] };
+  var f = state.searchFilter || "all";
+  if(!R.songs.length && !R.albums.length && !R.artists.length){
+    box.innerHTML = '<div class="empty">No results.</div>';
+    return;
+  }
+  var html = '<div class="srchChips" role="tablist" aria-label="Search filters">';
+  SEARCH_FILTERS.forEach(function(k){
+    var label = k.charAt(0).toUpperCase() + k.slice(1);
+    html += '<button role="tab" class="schip' + (f === k ? " on" : "") + '" data-sf="' + k + '" aria-selected="' + (f === k) + '">' + label + "</button>";
+  });
+  html += "</div>";
+  if(f === "all"){
+    html += searchTopResultHtml(R);
+    html += searchSongsSectionHtml(R.songs, false);
+    html += searchArtistsSectionHtml(R.artists);
+    html += searchAlbumsSectionHtml(R.albums);
+  } else if(f === "songs"){
+    html += searchSongsSectionHtml(R.songs, true);
+  } else if(f === "artists"){
+    html += searchArtistsSectionHtml(R.artists);
+  } else if(f === "albums"){
+    html += searchAlbumsSectionHtml(R.albums);
+  }
+  box.innerHTML = html;
+  bindSearchResults(box, R);
+}
+function closeSearchMenu(){
+  var old = document.querySelector(".srchMenu");
+  if(old) old.remove();
+}
+function searchTrackMenu(v, anchorBtn){
+  closeSearchMenu();
+  var m = document.createElement("div");
+  m.className = "srchMenu";
+  m.setAttribute("role", "menu");
+  m.setAttribute("aria-label", "Options for " + (v.title || "song"));
+  var songs = (state.typedResults && state.typedResults.songs) || [];
+  var items = [
+    { label: "▶ Play", fn: function(){ playVideo(v, songs, songs.indexOf(v)); } },
+    { label: "⏭ Play next", fn: function(){ queuePlayNext(v); } },
+    { label: "＋ Add to queue", fn: function(){ queueAddLast(v); } },
+    { label: isLiked(v.videoId) ? "❤️ Unlike" : "🤍 Like", fn: function(){ toggleLike(v); closeSearchMenu(); renderSearchResults(); } },
+    { label: "↗ Share", fn: function(){
+      var url = v.videoId ? ("https://www.youtube.com/watch?v=" + v.videoId) : "";
+      if(url && navigator.clipboard){ navigator.clipboard.writeText(url).then(function(){ say("Link copied."); }).catch(function(){ say("Couldn't copy the link."); }); }
+      else say("No link available yet.");
+    } }
+  ];
+  items.forEach(function(it){
+    var b = document.createElement("button");
+    b.textContent = it.label;
+    b.setAttribute("role", "menuitem");
+    b.addEventListener("click", function(){ closeSearchMenu(); it.fn(); });
+    m.appendChild(b);
+  });
+  anchorBtn.closest(".srow").parentNode.insertBefore(m, anchorBtn.closest(".srow").nextSibling);
+  var first = m.querySelector("button");
+  if(first) first.focus();
+  say("Options for " + (v.title || "song") + ".");
+}
+function bindSearchResults(box, R){
+  box.querySelectorAll("[data-sf]").forEach(function(b){
+    b.addEventListener("click", function(){
+      state.searchFilter = b.getAttribute("data-sf");
+      renderSearchResults();
+      say(b.textContent + " results.");
+    });
+  });
+  box.querySelectorAll("[data-seeall]").forEach(function(b){
+    b.addEventListener("click", function(){
+      state.searchFilter = b.getAttribute("data-seeall");
+      renderSearchResults();
+    });
+  });
+  function playTop(){
+    var top = pickTopResult(R, state.lastQuery);
+    if(!top) return;
+    if(top.kind === "song") playVideo(top.item, R.songs, R.songs.indexOf(top.item));
+    else if(top.kind === "artist") openArtistPage(top.item.name, top.item.browseId);
+    else if(top.item.browseId) openPythonAlbum(top.item.browseId, top.item.title, top.item.artist, top.item.thumb);
+  }
+  box.querySelectorAll("[data-top]").forEach(function(el){
+    function go(e){ if(e.target.closest("[data-topplay]")) return; playTop(); }
+    el.addEventListener("click", go);
+    el.addEventListener("keydown", function(e){ if(e.key === "Enter" || e.key === " "){ e.preventDefault(); playTop(); } });
+  });
+  box.querySelectorAll("[data-topplay]").forEach(function(b){
+    b.addEventListener("click", function(e){
+      e.stopPropagation();
+      var top = pickTopResult(R, state.lastQuery);
+      if(top && top.kind === "song") playVideo(top.item, R.songs, R.songs.indexOf(top.item));
+      else playTop();
+    });
+  });
+  box.querySelectorAll("[data-srow]").forEach(function(row){
+    function play(){
+      closeSearchMenu();
+      var v = R.songs[parseInt(row.getAttribute("data-srow"), 10)];
+      if(v) playVideo(v, R.songs, R.songs.indexOf(v));
+    }
+    row.addEventListener("click", function(e){ if(e.target.closest("[data-smenu]")) return; play(); });
+    row.addEventListener("keydown", function(e){ if(e.key === "Enter" || e.key === " "){ e.preventDefault(); play(); } });
+  });
+  box.querySelectorAll("[data-smenu]").forEach(function(b){
+    b.addEventListener("click", function(e){
+      e.stopPropagation();
+      var v = R.songs[parseInt(b.getAttribute("data-smenu"), 10)];
+      if(v) searchTrackMenu(v, b);
+    });
+  });
+  box.querySelectorAll("[data-artist]").forEach(function(b){
+    b.addEventListener("click", function(){
+      var a = R.artists[parseInt(b.getAttribute("data-artist"), 10)];
+      if(a) openArtistPage(a.name, a.browseId);
+    });
+  });
+  box.querySelectorAll("[data-album]").forEach(function(b){
+    b.addEventListener("click", function(){
+      var a = R.albums[parseInt(b.getAttribute("data-album"), 10)];
+      if(a && a.browseId) openPythonAlbum(a.browseId, a.title, a.artist, a.thumb);
+      else if(a) say("Couldn't open that album.");
+    });
+  });
+}
+/* v2.2.84: searchRadioBtn removed from the search screen (his call).
+   Radio is still available from the player menu and artist pages. */
 /* ---- recent searches ---- */
 function getRecentSearches(){ return getJSON("lm_recent", []); }
 function saveRecentSearch(q){
@@ -1837,12 +2153,9 @@ function trackRow(v, idx){
     '<button class="iconbtn" data-like="' + idx + '" aria-label="Like ' + esc(v.title) + '">' + (isLiked(v.videoId) ? "❤️" : "🤍") + '</button>' +
     '</div></div>';
 }
-function renderResults(){
-  var box = $("searchResults");
-  if(!state.lastResults.length){ box.innerHTML = '<div class="empty">No results.</div>'; return; }
-  box.innerHTML = state.lastResults.map(function(v, i){ return trackRow(v, i); }).join("");
-  bindTrackButtons(box, state.lastResults);
-}
+/* v2.2.84: renderResults superseded by renderSearchResults (YTM-style typed
+   search). Kept as a no-op shim in case any old path still calls it. */
+function renderResults(){ renderSearchResults(); }
 function bindTrackButtons(root, list){
   root.querySelectorAll("[data-play]").forEach(function(b){
     b.addEventListener("click", function(){
@@ -1889,18 +2202,8 @@ function refreshLikeIcons(root, list){
   });
 }
 $("searchBtn").addEventListener("click", doSearch);
-$("searchRadioBtn").addEventListener("click", function(){
-  var q = $("searchBox").value.trim();
-  if(!q){ say("Type an artist name first, then hit the radio button."); return; }
-  /* If the user just searched for this exact query, reuse the top result as
-     the radio seed instead of burning another (throttled) search API call. */
-  if(state.lastQuery && state.lastQuery.toLowerCase() === q.toLowerCase() &&
-     state.lastResults && state.lastResults.length && state.lastResults[0].videoId){
-    startRadioFromVideo(state.lastResults[0]);
-  } else {
-    startRadio(q);
-  }
-});
+/* v2.2.84: the search-screen Radio button is gone (his call); the underlying
+   startRadio/startRadioFromVideo functions are untouched (player menu etc.). */
 $("searchBox").addEventListener("keydown", function(e){ if(e.key === "Enter") doSearch(); });
 </script>
 <script>
@@ -1943,6 +2246,7 @@ function onPlayerError(e){
     say("This song's owner blocks it from playing inside apps. Use the YouTube Music button to open it in your YouTube Music app instead.");
   } else if(code === 100){
     say("That video was not found. Trying the next one.");
+    try { noteSkipTrack(state.queue[state.qi], "webview-not-found"); } catch(e){}
     playNext(true);
   } else {
     say("That video wouldn't play.");
@@ -2116,6 +2420,7 @@ window.lmNativeResolveFailed = function(i){
     } catch(e){}
   }
   function giveUp(){
+    noteSkipTrack(v, "resolve-failed");
     say("That song wouldn't play. Trying the next one.");
     playNext(true);
   }
@@ -2123,6 +2428,25 @@ window.lmNativeResolveFailed = function(i){
     v.candIdx++;
     say("Trying another upload of " + v.title + ".");
     tryId(v.candidates[v.candIdx]);
+    return;
+  }
+  /* v2.2.84: transient-failure retry — the real remaining skip cause.
+     The Java URL resolver (NewPipe/yt-dlp) has no retry of its own, and the
+     v2.2.79 retry only covers ExoPlayer playback errors. A momentary network
+     blip during resolve used to skip the track outright (the lazy search
+     below also needs network and can be throttled). So: retry the resolve
+     itself up to 2x with backoff before the expensive fallback. The counter
+     clears whenever any track starts playing (lmNativeTrack). */
+  state._resolveRetries = state._resolveRetries || {};
+  var rk = (v.videoId || "?") + "_" + i;
+  var rn = state._resolveRetries[rk] || 0;
+  if(rn < 2 && !v._recSearched){
+    state._resolveRetries[rk] = rn + 1;
+    say("Connection hiccup. Retrying " + (v.title || "song") + ".");
+    setTimeout(function(){
+      if(!state.queue || state.queue[i] !== v || state.qi !== i) return;
+      tryId(v.videoId);
+    }, 2500 * (rn + 1));
     return;
   }
   if(!v._recSearched){
@@ -2191,6 +2515,7 @@ function playQueueIndex(i, fresh){
   }).catch(function(){
     if(state.queue[state.qi] !== v) return;
     say("Couldn't load " + v.title + ". Trying the next one.");
+    noteSkipTrack(v, "queue-resolve-failed");
     playNext(true);
   });
 }
@@ -2711,31 +3036,18 @@ function openLocalAlbum(idx){
     }).catch(function(){ state._refetchingAlbum = false; openLocalAlbum(idx); });
     return;
   }
-  var box = $("albumList");
-  box.innerHTML = '<button class="btn secondary small" id="localAlbumBackBtn">‹ Back to albums</button>' +
-    '<h3>' + esc(a.name) + '</h3><p class="hint">' + esc(a.artist) + ' • ' + a.tracks.length + ' songs</p>' +
-    '<div class="row"><button class="btn small" id="localAlbumPlayAllBtn">Play all</button>' +
-    '<button class="btn small secondary" id="localAlbumDeleteBtn">Remove album</button></div>' +
-    '<div id="albumTrackList"></div>';
-  $("localAlbumBackBtn").addEventListener("click", renderAlbums);
-  $("localAlbumPlayAllBtn").addEventListener("click", function(){
-    playVideo(a.tracks[0], a.tracks, 0);
-    say("Playing album " + a.name + ".");
-  });
-  /* v2.2.57: Remove album button */
-  $("localAlbumDeleteBtn").addEventListener("click", function(){
-    var albums = getAlbums();
-    albums.splice(idx, 1);
-    saveAlbums(albums);
-    renderAlbums();
-    say("Removed " + a.name + " from your albums.");
-  });
-  var tl = $("albumTrackList");
-  tl.innerHTML = a.tracks.map(function(t, i){ return trackRow(t, i); }).join("");
-  bindTrackButtons(tl, a.tracks);
   /* v2.1.5: Takeout albums arrive in export-file order — reorder to the real
      album tracklist when opened. */
   orderLocalAlbum(a, idx);
+  /* v2.2.84: saved albums use the SAME unified album page as searched albums
+     (art, title, description, action row, numbered tracks). Play all is the
+     big Play button; Remove album lives in the More menu. */
+  var fresh = getAlbums()[idx] || a;
+  showAlbumPage({
+    title: fresh.name, artist: fresh.artist, art: fresh.art,
+    browseId: fresh.browseId || "", tracks: fresh.tracks || [],
+    returnTo: "library", isSavedLocal: true, localIdx: idx
+  });
 }
 /* v2.1.6: put a Takeout album's songs in the original album order.
    MusicBrainz is the primary source (the iTunes search API often misses real
@@ -2786,8 +3098,12 @@ function orderLocalAlbum(a, idx){
     var albums = getAlbums();
     if(albums[idx]){ albums[idx] = a; saveAlbums(albums); }
     try {
-      var h = document.querySelector("#albumList h3");
-      if(h && h.textContent === a.name){
+      /* v2.2.84: re-render the unified album page if it's open on this album
+         (was: old #albumList h3 markup). */
+      var panelOpen = !$("albumPanel").hidden && $("albumName").textContent === a.name;
+      var oldOpen = false;
+      try { var h = document.querySelector("#albumList h3"); oldOpen = !!(h && h.textContent === a.name); } catch(e){}
+      if(panelOpen || oldOpen){
         openLocalAlbum(idx);
         say("Put " + a.name + " in album order." + (added ? " Added " + added + " missing songs." : ""));
       }
@@ -5122,6 +5438,22 @@ $("albumMoreBtn").addEventListener("click", function(){
     { label: "💾 Save album", fn: function(){ $("albumSaveBtn").click(); } },
     { label: "↗ Share album", fn: function(){ $("albumShareBtn").click(); } }
   ];
+  /* v2.2.84: saved albums opened from the Library get Remove album here
+     (their old dedicated page had a Remove button; the unified page doesn't). */
+  if(state.albumIsSavedLocal && state.albumLocalIdx >= 0){
+    (function(savedIdx, savedName){
+      items.push({ label: "🗑 Remove album", fn: function(){
+        var albums = getAlbums();
+        albums.splice(savedIdx, 1);
+        saveAlbums(albums);
+        state.albumIsSavedLocal = false;
+        state.albumLocalIdx = -1;
+        closeAlbumPanel();
+        renderAlbums();
+        say("Removed " + savedName + " from your albums.");
+      }});
+    })(state.albumLocalIdx, name);
+  }
   if(m.hidden){
     m.innerHTML = "";
     items.forEach(function(it){
