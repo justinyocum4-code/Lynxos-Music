@@ -146,6 +146,8 @@ jobs:
               /* v2.2.7: media session for Bluetooth headset buttons. */
               implementation 'androidx.media3:media3-session:1.4.1'
               implementation 'com.github.TeamNewPipe:NewPipeExtractor:v0.26.5'
+              /* v2.2.92: FileProvider for the in-app updater. */
+              implementation 'androidx.core:core:1.12.0'
           }
           EOF
           sed -i "s/__APP_VERSION_CODE__/$APP_VERSION_CODE/g; s/__APP_VERSION_NAME__/$APP_VERSION_NAME/g" app/build.gradle
@@ -161,6 +163,8 @@ jobs:
               <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
               <!-- v2.2.13: allow asking the system to exempt the app from battery optimization so screen-off playback isn't killed after 10-15 min -->
               <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+              <!-- v2.2.92: in-app updater needs to install APK packages -->
+              <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
               <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
               <uses-feature android:name="android.software.leanback" android:required="false" />
               <application
@@ -193,8 +197,25 @@ jobs:
                       android:name="com.lynxosmusic.app.MusicService"
                       android:foregroundServiceType="mediaPlayback"
                       android:exported="false" />
+                  <!-- v2.2.92: FileProvider for the in-app updater's APK install -->
+                  <provider
+                      android:name="androidx.core.content.FileProvider"
+                      android:authorities="com.lynxosmusic.app.fileprovider"
+                      android:exported="false"
+                      android:grantUriPermissions="true">
+                      <meta-data
+                          android:name="android.support.FILE_PROVIDER_PATHS"
+                          android:resource="@xml/file_paths" />
+                  </provider>
               </application>
           </manifest>
+          EOF
+
+          cat > app/src/main/res/xml/file_paths.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <paths>
+              <external-files-path name="updates" path="updates/" />
+          </paths>
           EOF
 
           cat > app/src/main/java/com/lynxosmusic/app/MainActivity.java <<'EOF'
@@ -336,6 +357,78 @@ jobs:
                  JavaScript calls LynxosYTM.* methods. */
               /* v2.2.33: Shared YTMusicBridge instance for MusicService access. */
               public static YTMusicBridge sharedYtmBridge = null;
+              /* v2.2.92: in-app updater — downloads the latest APK and fires the
+                 system installer, so updates happen in place without reinstalling. */
+              public class UpdateBridge {
+                  private void jsStatus(final String s){
+                      final String esc = s.replace("\\", "\\\\").replace("'", "\\'");
+                      webView.post(new Runnable() {
+                          @Override public void run() {
+                              webView.evaluateJavascript(
+                                  "(function(){ try { if(window.onUpdateStatus) window.onUpdateStatus('" + esc + "'); } catch(e){} })()", null);
+                          }
+                      });
+                  }
+                  @JavascriptInterface public int getVersionCode(){
+                      try {
+                          if(Build.VERSION.SDK_INT >= 28){
+                              return (int) getPackageManager().getPackageInfo(getPackageName(), 0).getLongVersionCode();
+                          } else {
+                              return getPackageManager().getPackageInfo(getPackageName(), 0).versionCode;
+                          }
+                      } catch(Exception e){ return 0; }
+                  }
+                  @JavascriptInterface public void downloadAndInstall(final String url){
+                      new Thread(new Runnable() {
+                          @Override public void run() {
+                              try {
+                                  jsStatus("downloading");
+                                  java.net.URL u = new java.net.URL(url);
+                                  java.net.HttpURLConnection c = (java.net.HttpURLConnection) u.openConnection();
+                                  c.setConnectTimeout(30000); c.setReadTimeout(60000);
+                                  c.setRequestProperty("User-Agent", "LynxosMusicUpdater");
+                                  c.connect();
+                                  int total = c.getContentLength();
+                                  long done = 0;
+                                  java.io.File dir = new java.io.File(getExternalFilesDir(null), "updates");
+                                  if(!dir.exists()) dir.mkdirs();
+                                  java.io.File out = new java.io.File(dir, "update.apk");
+                                  java.io.InputStream in = c.getInputStream();
+                                  java.io.FileOutputStream fos = new java.io.FileOutputStream(out);
+                                  byte[] buf = new byte[8192]; int n; int lastPct = -1;
+                                  while((n = in.read(buf)) != -1){
+                                      fos.write(buf, 0, n); done += n;
+                                      if(total > 0){
+                                          int pct = (int)(done * 100 / total);
+                                          if(pct != lastPct){ lastPct = pct; jsStatus("downloading:" + pct); }
+                                      }
+                                  }
+                                  fos.close(); in.close();
+                                  jsStatus("installing");
+                                  android.net.Uri uri = androidx.core.content.FileProvider.getUriForFile(
+                                      MainActivity.this, getPackageName() + ".fileprovider", out);
+                                  Intent intent = new Intent(Intent.ACTION_VIEW);
+                                  intent.setDataAndType(uri, "application/vnd.android.package-archive");
+                                  intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                                  intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                                  /* Android 8+: the app must be allowed to install unknown apps. */
+                                  if(Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()){
+                                      Intent s = new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                          android.net.Uri.parse("package:" + getPackageName()));
+                                      s.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                                      startActivity(s);
+                                      jsStatus("need_permission");
+                                      return;
+                                  }
+                                  startActivity(intent);
+                                  jsStatus("launched");
+                              } catch(Exception e){
+                                  jsStatus("error: " + e.getMessage());
+                              }
+                          }
+                      }).start();
+                  }
+              }
               public class YTMusicBridge {
                   private PyObject ytmModule = null;
                   public void warmup() {
@@ -700,6 +793,28 @@ jobs:
                       try { t.join(30000); } catch (Exception e) {}
                       return result[0];
                   }
+                  /* v2.2.82: album metadata (title, artist, artistId, year, thumb) for the album page header. */
+                  @JavascriptInterface public String getAlbumInfo(final String browseId) {
+                      final String[] result = new String[1];
+                      result[0] = "{}";
+                      Thread t = new Thread(new Runnable() {
+                          @Override public void run() {
+                              try {
+                                  ensurePython();
+                                  if (ytmModule != null) {
+                                      PyObject r = ytmModule.callAttr("get_album_info", browseId);
+                                      result[0] = r.toString();
+                                  }
+                              } catch (Exception e) {
+                                  android.util.Log.e("LynxosYTM", "getAlbumInfo failed for " + browseId, e);
+                                  result[0] = "{\"error\":\"" + e.toString().replace("\"", "'") + "\"}";
+                              }
+                          }
+                      });
+                      t.start();
+                      try { t.join(30000); } catch (Exception e) {}
+                      return result[0];
+                  }
                   @JavascriptInterface public String getNewReleases(final int limit) {
                       final String[] result = new String[1];
                       result[0] = "[]";
@@ -833,6 +948,8 @@ jobs:
                   s.setAllowFileAccessFromFileURLs(true);
                   s.setAllowUniversalAccessFromFileURLs(true);
                   webView.addJavascriptInterface(new AudioBridge(), "LynxosPlayer");
+                  /* v2.2.92: in-app updater bridge */
+                  webView.addJavascriptInterface(new UpdateBridge(), "LynxosUpdater");
                   /* v2.2.30: YouTube Music Python bridge */
                   YTMusicBridge ytmBridgeInstance = new YTMusicBridge();
                   sharedYtmBridge = ytmBridgeInstance;
