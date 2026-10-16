@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Link your TV — Lynxos Music</title>
+<style>
+  html, body { margin:0; padding:0; background:#000; color:#f5c518;
+    font-family:sans-serif; text-align:center; min-height:100vh; }
+  #app { max-width:520px; margin:0 auto; padding:32px 20px; }
+  h1 { color:#f5c518; font-size:28px; }
+  p { color:#ccc; font-size:18px; line-height:1.5; }
+  .code { font-size:44px; letter-spacing:10px; color:#f5c518; font-weight:bold; margin:16px 0; }
+  .btn { display:inline-block; background:#f5c518; color:#000; border:none; border-radius:10px;
+    padding:16px 32px; font-size:20px; font-weight:bold; margin-top:16px; cursor:pointer; }
+  input[type=text] { font-size:28px; letter-spacing:6px; text-transform:uppercase; text-align:center;
+    padding:12px; border-radius:10px; border:2px solid #f5c518; background:#111; color:#f5c518;
+    width:240px; margin-top:12px; }
+  .ok { color:#8f8; font-size:20px; }
+  .err { color:#f66; font-size:18px; }
+</style>
+</head>
+<body>
+<div id="app" role="main"><p>Loading…</p></div>
+<script>
+"use strict";
+var SUPABASE_URL = "https://klykzghndlrfwwxwaczm.supabase.co";
+var SB_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtseWt6Z2huZGxyZnd3eHdhY3ptIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk1MzUxNDUsImV4cCI6MjEwNTExMTE0NX0.02AcmkbA_wjLN5XOfwuisJjck2TijjqH66bX5ddVV0Q";
+var LINK_PAGE = "https://justinyocum4-code.github.io/Lynxos-Music/link.html";
+
+function qs(name){
+  try {
+    var m = new RegExp("[?&]" + name + "=([^&#]*)").exec(window.location.search);
+    return m ? decodeURIComponent(m[1]) : "";
+  } catch(e){ return ""; }
+}
+function frag(name){
+  try {
+    var m = new RegExp("[#&]" + name + "=([^&#]*)").exec(window.location.hash);
+    return m ? decodeURIComponent(m[1]) : "";
+  } catch(e){ return ""; }
+}
+function el(html){ document.getElementById("app").innerHTML = html; }
+function validCode(c){ return /^[A-Z2-9]{8}$/.test(c); }
+
+function showManual(){
+  el("<h1>Link your TV</h1>" +
+     "<p>Enter the 8-letter code shown on your TV:</p>" +
+     "<input type='text' id='codeIn' maxlength='8' autocomplete='off' aria-label='TV code'>" +
+     "<br><button class='btn' id='goBtn'>Continue</button>" +
+     "<p id='err' class='err'></p>");
+  document.getElementById("goBtn").addEventListener("click", function(){
+    var c = document.getElementById("codeIn").value.toUpperCase().replace(/[^A-Z2-9]/g, "");
+    if(!validCode(c)){ document.getElementById("err").textContent = "That code doesn't look right. Check your TV and try again."; return; }
+    window.location.href = LINK_PAGE + "?code=" + c;
+  });
+}
+
+function showApprove(code){
+  el("<h1>Link your TV?</h1>" +
+     "<p>Your TV is asking to sign in to your Lynxos Music account.</p>" +
+     "<div class='code'>" + code + "</div>" +
+     "<p>Tap below to sign in with Google and link it.</p>" +
+     "<button class='btn' id='authBtn'>Sign in with Google</button>");
+  document.getElementById("authBtn").addEventListener("click", function(){
+    var scopes = encodeURIComponent("https://www.googleapis.com/auth/youtube https://www.googleapis.com/auth/youtubepartner");
+    var url = SUPABASE_URL + "/auth/v1/authorize?provider=google" +
+      "&redirect_to=" + encodeURIComponent(LINK_PAGE + "?code=" + code) +
+      "&scopes=" + scopes;
+    window.location.href = url;
+  });
+}
+
+function finishLink(code){
+  var access = frag("access_token"), refresh = frag("refresh_token");
+  if(!access){ el("<p class='err'>Sign-in didn't complete. <a href='" + LINK_PAGE + "?code=" + code + "' style='color:#f5c518'>Try again</a>.</p>"); return; }
+  el("<p>Finishing up…</p>");
+  fetch(SUPABASE_URL + "/auth/v1/user", {
+    headers: { "apikey": SB_ANON, "Authorization": "Bearer " + access }
+  }).then(function(r){ return r.json(); }).then(function(user){
+    if(!user || !user.id) throw new Error("no user");
+    return fetch(SUPABASE_URL + "/rest/v1/tv_link_codes?code=eq." + encodeURIComponent(code), {
+      method: "PATCH",
+      headers: { "apikey": SB_ANON, "Authorization": "Bearer " + access, "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "linked", user_id: user.id, access_token: access, refresh_token: refresh || "" })
+    });
+  }).then(function(){
+    el("<h1>TV linked!</h1><p class='ok'>Your TV is now signed in. You can close this page.</p>");
+  }).catch(function(){
+    el("<p class='err'>Something went wrong linking your TV. The code may have expired — get a fresh one from the TV and try again.</p>");
+  });
+}
+
+(function init(){
+  var code = qs("code").toUpperCase();
+  if(frag("access_token")){
+    if(!validCode(code)){ el("<p class='err'>Lost the TV code during sign-in. Please start over from the TV.</p>"); return; }
+    finishLink(code);
+  } else if(validCode(code)){
+    showApprove(code);
+  } else {
+    showManual();
+  }
+})();
+</script>
+</body>
+</html>
