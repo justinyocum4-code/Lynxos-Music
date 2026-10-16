@@ -525,7 +525,7 @@
 <!-- v2.2.89: TV-visible toast (say() shows it on TV; phones never see it). -->
 <div id="tvToast" hidden></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.89</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.90</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -693,7 +693,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.89. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.90. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -864,7 +864,100 @@ function say(msg){ var el = $("status"); if(el){ el.textContent = ""; setTimeout
   } catch(e){}
 }
 function getJSON(k, fb){ try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : fb; } catch(e){ return fb; } }
-function setJSON(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){} }
+function setJSONRaw(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){} }
+/* v2.2.90: cloud sync — every library write also schedules an upload. */
+var LIB_SYNC_KEYS = ["lm_albums","lm_liked","lm_playlists","lm_history"];
+function setJSON(k, v){
+  setJSONRaw(k, v);
+  try {
+    if(typeof LIB_SYNC_KEYS !== "undefined" && LIB_SYNC_KEYS.indexOf(k) >= 0) scheduleCloudUpload();
+  } catch(e){}
+}
+/* ================= v2.2.90: Cloud library sync (Supabase) =================
+   Saved albums, liked songs, playlists and history sync to your Supabase
+   account, so every device you sign into shares one library.
+   - Upload: debounced ~4s after any library change.
+   - Download: on app start and right after sign-in, when the cloud copy is newer.
+   - Conflict rule: newest updated_at wins (last write wins). */
+var CLOUD_TABLE = "lynxos_music_library";
+var _syncTimer = null, _syncApplying = false, _syncBusy = false;
+function getLocalLibTs(){ try { return localStorage.getItem("lm_lib_updated") || ""; } catch(e){ return ""; } }
+function setLocalLibTs(ts){ try { localStorage.setItem("lm_lib_updated", ts); } catch(e){} }
+function getLastSyncOk(){ try { return localStorage.getItem("lm_lib_synced") || ""; } catch(e){ return ""; } }
+function setLastSyncOk(ts){ try { localStorage.setItem("lm_lib_synced", ts); } catch(e){} }
+function scheduleCloudUpload(){
+  if(_syncApplying) return;
+  try {
+    if(typeof sbGetTokens === "undefined") return;
+    var tokens = sbGetTokens(); if(!tokens) return;
+    setLocalLibTs(new Date().toISOString());
+    if(_syncTimer) clearTimeout(_syncTimer);
+    _syncTimer = setTimeout(cloudUploadNow, 4000);
+  } catch(e){}
+}
+function cloudUploadNow(){
+  _syncTimer = null;
+  try {
+    if(typeof sbGetTokens === "undefined" || typeof sbGetUser === "undefined") return;
+    var tokens = sbGetTokens(); if(!tokens || _syncBusy) return;
+    var user = sbGetUser(); if(!user || !user.id) return;
+    _syncBusy = true;
+    var now = new Date().toISOString();
+    var body = {
+      user_id: user.id,
+      albums: getAlbums(), liked: getLiked(),
+      playlists: getPlaylists(), history: getHistory(),
+      updated_at: now
+    };
+    fetch(SUPABASE_URL + "/rest/v1/" + CLOUD_TABLE, {
+      method: "POST",
+      headers: { "apikey": SB_ANON, "Authorization": "Bearer " + tokens.access,
+                 "Content-Type": "application/json", "Prefer": "resolution=merge-duplicates" },
+      body: JSON.stringify(body)
+    }).then(function(){ _syncBusy = false; setLastSyncOk(new Date().toISOString()); setLocalLibTs(now); })
+     .catch(function(){ _syncBusy = false; });
+  } catch(e){ _syncBusy = false; }
+}
+function cloudDownloadNow(cb){
+  try {
+    if(typeof sbGetTokens === "undefined" || typeof sbGetUser === "undefined"){ if(cb) cb(false); return; }
+    var tokens = sbGetTokens(); if(!tokens){ if(cb) cb(false); return; }
+    var user = sbGetUser(); if(!user || !user.id){ if(cb) cb(false); return; }
+    fetch(SUPABASE_URL + "/rest/v1/" + CLOUD_TABLE + "?user_id=eq." + encodeURIComponent(user.id) + "&select=*", {
+      headers: { "apikey": SB_ANON, "Authorization": "Bearer " + tokens.access }
+    }).then(function(r){ return r.json(); }).then(function(rows){
+      var changed = false;
+      if(rows && rows.length){
+        var row = rows[0], cloudTs = row.updated_at || "", localTs = getLocalLibTs();
+        if(cloudTs && cloudTs > localTs){ applyCloudRow(row); changed = true; }
+        else if(localTs && localTs > cloudTs){ cloudUploadNow(); }
+      } else {
+        cloudUploadNow();
+      }
+      if(cb) cb(changed);
+    }).catch(function(){ if(cb) cb(false); });
+  } catch(e){ if(cb) cb(false); }
+}
+function applyCloudRow(row){
+  _syncApplying = true;
+  try {
+    setJSONRaw("lm_albums", row.albums || []);
+    setJSONRaw("lm_liked", row.liked || []);
+    setJSONRaw("lm_playlists", row.playlists || {});
+    setJSONRaw("lm_history", row.history || []);
+    setLocalLibTs(row.updated_at || new Date().toISOString());
+    setLastSyncOk(new Date().toISOString());
+  } catch(e){}
+  _syncApplying = false;
+  try { if(typeof renderLibrary === "function") renderLibrary(); } catch(e){}
+  try { if(typeof renderHome === "function") renderHome(); } catch(e){}
+}
+function syncStatusText(){
+  var last = getLastSyncOk();
+  if(!last) return "Cloud sync is on. First sync pending.";
+  try { return "Cloud sync is on. Last synced " + new Date(last).toLocaleString() + "."; }
+  catch(e){ return "Cloud sync is on."; }
+}
 function fmtTime(sec){ sec = Math.max(0, Math.floor(sec || 0)); var m = Math.floor(sec/60), s = sec%60; return m + ":" + (s < 10 ? "0" : "") + s; }
 /* ================= state ================= */
 var state = {
@@ -6119,12 +6212,24 @@ function renderAccount(){
       "<p style='color:#999'>" + esc(user.email || "") + "</p>" +
       "<button class='btn' id='importYtmBtn' style='margin-top:8px'>Import from YouTube Music</button>" +
       "<div id='importStatus' style='margin-top:8px'></div>" +
+      "<div id='syncStatus' style='margin-top:8px;color:#999'>" + esc(syncStatusText()) + "</div>" +
+      "<button class='btn' id='syncNowBtn' style='margin-top:8px'>Sync now</button>" +
       "<button class='btn' id='signOutBtn' style='margin-top:8px'>Sign out</button>" +
       "</div>";
     $("signOutBtn").addEventListener("click", function(){
       sbClearTokens(); renderAccount(); say("Signed out.");
     });
     $("importYtmBtn").addEventListener("click", importFromYouTubeMusic);
+    $("syncNowBtn").addEventListener("click", function(){
+      say("Syncing your library.");
+      var el = $("syncStatus");
+      if(el) el.textContent = "Syncing…";
+      cloudDownloadNow(function(changed){
+        var box2 = $("syncStatus");
+        if(box2) box2.textContent = syncStatusText() + (changed ? " Library updated from cloud." : " Already up to date.");
+        say(changed ? "Library synced from cloud." : "Already up to date.");
+      });
+    });
     say("Signed in as " + name);
   } else if(tokens && !user){
     /* Have tokens but no user info - fetch it */
@@ -6149,6 +6254,8 @@ function fetchUserInfo(accessToken){
     if(user && user.id){
       try { localStorage.setItem("lm_sb_user", JSON.stringify(user)); } catch(e){}
       renderAccount();
+      /* v2.2.90: user info just arrived — pull the cloud library now. */
+      try { cloudDownloadNow(function(changed){ if(changed) renderAccount(); }); } catch(e){}
     } else {
       sbClearTokens();
       if(box) box.innerHTML = "<p>Session expired. Please sign in again.</p>";
@@ -6181,6 +6288,8 @@ function handleAuthCallback(url){
       sbSaveTokens(params.access_token, params.refresh_token, params.provider_token || "");
       say("Signed in! Loading your account.");
       renderAccount();
+      /* v2.2.90: pull the cloud library right after sign-in. */
+      try { cloudDownloadNow(function(changed){ if(changed){ say("Your library was synced from your other devices."); renderAccount(); } }); } catch(e){}
     } else if(url.indexOf("error=") >= 0){
       say("Sign-in was cancelled or failed.");
     }
@@ -6233,6 +6342,8 @@ try { $("accountBackBtn").addEventListener("click", closeAccount); } catch(e){}
 renderRecentSearches();
 updateSleepBtn();
 renderHome();
+/* v2.2.90: pull the cloud library on start when signed in. */
+try { cloudDownloadNow(); } catch(e){}
 /* v2.2.89: TV needs initial D-pad focus at launch — with no focused element
    the first remote presses do nothing. Phone is untouched. */
 try {
