@@ -71,6 +71,7 @@ jobs:
 
           # TV (Leanback) banner so the app shows in the TV launcher row.
           mkdir -p app/src/main/res/drawable
+          mkdir -p app/src/main/res/xml
           if [ -f tv_banner.png ]; then
             cp tv_banner.png app/src/main/res/drawable/tv_banner.png
             echo "TV banner installed."
