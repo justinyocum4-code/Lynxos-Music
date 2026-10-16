@@ -452,7 +452,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.85</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.86</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -620,7 +620,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.85. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.86. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -1077,15 +1077,31 @@ function saveAlbumFromPanel(title, artist, art, browseId, tracks){
   saveAlbums(albums);
   renderAlbums();
 }
-/* v2.2.85: shared by the visible Remove button and the ⋮ menu entry. */
+/* v2.2.85: shared by the visible Remove button and the ⋮ menu entry.
+   v2.2.86: falls back to a name+artist match when the stored index is stale
+   (the library may have changed between opening the album and tapping). */
+function findSavedAlbumIdx(name, artist){
+  var albums = getAlbums();
+  var nk = String(name || "").toLowerCase().trim(), ak = String(artist || "").toLowerCase().trim();
+  for(var i = 0; i < albums.length; i++){
+    if(String(albums[i].name || "").toLowerCase().trim() === nk &&
+       String(albums[i].artist || "").toLowerCase().trim() === ak) return i;
+  }
+  return -1;
+}
 function removeSavedAlbum(idx, name){
   var albums = getAlbums();
+  if(idx < 0 || idx >= albums.length){
+    var an = (($("albumName") || {}).textContent) || name || "";
+    var aa = (($("albumArtist") || {}).textContent) || "";
+    idx = findSavedAlbumIdx(an, aa);
+  }
   if(idx < 0 || idx >= albums.length){ say("Couldn't find that album."); return; }
   albums.splice(idx, 1);
   saveAlbums(albums);
   state.albumIsSavedLocal = false;
   state.albumLocalIdx = -1;
-  closeAlbumPanel();
+  try { closeAlbumPanel(); } catch(e){}
   renderAlbums();
   say("Removed " + (name || "album") + " from your albums.");
 }
@@ -5300,9 +5316,14 @@ function openSinglesSeeAll(){
     forYouCache.singles.forEach(function(it){ grid.appendChild(releaseCard(it, "single")); });
   });
 }
-$("mixesSeeAllBtn").addEventListener("click", openMixesSeeAll);
-$("releasesSeeAllBtn").addEventListener("click", openReleasesSeeAll);
-$("singlesSeeAllBtn").addEventListener("click", openSinglesSeeAll);
+/* v2.2.86: null-guarded — these buttons are not in the markup (their "For you"
+   shelves were removed in the v2.2.80 Home redo). The unguarded calls threw a
+   TypeError at init and killed EVERY listener wired after this point,
+   including the album page back/radio/share/remove/more buttons. */
+(function(){
+  var pairs = [["mixesSeeAllBtn", openMixesSeeAll], ["releasesSeeAllBtn", openReleasesSeeAll], ["singlesSeeAllBtn", openSinglesSeeAll]];
+  pairs.forEach(function(p){ var b = $(p[0]); if(b) b.addEventListener("click", p[1]); });
+})();
 $("seeAllBackBtn").addEventListener("click", closeSeeAll);
 function playLikedMix(){
   if(!getLiked().length){ say("You have not liked any songs yet. Tap the heart on a song to like it."); return; }
@@ -5559,26 +5580,34 @@ function closeAlbumPanel(){
     say("Back.");
   }
 }
-$("albumBackBtn").addEventListener("click", closeAlbumPanel);
+/* v2.2.86: init-hardening — a missing element can never again kill the wiring
+   below it; attach failures are spoken instead of silent. */
+function wireBtn(id, fn){
+  try {
+    var b = $(id);
+    if(b){ b.addEventListener("click", fn); return true; }
+  } catch(e){}
+  return false;
+}
+wireBtn("albumBackBtn", closeAlbumPanel);
 /* v2.2.82: YTM-style album action row wiring. */
-$("albumRadioBtn").addEventListener("click", function(){
+wireBtn("albumRadioBtn", function(){
   var a = $("albumArtistTop").textContent || $("albumArtist").textContent || "";
   if(a){ startRadio(a); } else { say("No artist found for radio."); }
 });
-$("albumShareBtn").addEventListener("click", function(){
+wireBtn("albumShareBtn", function(){
   var name = $("albumName").textContent || "this album";
   var artist = $("albumArtist").textContent || "";
   var text = name + (artist ? " by " + artist : "");
   if(navigator.clipboard){ navigator.clipboard.writeText(text).then(function(){ say("Album name copied."); }).catch(function(){ say(text); }); }
   else { say(text); }
 });
-/* v2.2.85: visible Remove button for saved albums. */
-$("albumRemoveBtn").addEventListener("click", function(){
-  if(state.albumIsSavedLocal && state.albumLocalIdx >= 0){
-    removeSavedAlbum(state.albumLocalIdx, $("albumName").textContent || "Album");
-  } else {
-    say("This album isn't in your library.");
-  }
+/* v2.2.85: visible Remove button for saved albums.
+   v2.2.86: always delegates to removeSavedAlbum, which re-verifies the index
+   at tap time and falls back to a name+artist match when stale. */
+wireBtn("albumRemoveBtn", function(){
+  var idx = (state.albumIsSavedLocal && state.albumLocalIdx >= 0) ? state.albumLocalIdx : -1;
+  removeSavedAlbum(idx, ($("albumName") || {}).textContent || "Album");
 });
 /* v2.2.85: YTM-style album options menu (his screenshot) — header with close
    button, focus moved into the menu + TalkBack announcement on open, and a
@@ -5636,7 +5665,7 @@ function openAlbumOptionsMenu(){
     say("Couldn't open the album options.");
   }
 }
-$("albumMoreBtn").addEventListener("click", function(){
+wireBtn("albumMoreBtn", function(){
   var m = $("albumMoreMenu");
   if(m && !m.hidden){ m.hidden = true; return; }
   openAlbumOptionsMenu();
