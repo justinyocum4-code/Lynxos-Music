@@ -56,21 +56,38 @@ function showManual(){
   });
 }
 
+function codeIsLive(code){
+  return fetch(SUPABASE_URL + "/rest/v1/tv_link_codes?code=eq." + encodeURIComponent(code) + "&select=status", {
+    headers: { "apikey": SB_ANON }
+  }).then(function(r){ return r.json(); }).then(function(rows){
+    return !!(rows && rows.length && rows[0].status === "pending");
+  });
+}
+
 function showApprove(code){
-  el("<h1>Link your TV?</h1>" +
-     "<p>Your TV is asking to sign in to your Lynxos Music account.</p>" +
-     "<div class='code'>" + code + "</div>" +
-     "<p>Tap below to sign in with Google and link it.</p>" +
-     "<button class='btn' id='authBtn'>Sign in with Google</button>");
-  document.getElementById("authBtn").addEventListener("click", function(){
-    /* v2.2.91 fix: stash the TV code locally and use the bare page URL as
-       redirect_to — Supabase rejects return addresses carrying ?code=... */
-    try { localStorage.setItem("lm_tv_code", code); } catch(e){}
-    var scopes = encodeURIComponent("https://www.googleapis.com/auth/youtube https://www.googleapis.com/auth/youtubepartner");
-    var url = SUPABASE_URL + "/auth/v1/authorize?provider=google" +
-      "&redirect_to=" + encodeURIComponent(LINK_PAGE) +
-      "&scopes=" + scopes;
-    window.location.href = url;
+  /* v2.2.91 fix 3: never trust a stale code — check it's live first */
+  el("<p>Checking the code…</p>");
+  codeIsLive(code).then(function(live){
+    if(live){
+      el("<h1>Link your TV?</h1>" +
+         "<p>Your TV is asking to sign in to your Lynxos Music account.</p>" +
+         "<div class='code'>" + code + "</div>" +
+         "<p>Make sure this matches the code on your TV right now, then tap below.</p>" +
+         "<button class='btn' id='authBtn'>Sign in with Google</button>");
+      document.getElementById("authBtn").addEventListener("click", function(){
+        try { localStorage.setItem("lm_tv_code", code); } catch(e){}
+        var scopes = encodeURIComponent("https://www.googleapis.com/auth/youtube https://www.googleapis.com/auth/youtubepartner");
+        var url = SUPABASE_URL + "/auth/v1/authorize?provider=google" +
+          "&redirect_to=" + encodeURIComponent(LINK_PAGE) +
+          "&scopes=" + scopes;
+        window.location.href = url;
+      });
+    } else {
+      el("<h1>Code expired</h1>" +
+         "<p class='err'>That code isn't active anymore. On your TV, get a fresh code and scan the new QR — don't reuse an old page or tab.</p>");
+    }
+  }).catch(function(){
+    el("<p class='err'>Couldn't reach the sign-in service. Check your connection and reload.</p>");
   });
 }
 
@@ -114,7 +131,17 @@ function finishLink(code){
       try { code = (localStorage.getItem("lm_tv_code") || "").toUpperCase(); } catch(e){}
     }
     if(!validCode(code)){ el("<p class='err'>Lost the TV code during sign-in. Please start over from the TV.</p>"); return; }
-    finishLink(code);
+    /* v2.2.91 fix 3: the code may have expired during the Google round-trip —
+       re-check it's still live before writing anything */
+    el("<p>Finishing up…</p>");
+    codeIsLive(code).then(function(live){
+      if(live){ finishLink(code); }
+      else {
+        el("<h1>Code expired</h1><p class='err'>The TV code expired while you were signing in. Get a fresh code from the TV and scan the new QR — don't reuse an old tab.</p>");
+      }
+    }).catch(function(){
+      el("<p class='err'>Couldn't reach the sign-in service. Try again.</p>");
+    });
   } else if(validCode(code)){
     showApprove(code);
   } else {
