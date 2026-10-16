@@ -487,19 +487,81 @@ def get_stream_url(video_id):
     except Exception as e:
         return json.dumps({"error": str(e)})
 
-def get_new_releases(limit=100):
-    """Get new album releases. Returns JSON array of albums."""
+def get_album_info(browse_id):
+    """Get album metadata (title, artist, artistId, year, thumb). Returns JSON object."""
     try:
         ytm = _get_ytm()
-        # Use charts to get trending, which includes new releases
-        # ytmusicapi doesn't have a direct new releases endpoint,
-        # so we search for recent albums across genres
+        album = ytm.get_album(browse_id)
+        artists = album.get("artists", [])
+        artist = artists[0] if artists else {}
+        thumbs = album.get("thumbnails", [])
+        thumb_url = thumbs[-1].get("url", "") if thumbs else ""
+        return json.dumps({
+            "title": album.get("title", ""),
+            "artist": artist.get("name", "") if isinstance(artist, dict) else "",
+            "artistId": artist.get("id", "") if isinstance(artist, dict) else "",
+            "year": str(album.get("year", "") or ""),
+            "type": album.get("type", ""),
+            "thumb": thumb_url,
+            "browseId": browse_id,
+            # v2.2.84: album description for the album page ("...More" expander).
+            # ytmusicapi's get_album() carries this (e.g. "Dead Reflection is the
+            # ninth studio album by the Canadian post-hardcore band ...").
+            "description": album.get("description", "") or "",
+        })
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+def get_new_releases(limit=100):
+    """Get new album/single releases. Returns JSON array of typed items.
+    v2.2.82: was ytm.search("new album <year>") which is relevance-ranked, not
+    date-ranked — the same popular albums matched that query day after day, so
+    the shelf never looked fresh. Now uses YouTube Music's real "New releases"
+    home section via ytm.get_home(), which YouTube updates with genuinely new
+    items. Falls back to the old search approach if the section is missing."""
+    try:
+        ytm = _get_ytm()
+        items = []
+        try:
+            home = ytm.get_home(limit=10) or []
+            section = None
+            for s in home:
+                t = (s.get("title") or "").lower()
+                if "new release" in t:
+                    section = s
+                    break
+            if section:
+                for item in section.get("contents", []):
+                    browse_id = item.get("browseId", "") or ""
+                    if not browse_id.startswith("MPRE"):
+                        continue
+                    thumbnails = item.get("thumbnails", [])
+                    thumb_url = thumbnails[-1].get("url", "") if thumbnails else ""
+                    artists = item.get("artists", [])
+                    artist_name = artists[0].get("name", "") if artists else ""
+                    rtype = (item.get("type") or "").lower()
+                    kind = "single" if rtype == "single" else ("ep" if rtype == "ep" else "album")
+                    items.append({
+                        "browseId": browse_id,
+                        "title": item.get("title", ""),
+                        "artist": artist_name,
+                        "year": str(item.get("year", "") or ""),
+                        "thumb": thumb_url,
+                        "explicit": bool(item.get("isExplicit", False)),
+                        "kind": kind,
+                    })
+                    if len(items) >= limit:
+                        break
+        except Exception:
+            items = []
+        if items:
+            return json.dumps(items[:limit])
+        # Fallback: old search-based approach
         albums = []
         seen = set()
-        # Search for new albums by year
         import datetime
         year = datetime.datetime.now().year
-        for query in [f"new album {year}", f"new releases {year}", "new music"]:
+        for query in ["new album %s" % year, "new releases %s" % year, "new music"]:
             try:
                 results = ytm.search(query, filter="albums", limit=30)
                 for item in results:
@@ -517,6 +579,8 @@ def get_new_releases(limit=100):
                         "artist": artist_name,
                         "year": item.get("year", ""),
                         "thumb": thumb_url,
+                        "explicit": False,
+                        "kind": "album",
                     })
                     if len(albums) >= limit:
                         break
