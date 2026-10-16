@@ -309,20 +309,31 @@ def get_ytm_history(provider_token):
 def get_charts(country="US", limit=50):
     """Get charts (top singles/trending). Returns JSON.
     v2.2.70: YouTube removed the songs list from charts - now pulls
-    tracks from the Trending playlist instead."""
+    tracks from a charts playlist instead.
+    v2.2.88: the old code grabbed the first "trending" playlist, which is now
+    "Trending 20" (20 tracks max) - the shelf looked short. Prefer the
+    "Top 100 Music Videos" playlist (100 tracks) instead; fall back to the
+    old first-trending-match only if the Top 100 entry is absent."""
     try:
         ytm = _get_ytm()
         charts = ytm.get_charts(country=country)
         tracks = []
-        # Find the Trending playlist in the charts response
-        trending_id = None
-        for v in charts.get("videos", []):
+        # Prefer the Top 100 playlist; fall back to the first trending match.
+        videos = charts.get("videos", []) or []
+        chart_id = None
+        for v in videos:
             title = (v.get("title") or "").lower()
-            if "trending" in title and country.lower() in title or "trending" in title:
-                trending_id = v.get("playlistId")
+            if "top 100" in title:
+                chart_id = v.get("playlistId")
                 break
-        if trending_id:
-            pl = ytm.get_playlist(trending_id, limit=limit)
+        if not chart_id:
+            for v in videos:
+                title = (v.get("title") or "").lower()
+                if "trending" in title:
+                    chart_id = v.get("playlistId")
+                    break
+        if chart_id:
+            pl = ytm.get_playlist(chart_id, limit=limit)
             for item in pl.get("tracks", [])[:limit]:
                 artists = item.get("artists", [])
                 artist = artists[0].get("name", "") if artists else ""
@@ -512,16 +523,22 @@ def get_album_info(browse_id):
     except Exception as e:
         return json.dumps({"error": str(e)})
 
-def get_new_releases(limit=100):
+def get_new_releases(limit=50):
     """Get new album/single releases. Returns JSON array of typed items.
     v2.2.82: was ytm.search("new album <year>") which is relevance-ranked, not
     date-ranked — the same popular albums matched that query day after day, so
     the shelf never looked fresh. Now uses YouTube Music's real "New releases"
     home section via ytm.get_home(), which YouTube updates with genuinely new
-    items. Falls back to the old search approach if the section is missing."""
+    items.
+    v2.2.88: the curated section holds only ~10 items, so the shelf looked
+    short. Keep the curated items FIRST (freshness), then top up with the
+    search-based queries (deduped) until the list reaches `limit` (~40-50)
+    or the searches run dry."""
+    TARGET = limit or 50
     try:
         ytm = _get_ytm()
         items = []
+        seen = set()
         try:
             home = ytm.get_home(limit=10) or []
             section = None
@@ -533,8 +550,9 @@ def get_new_releases(limit=100):
             if section:
                 for item in section.get("contents", []):
                     browse_id = item.get("browseId", "") or ""
-                    if not browse_id.startswith("MPRE"):
+                    if not browse_id.startswith("MPRE") or browse_id in seen:
                         continue
+                    seen.add(browse_id)
                     thumbnails = item.get("thumbnails", [])
                     thumb_url = thumbnails[-1].get("url", "") if thumbnails else ""
                     artists = item.get("artists", [])
@@ -550,45 +568,40 @@ def get_new_releases(limit=100):
                         "explicit": bool(item.get("isExplicit", False)),
                         "kind": kind,
                     })
-                    if len(items) >= limit:
-                        break
         except Exception:
-            items = []
-        if items:
-            return json.dumps(items[:limit])
-        # Fallback: old search-based approach
-        albums = []
-        seen = set()
-        import datetime
-        year = datetime.datetime.now().year
-        for query in ["new album %s" % year, "new releases %s" % year, "new music"]:
-            try:
-                results = ytm.search(query, filter="albums", limit=30)
-                for item in results:
-                    browse_id = item.get("browseId", "")
-                    if not browse_id or browse_id in seen:
-                        continue
-                    seen.add(browse_id)
-                    thumbnails = item.get("thumbnails", [])
-                    thumb_url = thumbnails[-1].get("url", "") if thumbnails else ""
-                    artists = item.get("artists", [])
-                    artist_name = artists[0].get("name", "") if artists else ""
-                    albums.append({
-                        "browseId": browse_id,
-                        "title": item.get("title", ""),
-                        "artist": artist_name,
-                        "year": item.get("year", ""),
-                        "thumb": thumb_url,
-                        "explicit": False,
-                        "kind": "album",
-                    })
-                    if len(albums) >= limit:
-                        break
-            except:
-                continue
-            if len(albums) >= limit:
-                break
-        return json.dumps(albums[:limit])
+            pass
+        # Top-up: search-based queries for depth (curated items stay first).
+        if len(items) < TARGET:
+            import datetime
+            year = datetime.datetime.now().year
+            for query in ["new album %s" % year, "new releases %s" % year, "new music"]:
+                try:
+                    results = ytm.search(query, filter="albums", limit=30)
+                    for item in results:
+                        browse_id = item.get("browseId", "") or ""
+                        if not browse_id or browse_id in seen:
+                            continue
+                        seen.add(browse_id)
+                        thumbnails = item.get("thumbnails", [])
+                        thumb_url = thumbnails[-1].get("url", "") if thumbnails else ""
+                        artists = item.get("artists", [])
+                        artist_name = artists[0].get("name", "") if artists else ""
+                        items.append({
+                            "browseId": browse_id,
+                            "title": item.get("title", ""),
+                            "artist": artist_name,
+                            "year": str(item.get("year", "") or ""),
+                            "thumb": thumb_url,
+                            "explicit": False,
+                            "kind": "album",
+                        })
+                        if len(items) >= TARGET:
+                            break
+                except Exception:
+                    continue
+                if len(items) >= TARGET:
+                    break
+        return json.dumps(items[:TARGET])
     except Exception as e:
         return json.dumps({"error": str(e)})
 
