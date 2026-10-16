@@ -78,6 +78,7 @@ function finishLink(code){
   var access = frag("access_token"), refresh = frag("refresh_token");
   if(!access){ el("<p class='err'>Sign-in didn't complete. <a href='" + LINK_PAGE + "?code=" + code + "' style='color:#f5c518'>Try again</a>.</p>"); return; }
   el("<p>Finishing up…</p>");
+  var patchStatus = 0;
   fetch(SUPABASE_URL + "/auth/v1/user", {
     headers: { "apikey": SB_ANON, "Authorization": "Bearer " + access }
   }).then(function(r){ return r.json(); }).then(function(user){
@@ -87,11 +88,22 @@ function finishLink(code){
       headers: { "apikey": SB_ANON, "Authorization": "Bearer " + access, "Content-Type": "application/json" },
       body: JSON.stringify({ status: "linked", user_id: user.id, access_token: access, refresh_token: refresh || "" })
     });
-  }).then(function(){
-    try { localStorage.removeItem("lm_tv_code"); } catch(e){}
-    el("<h1>TV linked!</h1><p class='ok'>Your TV is now signed in. You can close this page.</p>");
-  }).catch(function(){
-    el("<p class='err'>Something went wrong linking your TV. The code may have expired — get a fresh one from the TV and try again.</p>");
+  }).then(function(pr){
+    patchStatus = pr.status;
+    /* v2.2.91 fix 2: verify the row actually flipped before claiming success */
+    return fetch(SUPABASE_URL + "/rest/v1/tv_link_codes?code=eq." + encodeURIComponent(code) + "&select=status", {
+      headers: { "apikey": SB_ANON, "Authorization": "Bearer " + access }
+    });
+  }).then(function(r){ return r.json(); }).then(function(rows){
+    if(rows && rows.length && rows[0].status === "linked"){
+      try { localStorage.removeItem("lm_tv_code"); } catch(e){}
+      el("<h1>TV linked!</h1><p class='ok'>Your TV is now signed in. You can close this page.</p>");
+    } else {
+      throw new Error("save returned HTTP " + patchStatus + " but the code stayed pending");
+    }
+  }).catch(function(err){
+    var msg = (err && err.message) ? err.message : "unknown error";
+    el("<p class='err'>Couldn't link your TV (" + msg + "). Get a fresh code from the TV and try again.</p>");
   });
 }
 
