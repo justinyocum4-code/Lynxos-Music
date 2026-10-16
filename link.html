@@ -102,14 +102,16 @@ function finishLink(code){
     if(!user || !user.id) throw new Error("no user");
     return fetch(SUPABASE_URL + "/rest/v1/tv_link_codes?code=eq." + encodeURIComponent(code), {
       method: "PATCH",
-      headers: { "apikey": SB_ANON, "Authorization": "Bearer " + access, "Content-Type": "application/json" },
+      /* v2.2.91 fix 4: write as anon — the anon link policy only allows a
+         pending→linked flip with all fields set, and it's fully testable */
+      headers: { "apikey": SB_ANON, "Content-Type": "application/json" },
       body: JSON.stringify({ status: "linked", user_id: user.id, access_token: access, refresh_token: refresh || "" })
     });
   }).then(function(pr){
     patchStatus = pr.status;
     /* v2.2.91 fix 2: verify the row actually flipped before claiming success */
     return fetch(SUPABASE_URL + "/rest/v1/tv_link_codes?code=eq." + encodeURIComponent(code) + "&select=status", {
-      headers: { "apikey": SB_ANON, "Authorization": "Bearer " + access }
+      headers: { "apikey": SB_ANON }
     });
   }).then(function(r){ return r.json(); }).then(function(rows){
     if(rows && rows.length && rows[0].status === "linked"){
