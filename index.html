@@ -14,8 +14,8 @@
   body.light #miniPlayer { background: var(--surface2); border-top-color: #d8d2c0; }
   body.light .track { border-bottom-color: #e4dfd2; }
   body.light .queue-item { border-bottom-color: #e4dfd2; }
-  body.light .mixCard { background: #fffdf5; }
-  body.light .mixCard small { color: #5a5a5a; }
+  body.light .mixCard .mixTile { background: linear-gradient(135deg, #f0e6c8, #fffdf5); border-color: #d8c98a; }
+  body.light .mixCard .mixSub { color: #5a5a5a; }
   body.light .albumCard { background: #ffffff; border-color: #d8d2c0; color: #1a1a1a; }
   body.light .albumCard .ad { color: #5a5a5a; }
   body.light input[type="text"], body.light input[type="search"] { border-color: #c9c2ae; }
@@ -230,8 +230,12 @@
   .dots { display: flex; gap: 6px; justify-content: center; padding: 8px 0 4px; }
   .dots span { width: 8px; height: 8px; border-radius: 50%; background: #555; }
   .dots span.on { background: #fff; }
-  .mixCard { min-width: 140px; flex: 1 1 0; background: var(--surface); border: 1px solid #2a2a2a; border-radius: 12px; padding: 16px 10px; color: var(--gold); text-align: center; font-size: 16px; font-weight: bold; }
-  .mixCard small { display: block; color: var(--muted); font-size: 12px; font-weight: normal; margin-top: 6px; }
+  /* v2.2.87: album-art style — square tile with big centered icon, white name,
+     grey sub below, like the other home cards (replaces the gold-text buttons). */
+  .mixCard { min-width: 132px; flex: 1 1 0; background: transparent; border: none; border-radius: 0; padding: 0 0 8px; text-align: left; color: #fff; }
+  .mixCard .mixTile { width: 100%; aspect-ratio: 1; border-radius: 8px; background: linear-gradient(135deg, #3a2f10, #1a1a1a); border: 1px solid #4a3d1a; display: flex; align-items: center; justify-content: center; font-size: 56px; }
+  .mixCard .mixName { display: block; font-size: 14px; font-weight: 600; padding: 8px 2px 0; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mixCard .mixSub { display: block; font-size: 12px; color: var(--muted); padding: 2px 2px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   /* v2.2.80: visual cards — YouTube Music pattern: square art, white title, grey subtitle. */
   .visualCard { min-width: 120px; max-width: 140px; flex: 1 1 120px; background: transparent; border: none; border-radius: 0; overflow: hidden; padding: 0; color: #fff; text-align: left; cursor: pointer; }
   .visualCard img { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; border-radius: 4px; background: var(--surface2); }
@@ -336,8 +340,10 @@
   body.tv .track .tt { font-size: 26px; }
   body.tv .track .ta { font-size: 22px; }
   body.tv input[type="text"], body.tv input[type="search"] { font-size: 26px; min-height: 76px; }
-  body.tv .mixCard { min-width: 220px; font-size: 26px; padding: 24px 16px; }
-  body.tv .mixCard small { font-size: 20px; }
+  body.tv .mixCard { min-width: 200px; }
+  body.tv .mixCard .mixTile { font-size: 88px; }
+  body.tv .mixCard .mixName { font-size: 22px; }
+  body.tv .mixCard .mixSub { font-size: 18px; }
   body.tv .albumCard { min-width: 200px; max-width: 200px; }
   body.tv .albumCard img { width: 200px; height: 200px; }
   body.tv .albumCard .an { font-size: 22px; }
@@ -452,11 +458,16 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.86</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.87</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
     <div class="chipRow" id="homeChips" role="group" aria-label="Filter by genre"></div>
+    <!-- v2.2.87: Your mixes shelf moved to the top of Home (his request). -->
+    <div class="homeBlock">
+      <h2>Your mixes</h2>
+      <div class="mixRow" id="mixRow"></div>
+    </div>
     <!-- v2.2.67: Speed dial - 3x3 swipeable grid -->
     <div class="homeBlock">
       <h2>Speed dial</h2>
@@ -472,11 +483,6 @@
         <button class="btn small secondary" id="quickPicksSeeAllBtn">See all</button>
       </div>
       <div class="hscroll" id="quickPicks"><p style="color:#999">Loading…</p></div>
-    </div>
-    <!-- v2.2.80: Your mixes shelf -->
-    <div class="homeBlock">
-      <h2>Your mixes</h2>
-      <div class="mixRow" id="mixRow"></div>
     </div>
     <!-- v2.2.80: Fresh finds shelf -->
     <div class="homeBlock">
@@ -620,7 +626,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.86. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.87. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -755,10 +761,6 @@
     <button class="ap-btn" id="albumMoreBtn" aria-label="More album options" aria-haspopup="menu">⋮</button>
   </div>
   <div id="albumMoreMenu" hidden role="menu" aria-label="Album options"></div>
-  <!-- v2.2.85: visible Remove button for saved albums (was buried in ⋮). -->
-  <div id="albumRemoveWrap" hidden style="text-align:center;margin:2px 0 10px">
-    <button class="btn secondary" id="albumRemoveBtn" aria-label="Remove this album from your library">🗑 Remove album</button>
-  </div>
   <div id="albumTracks"></div>
 </div>
 <script>
@@ -1154,8 +1156,6 @@ function showAlbumPage(cfg){
   }
   renderAlbumTrackList(tracks);
   bindAlbumPanelActions(title, artist, art, cfg.browseId, tracks);
-  /* v2.2.85: visible Remove button for saved albums (was buried in ⋮). */
-  try { $("albumRemoveWrap").hidden = !state.albumIsSavedLocal; } catch(e){}
 }
 function openPythonAlbum(browseId, title, artist, thumb){
   if(!browseId){ say("No album ID."); return; }
@@ -4738,16 +4738,18 @@ function renderSpeedDial(){
     items.slice(p * 9, p * 9 + 9).forEach(function(it){
       var b = document.createElement("button");
       b.className = "speedDialCard";
-      var label = it.kind === "artist" ? "Open artist page for " + it.title : "Play " + it.title + " by " + it.artist;
+      /* v2.2.87: artist cards start that artist's endless radio (was: opened
+         the artist page with no music playing). */
+      var label = it.kind === "artist" ? "Play " + it.title + " radio" : "Play " + it.title + " by " + it.artist;
       b.setAttribute("aria-label", label);
       var inner = it.art
         ? "<img src='" + esc(it.art) + "' alt=''>"
         : "<div class='sdArt'>" + (it.kind === "artist" ? "👤" : "🎵") + "</div>";
-      inner += "<div class='sdLabel'>" + esc(it.title) + (it.kind === "artist" ? "<span class='sdGo'>›</span>" : "") + "</div>";
+      inner += "<div class='sdLabel'>" + esc(it.title) + (it.kind === "artist" ? "<span class='sdGo'>📻</span>" : "") + "</div>";
       b.innerHTML = inner;
       (function(item){
         b.addEventListener("click", function(){
-          if(item.kind === "artist") openArtistPage(item.title);
+          if(item.kind === "artist") startRadio(item.title);
           else if(item.track) playVideo(item.track, [item.track], 0);
         });
       })(it);
@@ -5257,7 +5259,10 @@ function mixCard(m){
   var b = document.createElement("button");
   b.className = "mixCard";
   b.setAttribute("aria-label", m.name + ", " + m.sub);
-  b.innerHTML = m.icon + "<br>" + m.name + "<small>" + esc(m.sub) + "</small>";
+  /* v2.2.87: album-art style card — square tile, white name, grey sub. */
+  b.innerHTML = '<span class="mixTile" aria-hidden="true">' + m.icon + '</span>' +
+    '<span class="mixName">' + esc(m.name) + '</span>' +
+    '<span class="mixSub">' + esc(m.sub) + '</span>';
   b.addEventListener("click", m.go);
   return b;
 }
@@ -5601,13 +5606,6 @@ wireBtn("albumShareBtn", function(){
   var text = name + (artist ? " by " + artist : "");
   if(navigator.clipboard){ navigator.clipboard.writeText(text).then(function(){ say("Album name copied."); }).catch(function(){ say(text); }); }
   else { say(text); }
-});
-/* v2.2.85: visible Remove button for saved albums.
-   v2.2.86: always delegates to removeSavedAlbum, which re-verifies the index
-   at tap time and falls back to a name+artist match when stale. */
-wireBtn("albumRemoveBtn", function(){
-  var idx = (state.albumIsSavedLocal && state.albumLocalIdx >= 0) ? state.albumLocalIdx : -1;
-  removeSavedAlbum(idx, ($("albumName") || {}).textContent || "Album");
 });
 /* v2.2.85: YTM-style album options menu (his screenshot) — header with close
    button, focus moved into the menu + TalkBack announcement on open, and a
