@@ -146,6 +146,22 @@
   #albumMoreMenu { background: #1a1a1a; border: 1px solid #333; border-radius: 8px; margin: 4px auto 0; max-width: 280px; overflow: hidden; }
   #albumMoreMenu[hidden] { display: none; }
   #albumMoreMenu button { display: block; width: 100%; text-align: left; background: none; border: none; color: var(--text); padding: 12px 16px; font-size: 15px; }
+  /* v2.2.85: YTM-style artist page hero. */
+  .apHero { position: relative; border-radius: 12px; overflow: hidden; margin-bottom: 12px; background: var(--surface2); min-height: 200px; }
+  .apHero img { width: 100%; height: 220px; object-fit: cover; display: block; }
+  .apHero::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 110px; background: linear-gradient(transparent, rgba(0,0,0,.85)); pointer-events: none; }
+  .apHeroName { position: absolute; left: 16px; bottom: 14px; z-index: 1; font-size: 32px; font-weight: 800; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,.9); }
+  .apHeroBtns { position: absolute; right: 12px; bottom: 12px; z-index: 1; display: flex; gap: 10px; }
+  .apHeroBtns .ap-btn { width: 48px; height: 48px; font-size: 20px; }
+  .apHeroNoImg { min-height: 120px; background: #1d1d1d; }
+  .apSecHead { display: flex; align-items: center; justify-content: space-between; margin: 4px 0 8px; }
+  .apSecHead h3 { margin: 0; }
+  /* v2.2.85: YTM-style album options menu header. */
+  .amHead { display: flex; align-items: center; gap: 8px; padding: 12px 8px 8px 16px; border-bottom: 1px solid #333; }
+  .amHeadText { flex: 1; min-width: 0; }
+  .amHeadTitle { font-weight: 700; font-size: 16px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .amHeadSub { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #albumMoreMenu .amHeadClose { width: 40px; padding: 8px; text-align: center; font-size: 18px; }
   .atrack { display: flex; align-items: center; gap: 12px; padding: 10px 4px; border-bottom: 1px solid rgba(255,255,255,0.06); }
   .atrack .anum { font-size: 20px; color: var(--text); min-width: 28px; text-align: center; }
   .atrack .ainfo { flex: 1; min-width: 0; }
@@ -436,7 +452,7 @@
 <body id="lynxos-music-app">
 <div id="status" role="status" aria-live="polite" class="sr-only"></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.84</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.85</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -527,7 +543,8 @@
   <!-- v2.2.0: artist page — top songs, albums, latest singles. -->
   <section id="artistView" role="tabpanel" aria-labelledby="artistName" hidden>
     <button class="backBtn" id="artistBackBtn" aria-label="Back">‹ Back</button>
-    <h2 id="artistName" style="color:var(--gold)"></h2>
+    <!-- v2.2.85: name lives in the hero banner visually; kept sr-only for the labelledby. -->
+    <h2 id="artistName" class="sr-only"></h2>
     <div id="artistContent"></div>
   </section>
   <section id="searchView" role="tabpanel" aria-labelledby="tab-search" hidden>
@@ -603,7 +620,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.84. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.85. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -738,6 +755,10 @@
     <button class="ap-btn" id="albumMoreBtn" aria-label="More album options" aria-haspopup="menu">⋮</button>
   </div>
   <div id="albumMoreMenu" hidden role="menu" aria-label="Album options"></div>
+  <!-- v2.2.85: visible Remove button for saved albums (was buried in ⋮). -->
+  <div id="albumRemoveWrap" hidden style="text-align:center;margin:2px 0 10px">
+    <button class="btn secondary" id="albumRemoveBtn" aria-label="Remove this album from your library">🗑 Remove album</button>
+  </div>
   <div id="albumTracks"></div>
 </div>
 <script>
@@ -1038,6 +1059,12 @@ function saveAlbumFromPanel(title, artist, art, browseId, tracks){
     }
   }
   try { if(!art) art = $("albumArt").src || ""; } catch(e){}
+  if(foundIdx >= 0){
+    /* v2.2.85: state-aware save — an already-saved album announces itself
+       instead of silently re-saving (felt "dead" to him). */
+    say("Already in your albums.");
+    return;
+  }
   var newEntry = {
     name: title || "Album", artist: artist || "", art: art || "", browseId: browseId || "",
     tracks: tracks.map(function(t){
@@ -1045,15 +1072,22 @@ function saveAlbumFromPanel(title, artist, art, browseId, tracks){
         thumb: t.thumb, art: t.art, resolveQuery: t.resolveQuery, fallbackQuery: t.fallbackQuery };
     })
   };
-  if(foundIdx >= 0){
-    albums[foundIdx] = newEntry;
-    say("Updated " + title + " with " + tracks.length + " tracks.");
-  } else {
-    albums.push(newEntry);
-    say("Saved " + title + " to your albums.");
-  }
+  albums.push(newEntry);
+  say("Saved " + title + " to your albums.");
   saveAlbums(albums);
   renderAlbums();
+}
+/* v2.2.85: shared by the visible Remove button and the ⋮ menu entry. */
+function removeSavedAlbum(idx, name){
+  var albums = getAlbums();
+  if(idx < 0 || idx >= albums.length){ say("Couldn't find that album."); return; }
+  albums.splice(idx, 1);
+  saveAlbums(albums);
+  state.albumIsSavedLocal = false;
+  state.albumLocalIdx = -1;
+  closeAlbumPanel();
+  renderAlbums();
+  say("Removed " + (name || "album") + " from your albums.");
 }
 /* cfg: {title, artist, art, year, browseId, tracks, description, returnTo,
          isSavedLocal, localIdx} */
@@ -1104,6 +1138,8 @@ function showAlbumPage(cfg){
   }
   renderAlbumTrackList(tracks);
   bindAlbumPanelActions(title, artist, art, cfg.browseId, tracks);
+  /* v2.2.85: visible Remove button for saved albums (was buried in ⋮). */
+  try { $("albumRemoveWrap").hidden = !state.albumIsSavedLocal; } catch(e){}
 }
 function openPythonAlbum(browseId, title, artist, thumb){
   if(!browseId){ say("No album ID."); return; }
@@ -1143,12 +1179,20 @@ function renderArtistPagePython(data){
   var albumsPreview = albums.slice(0, 10);
   var singlesPreview = singles.slice(0, 10);
   var html = "";
-  /* v2.2.47: Band picture at top, About section below it. */
+  /* v2.2.85: YTM-style hero banner — full-width photo, big name, radio + share.
+     About sits between the photo and the song list (his confirmed order). */
   var info = data.info || {};
   var picUrl = info.thumb || "";
   var bio = String(info.description || "").trim();
+  var aName = data.artist || "Artist";
+  var heroBtns = '<div class="apHeroBtns">' +
+    '<button class="ap-btn" data-ap="radio" aria-label="Start ' + esc(aName) + ' radio">▷▷</button>' +
+    '<button class="ap-btn" data-ap="share" aria-label="Share ' + esc(aName) + '">↗</button></div>';
   if(picUrl){
-    html += '<div style="text-align:center;margin-bottom:12px"><img src="' + esc(picUrl) + '" alt="' + esc(data.artist) + '" style="width:160px;height:160px;border-radius:50%;object-fit:cover;border:3px solid var(--gold)"></div>';
+    html += '<div class="apHero"><img src="' + esc(picUrl) + '" alt="' + esc(aName) + '">' +
+      '<div class="apHeroName">' + esc(aName) + "</div>" + heroBtns + "</div>";
+  } else {
+    html += '<div class="apHero apHeroNoImg"><div class="apHeroName">' + esc(aName) + "</div>" + heroBtns + "</div>";
   }
   if(bio){
     /* Truncate long bios, screen-reader friendly */
@@ -1156,7 +1200,9 @@ function renderArtistPagePython(data){
     html += "<h3>About</h3><p style='color:var(--text);line-height:1.5'>" + esc(shortBio) + "</p>";
   }
   if(songs.length){
-    html += "<h3>Top songs</h3><div class='trackList'>";
+    html += "<div class='apSecHead'><h3>Top songs</h3>" +
+      "<button class='btn small secondary' id='artistPlayAllBtn' aria-label='Play all top songs by " + esc(aName) + "'>▶ Play all</button></div>" +
+      "<div class='trackList'>";
     songs.forEach(function(s, i){
       html += trackRow(s, i);
     });
@@ -1200,6 +1246,22 @@ function renderArtistPagePython(data){
   if(!html) html = "<p class='hint'>No results for " + esc(data.artist) + ".</p>";
   box.innerHTML = html;
   if(state.artistSongs) bindTrackButtons(box, state.artistSongs);
+  /* v2.2.85: hero radio/share + Top-songs Play all. */
+  var apRadio = box.querySelector('[data-ap="radio"]');
+  if(apRadio) apRadio.addEventListener("click", function(){ startRadio(aName); });
+  var apShare = box.querySelector('[data-ap="share"]');
+  if(apShare) apShare.addEventListener("click", function(){
+    shareText("Check out " + aName + " — https://www.youtube.com/results?search_query=" + encodeURIComponent(aName), "Artist");
+  });
+  var apPlayAll = $("artistPlayAllBtn");
+  if(apPlayAll && songs.length){
+    apPlayAll.addEventListener("click", function(){
+      state.radio = null;
+      state.queue = songs.slice();
+      playQueueIndex(0, true);
+      say("Playing top songs by " + aName + ".");
+    });
+  }
   /* v2.2.49: Album/single card click handlers */
   box.querySelectorAll("[data-album-idx]").forEach(function(btn){
     btn.addEventListener("click", function(){
@@ -1909,6 +1971,29 @@ function doSearch(){
     state.lastResults = songs;
     state.lastQuery = q;
     renderSearchResults();
+    /* v2.2.85: when the search resolves to an artist, show THAT artist's real
+       albums — the generic text search returns loose matches (compilations,
+       tributes, sound-alikes), not the band's discography. */
+    try {
+      var top = pickTopResult(state.typedResults, q);
+      var abid = (top && top.kind === "artist" && top.item) ? (top.item.browseId || top.item.artistId || top.item.id || "") : "";
+      if(abid){
+        ytmGetArtistAlbums(abid).then(function(ad){
+          var albs = ((ad || {}).albums) || [];
+          if(!albs.length) return;
+          var aName = (top.item.name || top.item.artist || q);
+          state.typedResults.albums = albs.map(function(a){
+            return { title: a.title || a.name || "Unknown",
+                     artist: a.artist || aName,
+                     thumb: a.thumb || a.art || "",
+                     year: a.year || a.date || "",
+                     browseId: a.browseId || "" };
+          });
+          /* Only re-render if he's still looking at these results. */
+          if(state.lastQuery === q && !$("searchView").hidden) renderSearchResults();
+        }).catch(function(){});
+      }
+    } catch(e){}
     saveRecentSearch(q);
     var n = songs.length + state.typedResults.albums.length + state.typedResults.artists.length;
     say(n + " results.");
@@ -3805,6 +3890,65 @@ function quickAddToPlaylist(v){
     });
   });
 }
+/* v2.2.85: "Save to playlist" for a whole album — same picker dialog as
+   quickAddToPlaylist, but adds every track. */
+function addAlbumToPlaylist(tracks){
+  tracks = tracks || [];
+  if(!tracks.length){ say("No tracks to add."); return; }
+  var pls = getPlaylists();
+  var names = Object.keys(pls);
+  function doAddAll(name){
+    if(!pls[name]) pls[name] = [];
+    var added = 0;
+    tracks.forEach(function(v){
+      var entry = { videoId: v.videoId || "", title: v.title, channel: v.channel,
+        thumb: v.thumb || "", art: v.art || "",
+        resolveQuery: v.resolveQuery || "", fallbackQuery: v.fallbackQuery || "" };
+      var exists = pls[name].some(function(x){ return (x.videoId && x.videoId === entry.videoId) || (x.title === entry.title && x.channel === entry.channel); });
+      if(!exists){ pls[name].push(entry); added++; }
+    });
+    savePlaylists(pls);
+    say(added ? ("Added " + added + " songs to " + name + ".") : ("All songs are already in " + name + "."));
+  }
+  if(!names.length){
+    showDialog("New playlist",
+      '<label for="lmNewPlAlbumName">Playlist name:</label>' +
+      '<input type="text" id="lmNewPlAlbumName" placeholder="My playlist">',
+      [
+        { label: "Cancel", fn: null },
+        { label: "Create and add", primary: true, fn: function(){
+          var n = ($("lmNewPlAlbumName").value || "").trim();
+          if(n){ doAddAll(n); } else { say("Name it first."); }
+        }}
+      ]);
+    return;
+  }
+  var bodyHTML = names.map(function(n){
+    return '<button class="plbtn" data-plname="' + esc(n) + '">' + esc(n) + ' (' + pls[n].length + ')</button>';
+  }).join("") +
+    '<button class="plbtn" data-plname="__new__" style="border-color:#d4af37">+ New playlist</button>';
+  showDialog("Save album to playlist", bodyHTML, [{ label: "Cancel", fn: null }]);
+  $("lmDialogBody").querySelectorAll("[data-plname]").forEach(function(b){
+    b.addEventListener("click", function(){
+      var n = b.getAttribute("data-plname");
+      hideDialog();
+      if(n === "__new__"){
+        showDialog("New playlist",
+          '<label for="lmNewPlAlbumName2">Playlist name:</label>' +
+          '<input type="text" id="lmNewPlAlbumName2" placeholder="My playlist">',
+          [
+            { label: "Cancel", fn: null },
+            { label: "Create and add", primary: true, fn: function(){
+              var nn = ($("lmNewPlAlbumName2").value || "").trim();
+              if(nn){ doAddAll(nn); } else { say("Name it first."); }
+            }}
+          ]);
+      } else {
+        doAddAll(n);
+      }
+    });
+  });
+}
 /* v2.2.0: fix a wrong title/artist (e.g. "12:00 a.m." by "5" that's really
    "5:12 AM" by "Novelists"). Re-resolves the song after the fix.
    v2.2.2: uses in-app dialog (prompt() doesn't work in the WebView). */
@@ -5428,46 +5572,74 @@ $("albumShareBtn").addEventListener("click", function(){
   if(navigator.clipboard){ navigator.clipboard.writeText(text).then(function(){ say("Album name copied."); }).catch(function(){ say(text); }); }
   else { say(text); }
 });
-$("albumMoreBtn").addEventListener("click", function(){
-  var m = $("albumMoreMenu");
-  var tracks = getCurrentAlbumTracks();
-  var name = $("albumName").textContent || "Album";
-  var items = [
-    { label: "▶ Play all", fn: function(){ if(tracks.length){ state.radio = null; state.queue = tracks.slice(); playQueueIndex(0, true); say("Playing " + name + "."); } } },
-    { label: "＋ Play next", fn: function(){ if(tracks.length){ for(var i = tracks.length - 1; i >= 0; i--){ state.queue.splice(state.qi + 1, 0, tracks[i]); } say("Album will play next."); } } },
-    { label: "💾 Save album", fn: function(){ $("albumSaveBtn").click(); } },
-    { label: "↗ Share album", fn: function(){ $("albumShareBtn").click(); } }
-  ];
-  /* v2.2.84: saved albums opened from the Library get Remove album here
-     (their old dedicated page had a Remove button; the unified page doesn't). */
+/* v2.2.85: visible Remove button for saved albums. */
+$("albumRemoveBtn").addEventListener("click", function(){
   if(state.albumIsSavedLocal && state.albumLocalIdx >= 0){
-    (function(savedIdx, savedName){
-      items.push({ label: "🗑 Remove album", fn: function(){
-        var albums = getAlbums();
-        albums.splice(savedIdx, 1);
-        saveAlbums(albums);
-        state.albumIsSavedLocal = false;
-        state.albumLocalIdx = -1;
-        closeAlbumPanel();
-        renderAlbums();
-        say("Removed " + savedName + " from your albums.");
-      }});
-    })(state.albumLocalIdx, name);
+    removeSavedAlbum(state.albumLocalIdx, $("albumName").textContent || "Album");
+  } else {
+    say("This album isn't in your library.");
   }
-  if(m.hidden){
+});
+/* v2.2.85: YTM-style album options menu (his screenshot) — header with close
+   button, focus moved into the menu + TalkBack announcement on open, and a
+   try/catch so it can never silently die. */
+function openAlbumOptionsMenu(){
+  try {
+    var m = $("albumMoreMenu");
+    var tracks = getCurrentAlbumTracks();
+    var name = $("albumName").textContent || "Album";
+    var artist = $("albumArtist").textContent || "";
+    var sub = (artist ? artist + " • " : "") + tracks.length + (tracks.length === 1 ? " song" : " songs");
+    function playAll(){ if(!tracks.length){ say("No tracks."); return; } state.radio = null; state.queue = tracks.slice(); playQueueIndex(0, true); say("Playing " + name + "."); }
+    function playNext(){ if(!tracks.length){ say("No tracks."); return; } for(var i = tracks.length - 1; i >= 0; i--){ state.queue.splice(state.qi + 1, 0, tracks[i]); } say("Album will play next."); }
+    var items = [
+      { label: "🔀 Shuffle play", fn: function(){ var b = $("albumShuffleBtn"); if(b) b.click(); } },
+      { label: "📻 Start mix", fn: function(){ if(artist) startRadio(artist); else say("No artist found for a mix."); } },
+      { label: "⏭ Play next", fn: playNext },
+      { label: "＋ Add to queue", fn: function(){ if(!tracks.length){ say("No tracks."); return; } tracks.forEach(function(t){ state.queue.push(t); }); say(tracks.length + " songs added to the queue."); } },
+      { label: "📝 Save to playlist", fn: function(){ addAlbumToPlaylist(tracks); } },
+      { label: "👤 Go to artist", fn: function(){ if(artist) openArtistPage(artist); else say("No artist found."); } },
+      { label: "↗ Share", fn: function(){ var b = $("albumShareBtn"); if(b) b.click(); } }
+    ];
+    /* Saved albums opened from the Library also get Remove here (the visible
+       button above the track list is the primary path now). */
+    if(state.albumIsSavedLocal && state.albumLocalIdx >= 0){
+      (function(savedIdx, savedName){
+        items.push({ label: "🗑 Remove album", fn: function(){ removeSavedAlbum(savedIdx, savedName); } });
+      })(state.albumLocalIdx, name);
+    }
     m.innerHTML = "";
+    var head = document.createElement("div");
+    head.className = "amHead";
+    head.innerHTML = '<div class="amHeadText"><div class="amHeadTitle">' + esc(name) + '</div>' +
+      '<div class="amHeadSub">' + esc(sub) + "</div></div>";
+    var x = document.createElement("button");
+    x.className = "amHeadClose";
+    x.setAttribute("aria-label", "Close album options");
+    x.textContent = "✕";
+    x.addEventListener("click", function(){ m.hidden = true; try { $("albumMoreBtn").focus(); } catch(e){} });
+    head.appendChild(x);
+    m.appendChild(head);
     items.forEach(function(it){
       var b = document.createElement("button");
+      b.className = "amItem";
       b.textContent = it.label;
       b.setAttribute("role", "menuitem");
       b.addEventListener("click", function(){ m.hidden = true; it.fn(); });
       m.appendChild(b);
     });
     m.hidden = false;
-    say("Album options.");
-  } else {
-    m.hidden = true;
+    var first = m.querySelector(".amItem");
+    if(first) first.focus();
+    say("Album options for " + name + ".");
+  } catch(err){
+    say("Couldn't open the album options.");
   }
+}
+$("albumMoreBtn").addEventListener("click", function(){
+  var m = $("albumMoreMenu");
+  if(m && !m.hidden){ m.hidden = true; return; }
+  openAlbumOptionsMenu();
 });
 /* v2.2.61: Album buttons are bound per-album in openPythonAlbum (deep fix) */
 function getCurrentAlbumTracks(){
