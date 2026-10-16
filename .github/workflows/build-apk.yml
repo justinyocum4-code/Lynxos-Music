@@ -6,11 +6,11 @@ on:
       version_name:
         description: 'Version name (e.g. 1.0)'
         required: false
-        default: '2.2.78'
+        default: '2.2.79'
       version_code:
         description: 'Version code (whole number, bump every build)'
         required: false
-        default: '142'
+        default: '143'
       release_notes:
         description: 'Release notes'
         required: false
@@ -1214,7 +1214,48 @@ jobs:
               private final List<Track> queue = new ArrayList<>();
               /* v2.1.7: cache of resolved audio URLs (videoId -> url) plus
                  prefetch of the next track so skipping songs is instant. */
+              /* v2.2.79: URL cache with expiration - YouTube URLs go stale after ~6h */
+              /* v2.2.79: Track retry attempts per track to avoid infinite loops */
+              private final java.util.Map<String, Integer> retryCount = new java.util.HashMap<String, Integer>();
+              private static final int MAX_RETRIES = 2;
+              private final java.util.Map<String, Long> urlCacheTime = new java.util.HashMap<String, Long>();
               private final java.util.Map<String, String> urlCache = new java.util.HashMap<String, String>();
+              private static final long URL_CACHE_TTL_MS = 4 * 60 * 60 * 1000; /* 4 hours */
+              private String getCachedUrl(String videoId) {
+                  try {
+                      synchronized (urlCache) {
+                          String url = urlCache.get(videoId);
+                          Long time = urlCacheTime.get(videoId);
+                          if (url != null && time != null) {
+                              if (System.currentTimeMillis() - time < URL_CACHE_TTL_MS) {
+                                  return url;
+                              } else {
+                                  /* Expired - remove */
+                                  urlCache.remove(videoId);
+                                  urlCacheTime.remove(videoId);
+                              }
+                          }
+                      }
+                  } catch (Exception ignored) {}
+                  return null;
+              }
+              private void putCachedUrl(String videoId, String url) {
+                  try {
+                      synchronized (urlCache) {
+                          if (urlCache.size() > 100) { urlCache.clear(); urlCacheTime.clear(); }
+                          urlCache.put(videoId, url);
+                          urlCacheTime.put(videoId, System.currentTimeMillis());
+                      }
+                  } catch (Exception ignored) {}
+              }
+              private void clearCachedUrl(String videoId) {
+                  try {
+                      synchronized (urlCache) {
+                          urlCache.remove(videoId);
+                          urlCacheTime.remove(videoId);
+                      }
+                  } catch (Exception ignored) {}
+              }
               private int currentIndex = -1;
               private UiListener ui;
               /* v2.2.5: native repeat mode (0=off, 1=all, 2=one), set by the web page. */
@@ -1387,6 +1428,14 @@ jobs:
                               UiListener l = ui;
                               if (l != null) { try { l.onTrackEnded(); } catch (Exception ignored) {} }
                           } else if (state == Player.STATE_READY) {
+                              /* v2.2.79: Clear retry counter on successful playback */
+                              try {
+                                  if (currentIndex >= 0 && currentIndex < queue.size()) {
+                                      Track t = queue.get(currentIndex);
+                                      String key = t.videoId + "_" + currentIndex;
+                                      synchronized (retryCount) { retryCount.remove(key); }
+                                  }
+                              } catch (Exception ignored) {}
                               updateNotification();
                           }
                       }
@@ -1397,6 +1446,37 @@ jobs:
                       @Override public void onPlayerError(PlaybackException error) {
                           String msg = "";
                           try { msg = String.valueOf(error.getMessage()); } catch (Exception ignored) {}
+                          /* v2.2.79: Retry with fresh URL before skipping.
+                             Cached URLs expire; a fresh resolve often fixes it. */
+                          try {
+                              if (currentIndex >= 0 && currentIndex < queue.size()) {
+                                  Track t = queue.get(currentIndex);
+                                  String key = t.videoId + "_" + currentIndex;
+                                  int retries = 0;
+                                  synchronized (retryCount) {
+                                      Integer r = retryCount.get(key);
+                                      retries = (r != null) ? r : 0;
+                                  }
+                                  if (retries < MAX_RETRIES) {
+                                      synchronized (retryCount) { retryCount.put(key, retries + 1); }
+                                      /* Clear stale cached URL and retry same track */
+                                      clearCachedUrl(t.videoId);
+                                      android.util.Log.i("LynxosMusic", "Retrying track " + currentIndex + " (attempt " + (retries + 1) + ")");
+                                      final int retryIdx = currentIndex;
+                                      main.postDelayed(new Runnable() {
+                                          @Override public void run() {
+                                              playAtInternal(retryIdx);
+                                          }
+                                      }, 1000);
+                                      return;
+                                  } else {
+                                      /* Retries exhausted - clear counter and skip */
+                                      synchronized (retryCount) { retryCount.remove(key); }
+                                  }
+                              }
+                          } catch (Exception e) {
+                              android.util.Log.w("LynxosMusic", "Retry logic failed", e);
+                          }
                           UiListener l = ui;
                           if (l != null) { try { l.onTrackError(msg); } catch (Exception ignored) {} }
                           else { playAtInternal(currentIndex + 1); }
@@ -1524,16 +1604,14 @@ jobs:
                       @Override public void run() {
                           String url = null;
                           String err = "";
-                          /* v2.1.7: reuse a prefetched/cached URL when we have one. */
-                          try {
-                              synchronized (urlCache) { url = urlCache.get(t.videoId); }
-                          } catch (Exception ignored) {}
+                          /* v2.2.79: use cached URL only if not expired */
+                          url = getCachedUrl(t.videoId);
                           try {
                               if (url == null || url.isEmpty()) {
                                   url = resolveAudioUrl(t.videoId, t.title, t.channel);
-                                  try {
-                                      synchronized (urlCache) { urlCache.put(t.videoId, url); }
-                                  } catch (Exception ignored) {}
+                                  if (url != null && !url.isEmpty()) {
+                                      putCachedUrl(t.videoId, url);
+                                  }
                               }
                           }
                           catch (Throwable th) { try { err = String.valueOf(th.toString()); } catch (Exception ignored) {} }
@@ -1585,18 +1663,15 @@ jobs:
                   try { vid = queue.get(i).videoId; } catch (Exception e) { return; }
                   if (vid == null || vid.isEmpty()) return;
                   try {
-                      synchronized (urlCache) { if (urlCache.containsKey(vid)) return; }
+                      if (getCachedUrl(vid) != null) return;
                   } catch (Exception ignored) {}
                   bg.execute(new Runnable() {
                       @Override public void run() {
                           try {
-                              synchronized (urlCache) { if (urlCache.containsKey(vid)) return; }
+                              if (getCachedUrl(vid) != null) return;
                               String url = resolveAudioUrl(vid, "", "");
                               if (url != null && !url.isEmpty()) {
-                                  synchronized (urlCache) {
-                                      if (urlCache.size() > 100) urlCache.clear();
-                                      urlCache.put(vid, url);
-                                  }
+                                  putCachedUrl(vid, url);
                               }
                           } catch (Throwable ignored) {}
                       }
