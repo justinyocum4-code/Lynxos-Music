@@ -63,9 +63,12 @@ function showApprove(code){
      "<p>Tap below to sign in with Google and link it.</p>" +
      "<button class='btn' id='authBtn'>Sign in with Google</button>");
   document.getElementById("authBtn").addEventListener("click", function(){
+    /* v2.2.91 fix: stash the TV code locally and use the bare page URL as
+       redirect_to — Supabase rejects return addresses carrying ?code=... */
+    try { localStorage.setItem("lm_tv_code", code); } catch(e){}
     var scopes = encodeURIComponent("https://www.googleapis.com/auth/youtube https://www.googleapis.com/auth/youtubepartner");
     var url = SUPABASE_URL + "/auth/v1/authorize?provider=google" +
-      "&redirect_to=" + encodeURIComponent(LINK_PAGE + "?code=" + code) +
+      "&redirect_to=" + encodeURIComponent(LINK_PAGE) +
       "&scopes=" + scopes;
     window.location.href = url;
   });
@@ -85,6 +88,7 @@ function finishLink(code){
       body: JSON.stringify({ status: "linked", user_id: user.id, access_token: access, refresh_token: refresh || "" })
     });
   }).then(function(){
+    try { localStorage.removeItem("lm_tv_code"); } catch(e){}
     el("<h1>TV linked!</h1><p class='ok'>Your TV is now signed in. You can close this page.</p>");
   }).catch(function(){
     el("<p class='err'>Something went wrong linking your TV. The code may have expired — get a fresh one from the TV and try again.</p>");
@@ -94,6 +98,9 @@ function finishLink(code){
 (function init(){
   var code = qs("code").toUpperCase();
   if(frag("access_token")){
+    if(!validCode(code)){
+      try { code = (localStorage.getItem("lm_tv_code") || "").toUpperCase(); } catch(e){}
+    }
     if(!validCode(code)){ el("<p class='err'>Lost the TV code during sign-in. Please start over from the TV.</p>"); return; }
     finishLink(code);
   } else if(validCode(code)){
