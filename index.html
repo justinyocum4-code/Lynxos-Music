@@ -525,7 +525,7 @@
 <!-- v2.2.89: TV-visible toast (say() shows it on TV; phones never see it). -->
 <div id="tvToast" hidden></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.97</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.98</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -698,8 +698,13 @@
       <p class="hint" id="updateStatus" role="status"></p>
     </div>
     <div class="card">
+      <h3>Recent skips</h3>
+      <p class="hint">The last 20 songs the player had to skip, and why — kept on this device only.</p>
+      <div id="skipLogList"></div>
+    </div>
+    <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.97. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.98. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -776,7 +781,6 @@
     <button class="btn secondary small" id="fpAddToPlaylistBtn">＋ Playlist</button>
     <button class="btn secondary small" id="fpYtMusicBtn">▶ YouTube Music</button>
     <button class="btn secondary small" id="fpRadioBtn">📻 Radio</button>
-    <button class="btn secondary small" id="fpSimilarBtn">🎸 Similar</button>
     <button class="btn secondary small" id="fpSleepBtn" aria-label="Sleep timer off. Tap to set.">⏲</button>
     <button class="btn secondary small" id="fpArtistBtn">🧑‍🎤 Artist</button>
     <button class="btn secondary small" id="fpLyricsBtn">📝 Lyrics</button>
@@ -1295,6 +1299,47 @@ function noteSkipTrack(v, reason){
     state.lastSkip = { title: (v && v.title) || "", videoId: (v && v.videoId) || "",
       reason: reason, at: new Date().toISOString() };
   } catch(e){}
+  /* v2.2.98: also persist to a localStorage ring buffer (last 20) shown in
+     Settings — state.lastSkip alone vanished with the session, so skip
+     reports could never be diagnosed after the fact. */
+  try {
+    var log = getSkipLog();
+    log.push({ title: (v && v.title) || "", artist: (v && (v.channel || v.artist)) || "",
+      reason: reason || "", time: new Date().toISOString() });
+    while(log.length > 20) log.shift();
+    localStorage.setItem("lm_skip_log", JSON.stringify(log));
+  } catch(e){}
+}
+function getSkipLog(){
+  try {
+    var l = JSON.parse(localStorage.getItem("lm_skip_log") || "[]");
+    return Array.isArray(l) ? l : [];
+  } catch(e){ return []; }
+}
+function renderSkipLog(){
+  var box = $("skipLogList");
+  if(!box) return;
+  var log = getSkipLog();
+  if(!log.length){ box.innerHTML = '<p class="hint">No skipped songs recorded yet.</p>'; return; }
+  box.innerHTML = log.slice().reverse().map(function(s){
+    return '<p class="hint">' + esc(s.title || "Unknown song") + " — " + esc(s.reason || "skipped") + "</p>";
+  }).join("");
+}
+/* v2.2.98: videoIds the native resolver has proven are gone for good this
+   session (deleted/private uploads). The permanent resolve cache must never
+   resurrect them, and resolveTrack ignores cache entries pointing at them. */
+var lmDeadIds = {};
+function lmMarkDead(id){ if(id) lmDeadIds[id] = true; }
+function lmEvictResolveCacheFor(id){
+  if(!id) return;
+  try {
+    var doomed = [];
+    for(var k = 0; k < localStorage.length; k++){
+      var key = localStorage.key(k);
+      if(key && key.indexOf("lm_resolve_") === 0 && localStorage.getItem(key) === id) doomed.push(key);
+    }
+    doomed.forEach(function(key){ localStorage.removeItem(key); });
+  } catch(e){}
 }
 window.lmNativeTrack = function(i){
   i = parseInt(i, 10);
@@ -1395,6 +1440,8 @@ function openSettings(){
   try { closeNewSheet(); } catch(e){}
   $("settingsView").hidden = false;
   say("Settings tab.");
+  /* v2.2.98: refresh the recent-skips list every time Settings opens. */
+  try { renderSkipLog(); } catch(e){}
   /* v2.2.92: never leave TV focus stranded. */
   tvFocusRescue();
 }
@@ -1833,101 +1880,6 @@ function renderArtistPagePython(data){
     say("Showing all " + (state.artistSinglesFull || []).length + " singles.");
   });
   say("Loaded " + data.artist + " with " + albums.length + " albums and " + singles.length + " singles.");
-}
-function renderArtistPage(data){
-  var box = $("artistContent");
-  var songs = (data.songs || []).filter(function(s){ return s.wrapperType === "track"; }).slice(0, 10);
-  var albums = (data.albums || []).filter(function(a){ return a.wrapperType === "collection" && a.collectionType === "Album"; });
-  var singles = (data.albums || []).filter(function(a){ return a.wrapperType === "collection" && a.collectionType === "Single"; }).slice(0, 10);
-  /* v2.2.4: merge MusicBrainz release-groups iTunes missed (dedup by name). */
-  var seenNames = {};
-  albums.forEach(function(a){ seenNames[normTitle(a.collectionName)] = true; });
-  (data.mbGroups || []).forEach(function(g){
-    if(g["primary-type"] !== "Album") return;
-    var title = g.title || "";
-    var key = normTitle(title);
-    if(!key || seenNames[key]) return;
-    seenNames[key] = true;
-    albums.push({
-      collectionName: title,
-      artistName: data.artist,
-      releaseDate: g["first-release-date"] || "",
-      artworkUrl100: "",
-      collectionId: null,
-      _mb: true
-    });
-  });
-  /* Sort albums by release date, newest first. */
-  albums.sort(function(a, b){ return new Date(b.releaseDate) - new Date(a.releaseDate); });
-  var html = "";
-  if(songs.length){
-    html += "<h3>Top songs</h3><div id='artistTopSongs'>";
-    html += songs.map(function(s, i){
-      var t = { videoId: "", title: s.trackName, channel: s.artistName,
-        thumb: (s.artworkUrl100 || "").replace("100x100bb", "300x300bb"),
-        art: (s.artworkUrl100 || "").replace("100x100bb", "300x300bb"),
-        resolveQuery: s.artistName + " " + s.trackName + " official audio",
-        fallbackQuery: s.artistName + " " + s.trackName };
-      return trackRow(t, i, "atopsong");
-    }).join("");
-    html += "</div>";
-  }
-  if(albums.length){
-    html += "<h3>Albums</h3><div class='row' style='flex-wrap:wrap'>";
-    html += albums.map(function(a){
-      var art = (a.artworkUrl100 || "").replace("100x100bb", "300x300bb");
-      var btn;
-      if(a.collectionId){
-        btn = "<button class='btn small' data-artalbum='" + a.collectionId + "'>View</button>";
-      } else {
-        /* v2.2.4: MusicBrainz-only album — search for it. */
-        btn = "<button class='btn small' data-mbalbum='" + esc(a.collectionName) + "' data-mbartist='" + esc(a.artistName || "") + "'>Search</button>";
-      }
-      return "<div class='card' style='width:150px'>" +
-        (art ? "<img src='" + esc(art) + "' alt='' style='width:100%;border-radius:8px'>" : "") +
-        "<div style='font-weight:bold;font-size:14px'>" + esc(a.collectionName) + "</div>" +
-        "<div class='hint'>" + (a.releaseDate ? new Date(a.releaseDate).getFullYear() : "") + "</div>" +
-        btn + "</div>";
-    }).join("");
-    html += "</div>";
-  }
-  if(singles.length){
-    html += "<h3>Latest singles</h3><div class='row' style='flex-wrap:wrap'>";
-    html += singles.map(function(a){
-      var art = (a.artworkUrl100 || "").replace("100x100bb", "300x300bb");
-      return "<div class='card' style='width:150px'><img src='" + esc(art) + "' alt='' style='width:100%;border-radius:8px'>" +
-        "<div style='font-weight:bold;font-size:14px'>" + esc(a.collectionName) + "</div>" +
-        "<button class='btn small' data-artalbum='" + a.collectionId + "'>View</button></div>";
-    }).join("");
-    html += "</div>";
-  }
-  if(!html) html = "<p class='hint'>Nothing found.</p>";
-  box.innerHTML = html;
-  /* Bind top song playback. */
-  var songList = songs.map(function(s){
-    return { videoId: "", title: s.trackName, channel: s.artistName,
-      thumb: (s.artworkUrl100 || "").replace("100x100bb", "300x300bb"),
-      art: (s.artworkUrl100 || "").replace("100x100bb", "300x300bb"),
-      resolveQuery: s.artistName + " " + s.trackName + " official audio",
-      fallbackQuery: s.artistName + " " + s.trackName };
-  });
-  bindTrackButtons($("artistTopSongs"), songList);
-  /* Bind album views. */
-  box.querySelectorAll("[data-artalbum]").forEach(function(b){
-    b.addEventListener("click", function(){
-      openITunesAlbum(b.getAttribute("data-artalbum"));
-    });
-  });
-  /* v2.2.4: MusicBrainz-only albums — search YouTube for the album. */
-  box.querySelectorAll("[data-mbalbum]").forEach(function(b){
-    b.addEventListener("click", function(){
-      var aname = b.getAttribute("data-mbalbum");
-      var artist = b.getAttribute("data-mbartist");
-      $("searchBox").value = artist + " " + aname + " full album";
-      doSearch();
-      say("Searching for " + aname + ".");
-    });
-  });
 }
 $("artistBackBtn").addEventListener("click", function(){
   $("artistView").hidden = true;
@@ -3331,6 +3283,12 @@ function resolveTrack(v){
   try {
     var cacheKey = "lm_resolve_" + normTitle(artist + "|" + title);
     var cached = localStorage.getItem(cacheKey);
+    if(cached && lmDeadIds[cached]){
+      /* v2.2.98: this cached id was proven dead this session — forget it
+         and search fresh instead of resurrecting a deleted upload. */
+      try { localStorage.removeItem(cacheKey); } catch(e){}
+      cached = null;
+    }
     if(cached){
       v.videoId = cached;
       v.candidates = [cached];
@@ -3367,20 +3325,16 @@ function resolveTrack(v){
   }
   function attempt(i){
     if(i >= queries.length){
-      /* v2.2.3: last resort — check MusicBrainz for the correct title.
-         If the stored title is wrong/mangled, search with the real one. */
-      return mbTitleFix().then(function(fixed){
-        if(fixed){ takeCands(fixed); return v; }
-        /* v2.2.21: absolute last resort — try one more search with lenient
-           matching (top result) rather than skipping the song entirely. */
-        return ytSearch(artist + " " + title, true, artist).then(function(videos){
-          if(videos && videos.length){
-            takeCands(videos.slice(0, 3));
-            return v;
-          }
+      /* v2.2.98: the old MusicBrainz title-fix step fetched a disabled
+         address and could only ever waste time on the hardest tracks —
+         removed. Straight to the lenient last-resort search. */
+      return ytSearch(artist + " " + title, true, artist).then(function(videos){
+        if(videos && videos.length){
+          takeCands(videos.slice(0, 3));
           return v;
-        }).catch(function(){ return v; });
-      });
+        }
+        return v;
+      }).catch(function(){ return v; });
     }
     return ytSearch(queries[i], true, artist).then(function(videos){
       /* v2.2.0: accuracy gate — only keep uploads that actually match the
@@ -3394,43 +3348,38 @@ function resolveTrack(v){
       return attempt(i + 1);
     });
   }
-  /* Ask MusicBrainz for the canonical recording title; if it differs,
-     try one YouTube search with the corrected title. */
-  function mbTitleFix(){
-    /* v2.2.5: never "correct" a title the user fixed by hand. */
-    if(v._userFixed) return Promise.resolve(null);
-    if(!artist || !title) return Promise.resolve(null);
-    var q = 'artist:"' + artist.replace(/"/g, "") + '" AND recording:"' + title.replace(/"/g, "") + '"';
-    return fetch("https://disabled.invalid/musicbrainz/ws/2/recording/?query=" + encodeURIComponent(q) + "&fmt=json&limit=3")
-      .then(function(r){ return r.json(); })
-      .then(function(d){
-        var recs = d.recordings || [];
-        if(!recs.length) return null;
-        var mbTitle = recs[0].title || "";
-        var mbArtist = (((recs[0]["artist-credit"] || [])[0] || {}).name) || "";
-        if(!mbTitle || normTitle(mbTitle) === normTitle(title)) return null;
-        /* Different title found — try it. */
-        var fixQ = (mbArtist || artist) + " " + mbTitle + " official audio";
-        return ytSearch(fixQ, true, mbArtist || artist).then(function(videos){
-          var matched = videos.filter(function(vd){ return titleMatches(mbTitle, vd.title); });
-          /* v2.2.5: do NOT overwrite v.title/v.channel here — the user may have
-             just manually corrected them in the Fix dialog, and MB "correcting"
-             them back is what reverts the fix. Only use MB for finding candidates. */
-          if(matched.length) return matched;
-          return null;
-        });
-      })
-      .catch(function(){ return null; });
-  }
   return attempt(0);
 }
+/* v2.2.98: called by Java when an alternative upload produced the playable
+   URL for a track whose original id failed. Adopt the winning id in the
+   queue and refresh the permanent resolve cache, so this song is found
+   instantly from now on instead of re-running the alternative search. */
+window.lmNativeResolved = function(i, videoId){
+  i = parseInt(i, 10);
+  if(isNaN(i) || i < 0 || i >= state.queue.length) return;
+  if(!videoId) return;
+  var v = state.queue[i];
+  if(!v || v.videoId === videoId) return;
+  v.videoId = videoId;
+  if(!v.candidates || !v.candidates.length){ v.candidates = [videoId]; v.candIdx = 0; }
+  else if(v.candidates.indexOf(videoId) < 0){ v.candidates.push(videoId); }
+  try {
+    var key = "lm_resolve_" + normTitle((v.channel || "") + "|" + (v.title || ""));
+    localStorage.setItem(key, videoId);
+  } catch(e){}
+};
 /* Called by Java when the native extractor cannot play the current videoId.
    v2.1.4: walk the track's candidate uploads (and, for Takeout tracks with a
-   dead original upload, search for another copy) before skipping the song. */
-window.lmNativeResolveFailed = function(i){
+   dead original upload, search for another copy) before skipping the song.
+   v2.2.98: Java now reports the failure kind. "dead" (the upload is gone)
+   never gets a same-id retry — the id is poisoned for the session, resolve
+   cache entries pointing at it are evicted, and we go straight to another
+   copy. "transient" (network blip) keeps the v2.2.84 backoff retry. */
+window.lmNativeResolveFailed = function(i, kind, msg){
   i = parseInt(i, 10);
   if(isNaN(i) || i < 0 || i >= state.queue.length) return;
   var v = state.queue[i];
+  var isDead = (kind === "dead");
   function tryId(id){
     v.videoId = id;
     try {
@@ -3443,9 +3392,14 @@ window.lmNativeResolveFailed = function(i){
     say("That song wouldn't play. Trying the next one.");
     playNext(true);
   }
+  if(isDead){
+    lmMarkDead(v.videoId);
+    lmEvictResolveCacheFor(v.videoId);
+  }
   if(v.candidates && v.candIdx + 1 < v.candidates.length){
     v.candIdx++;
-    say("Trying another upload of " + v.title + ".");
+    if(isDead) say("That upload is gone. Trying another copy of " + v.title + ".");
+    else say("Trying another upload of " + v.title + ".");
     tryId(v.candidates[v.candIdx]);
     return;
   }
@@ -3455,23 +3409,28 @@ window.lmNativeResolveFailed = function(i){
      blip during resolve used to skip the track outright (the lazy search
      below also needs network and can be throttled). So: retry the resolve
      itself up to 2x with backoff before the expensive fallback. The counter
-     clears whenever any track starts playing (lmNativeTrack). */
-  state._resolveRetries = state._resolveRetries || {};
-  var rk = (v.videoId || "?") + "_" + i;
-  var rn = state._resolveRetries[rk] || 0;
-  if(rn < 2 && !v._recSearched){
-    state._resolveRetries[rk] = rn + 1;
-    say("Connection hiccup. Retrying " + (v.title || "song") + ".");
-    setTimeout(function(){
-      if(!state.queue || state.queue[i] !== v || state.qi !== i) return;
-      tryId(v.videoId);
-    }, 2500 * (rn + 1));
-    return;
+     clears whenever any track starts playing (lmNativeTrack).
+     v2.2.98: dead uploads skip this entirely — retrying a deleted id only
+     ever burned 7.5s before the same give-up. */
+  if(!isDead){
+    state._resolveRetries = state._resolveRetries || {};
+    var rk = (v.videoId || "?") + "_" + i;
+    var rn = state._resolveRetries[rk] || 0;
+    if(rn < 2 && !v._recSearched){
+      state._resolveRetries[rk] = rn + 1;
+      say("Connection hiccup. Retrying " + (v.title || "song") + ".");
+      setTimeout(function(){
+        if(!state.queue || state.queue[i] !== v || state.qi !== i) return;
+        tryId(v.videoId);
+      }, 2500 * (rn + 1));
+      return;
+    }
   }
   if(!v._recSearched){
     /* Takeout tracks carry a known id but no candidates: find another copy. */
     v._recSearched = true;
-    say("Looking for another copy of " + v.title + ".");
+    if(isDead) say("That upload is gone. Looking for another copy of " + v.title + ".");
+    else say("Looking for another copy of " + v.title + ".");
     /* v2.1.9: try a couple of phrasings — the first one often misses. */
     var lazyQs = [];
     function addLQ(q){ q = String(q || "").trim(); if(q && lazyQs.indexOf(q) < 0) lazyQs.push(q); }
@@ -3502,7 +3461,10 @@ window.lmNativeResolveFailed = function(i){
 function playQueueIndex(i, fresh){
   if(i < 0 || i >= state.queue.length) return;
   state.qi = i;
-  maybeRefillRadio();
+  /* v2.2.98: radio refill used to run BEFORE the resolve below — its
+     synchronous bridge call could stall the tapped track by up to ~15s.
+     It now runs only after the track has been handed to the player. */
+  function refillAfterHandoff(){ try { maybeRefillRadio(); } catch(e){} }
   var v = state.queue[i];
   if(!v.videoId) say("Loading " + v.title + ".");
   resolveTrack(v).then(function(rv){
@@ -3523,6 +3485,7 @@ function playQueueIndex(i, fresh){
       $("miniPlayer").hidden = false;
       if(IS_TV && freshStart) expandPlayer();
       say("Loading " + v.title + ".");
+      refillAfterHandoff();
       return;
     }
     ensurePlayer(rv);
@@ -3531,6 +3494,7 @@ function playQueueIndex(i, fresh){
     /* TV: open the full player as soon as music starts — no hunting for the
        mini player with the remote. Later tracks leave it as the user left it. */
     if(IS_TV && freshStart2) expandPlayer();
+    refillAfterHandoff();
   }).catch(function(){
     if(state.queue[state.qi] !== v) return;
     say("Couldn't load " + v.title + ". Trying the next one.");
@@ -4785,7 +4749,6 @@ function fpMenuItems(){
   /* v2.2.82: actions that lived as button rows under the player now live here. */
   items.push({ label: "▶ YouTube Music", fn: function(){ $("fpYtMusicBtn").click(); }});
   items.push({ label: "📻 Start radio", fn: function(){ $("fpRadioBtn").click(); }});
-  items.push({ label: "🎸 Similar artists", fn: function(){ $("fpSimilarBtn").click(); }});
   items.push({ label: "📝 Lyrics", fn: function(){ $("fpLyricsBtn").click(); }});
   return items;
 }
@@ -4954,6 +4917,10 @@ function fixSongInfo(v){
         v.title = newTitle;
         if(newArtist) v.channel = newArtist;
         v.videoId = ""; v.candidates = null; v.candIdx = 0; v._recSearched = false;
+        /* v2.2.98: also drop the permanent resolve-cache entry filed under
+           the OLD title/artist — otherwise the re-resolve below instantly
+           returns the same wrong (or dead) id the user is trying to fix. */
+        try { localStorage.removeItem("lm_resolve_" + normTitle(oldArtist + "|" + oldTitle)); } catch(e){}
         /* v2.2.5: mark as user-fixed so auto-correction never overrides it. */
         v._userFixed = true;
         v.resolveQuery = (newArtist ? newArtist + " " : "") + newTitle + " official audio";
@@ -5192,128 +5159,6 @@ function diversifyStart(videos, n){
     lastArtist = normArtist(picked.ownerChannel || picked.channel || "");
   }
   return result;
-}
-/* Last.fm-powered genre station: get real artists for the genre from Last.fm,
-   then their top tracks, then find each on YouTube. No YouTube recommendations
-   — we control the variety. */
-function buildLastFmGenreStation(genreName){
-  say("Building " + genreName + " station.");
-  var progressCount = 0;
-  /* Track which step we're on for error reporting. */
-  var buildStep = "starting";
-  var tagMap = {
-    "metal": "metal", "rock": "rock", "grunge": "grunge", "alternative": "alternative",
-    "hip-hop": "hip-hop", "pop": "pop", "country": "country", "jazz": "jazz",
-    "classical": "classical", "electronic": "electronic", "r&b": "rnb", "punk": "punk"
-  };
-  var tag = tagMap[genreName.toLowerCase()] || genreName.toLowerCase();
-  /* Check cache first. */
-  var cacheKey = "lm_lfm_" + tag;
-  var cached = null;
-  try {
-    var c = localStorage.getItem(cacheKey);
-    if(c){
-      var parsed = JSON.parse(c);
-      /* Cache for 7 days. */
-      if(Date.now() - parsed.ts < 7 * 24 * 60 * 60 * 1000 && parsed.tracks && parsed.tracks.length >= 10){
-        cached = parsed.tracks;
-      }
-    }
-  } catch(e){}
-  function findVideosForTracks(tracks){
-    /* Find each track on YouTube via scraped search, in small batches to
-       avoid tripping YouTube's rate limiting. */
-    function processBatch(batch){
-      var promises = batch.map(function(t){
-        return ytSearch(t.artist + " " + t.title + " official audio", true, t.artist)
-          .then(function(videos){
-            if(videos && videos.length){
-              var v = videos[0];
-              v.ownerChannel = t.artist;
-              v.channel = t.artist;
-              return v;
-            }
-            return null;
-          })
-          .catch(function(){ return null; });
-      });
-      return Promise.all(promises);
-    }
-    /* Process in batches of 3, sequentially. */
-    var allResults = [];
-    var batchPromise = Promise.resolve();
-    for(var b = 0; b < tracks.length; b += 3){
-      (function(batch){
-        batchPromise = batchPromise.then(function(){
-          return processBatch(batch).then(function(results){
-            allResults.push.apply(allResults, results);
-            /* Small delay between batches. */
-            return new Promise(function(res){ setTimeout(res, 500); });
-          });
-        });
-      })(tracks.slice(b, b + 3));
-    }
-    /* Announce progress every few batches so the user knows it's working. */
-    var totalBatches = Math.ceil(tracks.length / 3);
-    batchPromise = batchPromise.then(function(){
-      progressCount++;
-      if(progressCount % 3 === 0 || progressCount === totalBatches){
-        say("Found " + allResults.filter(function(v){ return v && v.videoId; }).length + " songs so far.");
-      }
-    });
-    return batchPromise.then(function(){
-      var videos = allResults.filter(function(v){ return v && v.videoId; });
-      /* Dedupe by video ID. */
-      var seen = {}, out = [];
-      videos.forEach(function(v){
-        if(!seen[v.videoId]){ seen[v.videoId] = true; out.push(v); }
-      });
-      /* Filter live and non-English. */
-      out = out.filter(function(v){ return !isLiveVersion(v.title) && !isNonEnglish(v.title, v.ownerChannel); });
-      if(out.length < 5) throw new Error("only found " + out.length + " playable videos on YouTube");
-      /* Diversify start: first 10 from different artists. */
-      out = diversifyStart(out, 10);
-      return { videos: out, seedIds: null, name: genreName };
-    });
-  }
-  if(cached){
-    return findVideosForTracks(cached);
-  }
-  /* Fetch from Last.fm. */
-  buildStep = "getting artists from Last.fm";
-  return fetchWithTimeout("https://disabled.invalid/lastfm/2.0/?method=tag.getTopArtists&tag=" + encodeURIComponent(tag) + "&api_key=" + LASTFM_KEY + "&format=json&limit=25")
-    .then(function(r){ return r.json(); })
-    .then(function(d){
-      var artists = ((d.topartists || {}).artist || []).map(function(a){ return a.name; }).filter(Boolean);
-      if(artists.length < 5) throw new Error("Last.fm returned only " + artists.length + " artists");
-      buildStep = "getting top tracks from Last.fm";
-      shuffleList(artists);
-      /* Get top 2 tracks for first 15 artists. */
-      var trackPromises = artists.slice(0, 15).map(function(artistName){
-        return fetchWithTimeout("https://disabled.invalid/lastfm/2.0/?method=artist.getTopTracks&artist=" + encodeURIComponent(artistName) + "&api_key=" + LASTFM_KEY + "&format=json&limit=3")
-          .then(function(r2){ return r2.json(); })
-          .then(function(d2){
-            var tracks = ((d2.toptracks || {}).track || []).slice(0, 2);
-            return tracks.map(function(t){ return { artist: artistName, title: t.name }; });
-          })
-          .catch(function(){ return []; });
-      });
-      return Promise.all(trackPromises);
-    })
-    .then(function(trackLists){
-      var allTracks = [];
-      trackLists.forEach(function(list){ allTracks.push.apply(allTracks, list); });
-      if(allTracks.length < 5) throw new Error("Last.fm returned only " + allTracks.length + " tracks");
-      buildStep = "finding songs on YouTube";
-      shuffleList(allTracks);
-      /* Cache the track list. */
-      try {
-        localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), tracks: allTracks.slice(0, 20) }));
-      } catch(e){}
-      return findVideosForTracks(allTracks.slice(0, 20));
-    }).catch(function(err){
-      throw new Error("Failed at: " + buildStep + " — " + (err.message || err));
-    });
 }
 /* Live versions: filter out "(Live)", "Live at...", "Live Version" etc. */
 function isLiveVersion(title){
@@ -5599,48 +5444,9 @@ function fetchWithTimeout(url, opts, ms){
   });
 }
 
-var LASTFM_KEY = "e06508f947f4fac1595adde9c41264eb";
-function showSimilar(){
-  var box = $("fpSimilarList");
-  var title = $("fpSimilarTitle");
-  if(!box.hidden){ box.hidden = true; box.innerHTML = ""; if(title) title.hidden = true; say("Similar artists hidden."); return; }
-  var v = currentVideo();
-  if(!v){ say("Nothing playing."); return; }
-  var artist = trackArtist(v);
-  if(!artist){ say("Couldn't figure out the artist for this song."); return; }
-  box.hidden = false;
-  var simTitle = $("fpSimilarTitle"); if(simTitle) simTitle.hidden = false;
-  /* v2.2.82: similar artists live inside the Up-next panel now — open it. */
-  try { toggleUpNext(true); } catch(e){}
-  box.innerHTML = '<div class="empty">Finding artists like ' + esc(artist) + "…</div>";
-  say("Finding artists like " + artist + ".");
-  fetch("https://disabled.invalid/lastfm/2.0/?method=artist.getSimilar&artist=" + encodeURIComponent(artist) + "&api_key=" + LASTFM_KEY + "&format=json&limit=12")
-    .then(function(r){ return r.json(); })
-    .then(function(d){
-      var arts = (d && d.similarartists && d.similarartists.artist) || [];
-      if(!arts.length){
-        box.innerHTML = '<div class="empty">No similar artists found for ' + esc(artist) + ".</div>";
-        say("No similar artists found.");
-        return;
-      }
-      box.innerHTML = '<div class="row">' + arts.map(function(a){
-        return '<button class="btn small secondary" data-sim="' + esc(a.name) + '">' + esc(a.name) + "</button>";
-      }).join("") + "</div>" + '<p class="hint">Tap an artist to start their radio.</p>';
-      say(arts.length + " similar artists found.");
-      box.querySelectorAll("[data-sim]").forEach(function(b){
-        b.addEventListener("click", function(){
-          var name = b.getAttribute("data-sim");
-          box.hidden = true; box.innerHTML = "";
-          startRadio(name);
-        });
-      });
-    })
-    .catch(function(){
-      box.innerHTML = '<div class="empty">Lookup failed. Check your connection.</div>';
-      say("Similar artist lookup failed.");
-    });
-}
-$("fpSimilarBtn").addEventListener("click", showSimilar);
+/* v2.2.98: showSimilar + its Last.fm key are gone — the Similar-artists
+   feature fetched a disabled address and could only ever fail. The button
+   and the player-menu entry went with it. */
 /* ================= home screen ================= */
 function renderHome(){
   /* v2.2.68: each section is isolated - one bad section can't kill the home screen */
@@ -6396,94 +6202,6 @@ function playDiscoverMix(){
    "Album", so singles are detected by the " - Single" name suffix.
    Exact-artist matches outrank collabs, tribute/karaoke junk is skipped. */
 var forYouCache = null;
-/* v2.1.3: score every release per artist; the loader pools the top few from
-   each artist and sorts newest-first globally, so current-year releases
-   surface instead of one stale pick per artist. */
-function scoreArtistReleases(artist, results){
-  var q = String(artist).toLowerCase();
-  var scored = [];
-  (results || []).forEach(function(r){
-    if(!r.collectionName || !r.collectionId) return;
-    var al = String(r.artistName || "").toLowerCase();
-    var score = -1;
-    if(al === q) score = 2;
-    else if(al.indexOf(q) === 0) score = 1;
-    else if(al.indexOf(q) >= 0) score = 0;
-    if(score < 0) return;
-    var cn = String(r.collectionName);
-    if(/tribute|karaoke|piano covers|lullaby|8-bit|chipmunk|music box/i.test(cn)) return;
-    scored.push({ r: r, score: score, single: /\s+-\s+single$/i.test(cn) });
-  });
-  function ranked(wantSingle){
-    var f = scored.filter(function(x){ return wantSingle ? x.single : !x.single; });
-    f.sort(function(a, b){
-      if(b.score !== a.score) return b.score - a.score;
-      var da = a.r.releaseDate || "", db = b.r.releaseDate || "";
-      return db < da ? -1 : (db > da ? 1 : 0);
-    });
-    return f.slice(0, 3).map(function(x){
-      var r = x.r;
-      return { name: r.collectionName, artist: r.artistName,
-        art: (r.artworkUrl100 || "").replace("100x100bb", "300x300bb"),
-        date: (r.releaseDate || "").slice(0, 10), colId: r.collectionId };
-    });
-  }
-  return { albums: ranked(false), singles: ranked(true) };
-}
-function loadForYouReleases(){
-  var aBox = $("forYouReleases"), sBox = $("forYouSingles");
-  if(!aBox || !sBox) return;
-  if(forYouCache){ renderForYou(forYouCache); return; }
-  var artists = topArtists(8);
-  if(!artists.length){
-    var msg = "<p style='color:#999'>Like some songs and I'll show new releases from your favorite artists here.</p>";
-    aBox.innerHTML = msg; sBox.innerHTML = msg;
-    return;
-  }
-  aBox.innerHTML = "<p style='color:#999'>Loading…</p>";
-  sBox.innerHTML = "";
-  Promise.all(artists.map(function(a){
-    return fetch("https://disabled.invalid/itunes/search?term=" + encodeURIComponent(a) + "&entity=album&limit=50")
-      .then(function(r){ return r.json(); })
-      .then(function(d){ return { artist: a, results: d.results || [] }; })
-      .catch(function(){ return { artist: a, results: [] }; });
-  })).then(function(res){
-    var seenA = {}, seenS = {}, albums = [], singles = [];
-    res.forEach(function(r){
-      var all = scoreArtistReleases(r.artist, r.results);
-      all.albums.forEach(function(p){ if(p.colId && !seenA[p.colId]){ seenA[p.colId] = 1; albums.push(p); } });
-      all.singles.forEach(function(p){ if(p.colId && !seenS[p.colId]){ seenS[p.colId] = 1; singles.push(p); } });
-    });
-    /* v2.2.23: only show releases from the last 90 days — "new" means new. */
-    var cutoff = Date.now() - (180 * 24 * 60 * 60 * 1000);
-    albums = albums.filter(function(p){
-      try { return new Date(p.date || 0).getTime() >= cutoff; } catch(e){ return true; }
-    });
-    singles = singles.filter(function(p){
-      try { return new Date(p.date || 0).getTime() >= cutoff; } catch(e){ return true; }
-    });
-    function recencySort(a, b){
-      return a.date < b.date ? 1 : -1;
-    }
-    albums.sort(recencySort);
-    singles.sort(recencySort);
-    /* v2.2.4: cache plenty so "See all" shows everything, not just 8. */
-    forYouCache = { albums: albums.slice(0, 40), singles: singles.slice(0, 40) };
-    renderForYou(forYouCache);
-  }).catch(function(){
-    aBox.innerHTML = "<p style='color:#999'>Couldn't load new releases.</p>";
-  });
-}
-function renderForYou(c){
-  var aBox = $("forYouReleases"), sBox = $("forYouSingles");
-  if(!aBox || !sBox) return;
-  aBox.innerHTML = ""; sBox.innerHTML = "";
-  /* v2.2.4: home row shows 10, "See all" shows the full cache. */
-  c.albums.slice(0, 10).forEach(function(it){ aBox.appendChild(releaseCard(it, "album")); });
-  c.singles.slice(0, 10).forEach(function(it){ sBox.appendChild(releaseCard(it, "single")); });
-  if(!c.albums.length) aBox.innerHTML = "<p style='color:#999'>Nothing right now.</p>";
-  if(!c.singles.length) sBox.innerHTML = "<p style='color:#999'>Nothing right now.</p>";
-}
 function releaseCard(item, kind){
   var d = document.createElement("button");
   d.className = "albumCard";
@@ -6871,70 +6589,11 @@ function openArtistPanel(){
   if(!v){ say("Play something first."); return; }
   var artist = trackArtist(v);
   if(!artist){ say("Couldn't figure out the artist for this song."); return; }
-  $("fpArtistName").textContent = displayArtist(v.channel);
-  $("artistAlbums").innerHTML = "<p style='color:#999'>Loading albums…</p>";
-  $("artistSongs").innerHTML = "";
-  $("artistPanel").hidden = false;
-  say("Loading " + artist + ".");
-  var q = encodeURIComponent(artist);
-  Promise.all([
-    fetch("https://disabled.invalid/itunes/search?term=" + q + "&entity=album&limit=40").then(function(r){ return r.json(); }),
-    fetch("https://disabled.invalid/itunes/search?term=" + q + "&entity=song&limit=40").then(function(r){ return r.json(); })
-  ]).then(function(res){
-    renderArtistAlbums(artist, res[0].results || []);
-    renderArtistSongs(artist, res[1].results || []);
-    say(artist + " loaded.");
-  }).catch(function(){
-    $("artistAlbums").innerHTML = "<p style='color:#999'>Couldn't load. Check your connection.</p>";
-    say("Couldn't load the artist page.");
-  });
-}
-function itunesMatches(artist, itemArtist){
-  var a = String(artist).toLowerCase(), b = String(itemArtist || "").toLowerCase();
-  return b === a || b.indexOf(a) >= 0 || a.indexOf(b) >= 0;
-}
-function renderArtistAlbums(artist, results){
-  var box = $("artistAlbums");
-  box.innerHTML = "";
-  var seen = {}, list = [];
-  results.forEach(function(r){
-    if(!r.collectionName || seen[r.collectionName]) return;
-    if(!itunesMatches(artist, r.artistName)) return;
-    seen[r.collectionName] = 1;
-    list.push(r);
-  });
-  list.sort(function(a, b){ return (a.releaseDate || "") < (b.releaseDate || "") ? 1 : -1; });
-  list.slice(0, 20).forEach(function(r){
-    var yr = (r.releaseDate || "").slice(0, 4);
-    var d = document.createElement("button");
-    d.className = "albumCard";
-    d.setAttribute("aria-label", "Play album " + r.collectionName + (yr ? ", " + yr : ""));
-    d.innerHTML = (r.artworkUrl100 ? '<img src="' + esc(r.artworkUrl100.replace("100x100bb", "300x300bb")) + '" alt="">' : "") +
-      '<div class="an">' + esc(r.collectionName) + '</div>' + (yr ? '<div class="ad">' + esc(yr) + "</div>" : "");
-    d.addEventListener("click", function(){ playItunes(artist, r.collectionName, r.collectionId); });
-    box.appendChild(d);
-  });
-  if(!list.length) box.innerHTML = "<p style='color:#999'>No albums found.</p>";
-}
-function renderArtistSongs(artist, results){
-  var box = $("artistSongs");
-  box.innerHTML = "";
-  var seen = {}, n = 0;
-  results.forEach(function(r){
-    if(n >= 15 || !r.trackName || seen[r.trackName]) return;
-    if(!itunesMatches(artist, r.artistName)) return;
-    seen[r.trackName] = 1; n++;
-    (function(title){
-      var row = document.createElement("button");
-      row.className = "track";
-      row.setAttribute("aria-label", "Play " + title);
-      row.style.width = "100%";
-      row.innerHTML = '<div class="info"><div class="title">' + esc(title) + '</div><div class="channel">' + esc(r.collectionName || "") + '</div></div><div class="actions"><span class="iconbtn gold">▶</span></div>';
-      row.addEventListener("click", function(){ playItunes(artist, title); });
-      box.appendChild(row);
-    })(r.trackName);
-  });
-  if(!n) box.innerHTML = "<p style='color:#999'>No songs found.</p>";
+  /* v2.2.98: this panel used to fetch a disabled iTunes address and could
+     only ever show a failure. It now opens the REAL artist page — the same
+     opener the song menu's "Go to artist" action uses. */
+  try { $("artistPanel").hidden = true; } catch(e){}
+  openArtistPage(v.channel || v.artist || "");
 }
 /* ================= v2.2.74: Account - Manual Google OAuth (no Supabase JS) ================= */
 var SUPABASE_URL = "https://klykzghndlrfwwxwaczm.supabase.co";
