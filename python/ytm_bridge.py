@@ -508,6 +508,9 @@ def get_stream_url(video_id):
             'no_warnings': True,
             'extract_flat': False,
             'noplaylist': True,
+            # v2.2.98: was missing here (get_playable_stream has it) — an
+            # unbounded socket could hang this path forever.
+            'socket_timeout': 10,
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -646,14 +649,41 @@ def get_new_releases(limit=50):
     except Exception as e:
         return json.dumps({"error": str(e)})
 
+# v2.2.98: error-text patterns that mean the upload itself is gone for good.
+# Retrying a "dead" id can never succeed, so the Java/JS layers treat it
+# differently from a "transient" network/throttle failure.
+_DEAD_ERROR_PATTERNS = (
+    "video unavailable",
+    "private video",
+    "this video is private",
+    "no longer available",
+    "video removed",
+    "video has been removed",
+    "has been removed",
+    "account associated with this video has been terminated",
+)
+
+def _classify_stream_error(text):
+    """Return "dead" when the error text says the upload is gone (private,
+    removed, unavailable); "transient" for everything else."""
+    t = str(text or "").lower()
+    for p in _DEAD_ERROR_PATTERNS:
+        if p in t:
+            return "dead"
+    return "transient"
+
 def get_playable_stream(title, artist, video_id, max_alternatives=2):
     """Get a playable stream URL, trying alternatives if the primary fails.
     Returns JSON with url and videoId, or error if all fail.
-    This is the permanent fix for skipped tracks."""
+    This is the permanent fix for skipped tracks.
+    v2.2.98: success payloads also carry "resolved_video_id" (the id that
+    actually produced the URL — the primary or the winning alternative) and
+    error payloads carry "error_kind" ("dead" / "transient") so callers stop
+    retrying deleted uploads as if they were network hiccups."""
     import yt_dlp
-    
+
     def try_video_id(vid):
-        """Try to get stream URL for a video ID. Returns URL or None."""
+        """Try to get stream URL for a video ID. Returns (url, error_text)."""
         try:
             url = "https://www.youtube.com/watch?v=" + vid
             ydl_opts = {
@@ -675,24 +705,31 @@ def get_playable_stream(title, artist, video_id, max_alternatives=2):
                                 break
                     if not stream_url and info.get('formats'):
                         stream_url = info['formats'][0].get('url', '')
-                return stream_url if stream_url else None
-        except:
-            return None
-    
+                if stream_url:
+                    return stream_url, ""
+                return None, "No stream URL found"
+        except Exception as e:
+            return None, str(e)
+
     # Try the primary video ID first
-    url = try_video_id(video_id)
+    url, primary_err = try_video_id(video_id)
     if url:
-        return json.dumps({"url": url, "videoId": video_id})
-    
+        return json.dumps({"url": url, "videoId": video_id,
+                           "resolved_video_id": video_id})
+
     # Primary failed - search for alternatives
+    last_err = primary_err
     try:
         ytm = _get_ytm()
         query = f"{artist} {title}".strip()
         if not query:
-            return json.dumps({"error": "No query for alternatives"})
-        
+            return json.dumps({"error": "No query for alternatives",
+                               "error_kind": _classify_stream_error(primary_err),
+                               "detail": primary_err})
+
         results = ytm.search(query, filter="songs", limit=10)
         tried = {video_id}
+        attempts = 0
         for item in results:
             vid = item.get("videoId", "")
             if not vid or vid in tried:
@@ -700,13 +737,23 @@ def get_playable_stream(title, artist, video_id, max_alternatives=2):
             # Skip music videos
             if item.get("videoType", "") == "MUSIC_VIDEO_TYPE_OMV":
                 continue
-            tried.add(vid)
-            url = try_video_id(vid)
-            if url:
-                return json.dumps({"url": url, "videoId": vid, "alternative": True})
-            if len(tried) > max_alternatives + 1:
+            # v2.2.98: cap checked BEFORE the try — total extractions stay at
+            # 1 primary + max_alternatives. (The old check ran after a try
+            # and let one extra extraction through.)
+            if attempts >= max_alternatives:
                 break
-    except Exception as e:
+            tried.add(vid)
+            attempts += 1
+            url, alt_err = try_video_id(vid)
+            if alt_err:
+                last_err = alt_err
+            if url:
+                return json.dumps({"url": url, "videoId": vid,
+                                   "resolved_video_id": vid,
+                                   "alternative": True})
+    except Exception:
         pass
-    
-    return json.dumps({"error": "All alternatives failed"})
+
+    return json.dumps({"error": "All alternatives failed",
+                       "error_kind": _classify_stream_error(last_err),
+                       "detail": last_err})
