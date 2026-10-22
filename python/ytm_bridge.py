@@ -48,6 +48,37 @@ def _track_from_song(item):
         "art": thumb_url,
     }
 
+def is_latin_text(s):
+    """v2.2.97: English-only feed filter — True when every alphabetic
+    character in the text is Latin-script (ASCII or Latin Extended, which
+    covers accented letters in names like Beyoncé or Motörhead). Digits,
+    spaces, punctuation and symbols are ignored. Any letter from a
+    non-Latin script (Han, Hiragana, Katakana, Hangul, Arabic, Cyrillic,
+    Greek, Thai, Devanagari, Hebrew, Armenian, Georgian, ...) fails.
+    Latin-script non-English (Spanish, French) cannot be told apart from
+    English without a language detector and passes — accepted trade-off."""
+    if not s:
+        return True
+    for ch in str(s):
+        if ch.isalpha():
+            o = ord(ch)
+            if o < 0x80:
+                continue  # ASCII letter
+            if 0x00C0 <= o <= 0x024F:
+                continue  # Latin-1 Supplement + Latin Extended-A/B letters
+            if 0x1E00 <= o <= 0x1EFF:
+                continue  # Latin Extended Additional (e.g. Vietnamese)
+            if 0x2C60 <= o <= 0x2C7F or 0xA720 <= o <= 0xA7FF or 0xAB30 <= o <= 0xAB6F:
+                continue  # Latin Extended-C / -D / -E letters
+            if 0xFF21 <= o <= 0xFF3A or 0xFF41 <= o <= 0xFF5A:
+                continue  # Fullwidth Latin letters
+            return False
+    return True
+
+def _is_latin_item(title, artist):
+    """An item is kept only when BOTH its title and artist are Latin-script."""
+    return is_latin_text(title) and is_latin_text(artist)
+
 def search_songs(query, max_results=20):
     """Search YouTube Music for songs. Returns JSON array of tracks."""
     try:
@@ -552,11 +583,14 @@ def get_new_releases(limit=50):
                     browse_id = item.get("browseId", "") or ""
                     if not browse_id.startswith("MPRE") or browse_id in seen:
                         continue
-                    seen.add(browse_id)
                     thumbnails = item.get("thumbnails", [])
                     thumb_url = thumbnails[-1].get("url", "") if thumbnails else ""
                     artists = item.get("artists", [])
                     artist_name = artists[0].get("name", "") if artists else ""
+                    # v2.2.97: English-only filter (Latin-script title + artist).
+                    if not _is_latin_item(item.get("title", ""), artist_name):
+                        continue
+                    seen.add(browse_id)
                     rtype = (item.get("type") or "").lower()
                     kind = "single" if rtype == "single" else ("ep" if rtype == "ep" else "album")
                     items.append({
@@ -576,16 +610,23 @@ def get_new_releases(limit=50):
             year = datetime.datetime.now().year
             for query in ["new album %s" % year, "new releases %s" % year, "new music"]:
                 try:
-                    results = ytm.search(query, filter="albums", limit=30)
+                    # v2.2.97: wider net (60/query) so the list still fills to
+                    # TARGET after the English-only filter drops items.
+                    results = ytm.search(query, filter="albums", limit=60)
                     for item in results:
                         browse_id = item.get("browseId", "") or ""
                         if not browse_id or browse_id in seen:
                             continue
-                        seen.add(browse_id)
                         thumbnails = item.get("thumbnails", [])
                         thumb_url = thumbnails[-1].get("url", "") if thumbnails else ""
                         artists = item.get("artists", [])
                         artist_name = artists[0].get("name", "") if artists else ""
+                        # v2.2.97: English-only filter — applied BEFORE the
+                        # item counts toward TARGET, so topping up continues
+                        # with later results instead of the list going short.
+                        if not _is_latin_item(item.get("title", ""), artist_name):
+                            continue
+                        seen.add(browse_id)
                         items.append({
                             "browseId": browse_id,
                             "title": item.get("title", ""),
