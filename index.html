@@ -525,7 +525,7 @@
 <!-- v2.2.89: TV-visible toast (say() shows it on TV; phones never see it). -->
 <div id="tvToast" hidden></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.96</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.97</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -699,7 +699,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.96. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.97. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -789,8 +789,11 @@
     <div id="lyricsBody" style="white-space:pre-wrap;line-height:1.6;padding:8px 0"></div>
   </div>
   <div id="artistPanel" hidden>
-    <button class="backBtn" id="artistBackBtn" aria-label="Back to player">‹ Back</button>
-    <h2 id="artistName" style="color:var(--gold);margin:6px 0"></h2>
+    <!-- v2.2.97: these IDs were duplicates of the live artist page's
+         artistBackBtn/artistName — renamed so getElementById and TV
+         focus targeting can never pick the wrong (dead) copy. -->
+    <button class="backBtn" id="fpArtistBackBtn" aria-label="Back to player">‹ Back</button>
+    <h2 id="fpArtistName" style="color:var(--gold);margin:6px 0"></h2>
     <div class="row"><button class="btn secondary small" id="artistShareBtn" aria-label="Share this artist">↗ Share artist</button></div>
     <div class="fp-section-title">Albums</div>
     <div class="hscroll" id="artistAlbums"></div>
@@ -887,6 +890,17 @@ function setJSON(k, v){
    - Conflict rule: newest updated_at wins (last write wins). */
 var CLOUD_TABLE = "lynxos_music_library";
 var _syncTimer = null, _syncApplying = false, _syncBusy = false;
+/* v2.2.97: bounded failure backoff — a failed automatic sync waits
+   (30s, 60s, 120s … up to 15 min) instead of retrying after every
+   track. Reset on any success, or when the user taps Sync now. */
+var _syncFailCount = 0, _syncBackoffUntil = 0;
+function syncBackoffActive(){ return Date.now() < _syncBackoffUntil; }
+function noteSyncFailure(){
+  _syncFailCount++;
+  var secs = Math.min(900, 30 * Math.pow(2, Math.min(_syncFailCount - 1, 5)));
+  _syncBackoffUntil = Date.now() + secs * 1000;
+}
+function noteSyncSuccess(){ _syncFailCount = 0; _syncBackoffUntil = 0; }
 function getLocalLibTs(){ try { return localStorage.getItem("lm_lib_updated") || ""; } catch(e){ return ""; } }
 function setLocalLibTs(ts){ try { localStorage.setItem("lm_lib_updated", ts); } catch(e){} }
 function getLastSyncOk(){ try { return localStorage.getItem("lm_lib_synced") || ""; } catch(e){ return ""; } }
@@ -898,7 +912,11 @@ function scheduleCloudUpload(){
     var tokens = sbGetTokens(); if(!tokens) return;
     setLocalLibTs(new Date().toISOString());
     if(_syncTimer) clearTimeout(_syncTimer);
-    _syncTimer = setTimeout(function(){ cloudUploadNow(true); }, 4000);
+    /* v2.2.97: during failure backoff, coalesce writes and retry when
+       the backoff ends instead of 4s after every track. */
+    var delay = 4000;
+    if(syncBackoffActive()) delay = Math.max(4000, _syncBackoffUntil - Date.now() + 500);
+    _syncTimer = setTimeout(function(){ cloudUploadNow(true); }, delay);
   } catch(e){}
 }
 function localLibCount(){
@@ -917,107 +935,134 @@ function cloudRowCount(row){
     return a + l + h + pc;
   } catch(e){ return 0; }
 }
-var _syncQuiet = false; /* v2.2.93: true during automatic syncs — status text updates but nothing is announced aloud. */
 function setSyncMsg(msg, quiet){
   try {
     var el = $("syncStatus");
     if(el) el.textContent = msg;
   } catch(e){}
-  /* v2.2.93: only speak sync status when the user asked for it (tapped
-     "Sync now"). Automatic syncs on app start stay silent — no more
-     error/status chatter every time the app opens. */
-  if(!(quiet || _syncQuiet)){ try { say(msg); } catch(e){} }
+  /* v2.2.97: the caller captures the quiet flag for the WHOLE async
+     operation and passes it to every completion/error message.
+     (v2.2.93 kept it in a shared variable that done() reset before
+     the async callbacks ran, so automatic sync failures were still
+     announced aloud — the "Upload failed: HTTP 401" heard over music.
+     Automatic syncs now only ever update the Account status text;
+     a manual "Sync now" still speaks its result.) */
+  if(!quiet){ try { say(msg); } catch(e){} }
 }
 /* v2.2.92: one bidirectional sync. Never overwrites a non-empty library with
-   an empty one in either direction. Reports what actually happened. */
+   an empty one in either direction. Reports what actually happened.
+   v2.2.97: the session is refreshed first (sbEnsureSession) and the
+   REST call goes through sbRest, which forces one refresh + one
+   retry on a 401 — an expired access token no longer fails the sync
+   with "Sync failed: HTTP 401". The quiet flag is captured in `q`
+   for the whole async operation. */
 function cloudSyncNow(quiet){
-  /* v2.2.93: quiet=true for automatic syncs (app start) — no announcements. */
-  _syncQuiet = !!quiet;
-  function done(){ _syncBusy = false; _syncQuiet = false; }
-  try {
-    if(typeof sbGetTokens === "undefined" || typeof sbGetUser === "undefined"){ setSyncMsg("Sign in to sync."); done(); return; }
-    var tokens = sbGetTokens(); if(!tokens){ setSyncMsg("Sign in to sync."); done(); return; }
-    var user = sbGetUser(); if(!user || !user.id){ setSyncMsg("Sign in to sync."); done(); return; }
-    if(_syncBusy){ setSyncMsg("Sync already running."); done(); return; }
-    _syncBusy = true;
-    setSyncMsg("Syncing…");
-    fetch(SUPABASE_URL + "/rest/v1/" + CLOUD_TABLE + "?user_id=eq." + encodeURIComponent(user.id) + "&select=*", {
-      headers: { "apikey": SB_ANON, "Authorization": "Bearer " + tokens.access }
-    }).then(function(r){
+  var q = !!quiet;
+  /* A manual Sync now always tries immediately (clears backoff). */
+  if(!q) noteSyncSuccess();
+  if(_syncBusy){ setSyncMsg("Sync already running.", q); return; }
+  if(typeof sbGetTokens === "undefined" || typeof sbGetUser === "undefined"){ setSyncMsg("Sign in to sync.", q); return; }
+  if(!sbGetTokens()){ setSyncMsg("Sign in to sync.", q); return; }
+  _syncBusy = true;
+  function done(){ _syncBusy = false; }
+  setSyncMsg("Syncing…", q);
+  sbEnsureSession(false).then(function(){
+    var user = sbGetUser();
+    if(!user || !user.id){ done(); setSyncMsg("Sign in to sync.", q); return; }
+    sbRest(SUPABASE_URL + "/rest/v1/" + CLOUD_TABLE + "?user_id=eq." + encodeURIComponent(user.id) + "&select=*", { method: "GET" })
+    .then(function(r){
       if(!r.ok) throw new Error("HTTP " + r.status);
       return r.json();
     }).then(function(rows){
       var localCount = localLibCount(), localTs = getLocalLibTs();
       if(!(rows && rows.length)){
         done();
-        if(localCount > 0){ cloudUploadNow(quiet); }
-        else { setSyncMsg("Nothing to sync yet."); }
+        if(localCount > 0){ cloudUploadNow(q); }
+        else { noteSyncSuccess(); setSyncMsg("Nothing to sync yet.", q); }
         return;
       }
       var row = rows[0], cloudTs = row.updated_at || "", cloudCount = cloudRowCount(row);
       if(cloudCount === 0 && localCount > 0){
-        done(); cloudUploadNow(quiet); return;
+        done(); cloudUploadNow(q); return;
       }
       if(localCount === 0 && cloudCount > 0){
-        done(); applyCloudRow(row);
-        setSyncMsg("Downloaded " + cloudCount + " items from cloud."); return;
+        done(); applyCloudRow(row); noteSyncSuccess();
+        setSyncMsg("Downloaded " + cloudCount + " items from cloud.", q); return;
       }
       if(cloudTs && (!localTs || cloudTs > localTs)){
-        done(); applyCloudRow(row);
-        setSyncMsg("Downloaded " + cloudCount + " items from cloud."); return;
+        done(); applyCloudRow(row); noteSyncSuccess();
+        setSyncMsg("Downloaded " + cloudCount + " items from cloud.", q); return;
       }
       if(localTs && localTs > cloudTs && localCount > 0){
-        done(); cloudUploadNow(quiet); return;
+        done(); cloudUploadNow(q); return;
       }
-      done();
-      setSyncMsg(localCount === 0 && cloudCount === 0 ? "Nothing to sync yet." : "Already up to date.");
+      done(); noteSyncSuccess();
+      setSyncMsg(localCount === 0 && cloudCount === 0 ? "Nothing to sync yet." : "Already up to date.", q);
     }).catch(function(err){
-      done();
-      setSyncMsg("Sync failed: " + (err && err.message ? err.message : "network error"));
+      done(); noteSyncFailure();
+      setSyncMsg("Sync failed: " + (err && err.message ? err.message : "network error"), q);
     });
-  } catch(e){ done(); setSyncMsg("Sync failed."); }
+  });
 }
 function cloudUploadNow(quiet){
+  var q = !!quiet;
   _syncTimer = null;
-  _syncQuiet = !!quiet;
-  function done(){ _syncBusy = false; _syncQuiet = false; }
-  try {
-    if(typeof sbGetTokens === "undefined" || typeof sbGetUser === "undefined"){ done(); return; }
-    var tokens = sbGetTokens(); if(!tokens || _syncBusy){ done(); return; }
-    var user = sbGetUser(); if(!user || !user.id){ done(); return; }
-    _syncBusy = true;
-    var now = new Date().toISOString();
-    var body = {
-      user_id: user.id,
-      albums: getAlbums(), liked: getLiked(),
-      playlists: getPlaylists(), history: getHistory(),
-      updated_at: now
-    };
-    var n = localLibCount();
-    fetch(SUPABASE_URL + "/rest/v1/" + CLOUD_TABLE, {
+  /* A manual upload always tries immediately (clears backoff). */
+  if(!q) noteSyncSuccess();
+  /* v2.2.97: automatic uploads wait out the failure backoff instead
+     of retrying after every track. The pending change is not lost —
+     the timer is re-armed for when the backoff ends, and the local
+     library/history writes already happened immediately. */
+  if(q && syncBackoffActive()){
+    _syncTimer = setTimeout(function(){ cloudUploadNow(true); }, Math.max(5000, _syncBackoffUntil - Date.now() + 500));
+    return;
+  }
+  if(typeof sbGetTokens === "undefined" || typeof sbGetUser === "undefined"){ return; }
+  if(!sbGetTokens() || _syncBusy){ return; }
+  var user = sbGetUser(); if(!user || !user.id){ return; }
+  _syncBusy = true;
+  function done(){ _syncBusy = false; }
+  var now = new Date().toISOString();
+  var body = {
+    user_id: user.id,
+    albums: getAlbums(), liked: getLiked(),
+    playlists: getPlaylists(), history: getHistory(),
+    updated_at: now
+  };
+  var n = localLibCount();
+  /* v2.2.97: fresh session first, then the POST via sbRest (one
+     forced refresh + one retry if Supabase still answers 401). */
+  sbEnsureSession(false).then(function(){
+    return sbRest(SUPABASE_URL + "/rest/v1/" + CLOUD_TABLE, {
       method: "POST",
-      headers: { "apikey": SB_ANON, "Authorization": "Bearer " + tokens.access,
-                 "Content-Type": "application/json", "Prefer": "resolution=merge-duplicates" },
+      headers: { "Content-Type": "application/json", "Prefer": "resolution=merge-duplicates" },
       body: JSON.stringify(body)
-    }).then(function(r){
-      done();
-      if(r.ok){
-        setLastSyncOk(new Date().toISOString()); setLocalLibTs(now);
-        setSyncMsg("Uploaded " + n + " items to cloud.");
-      } else {
-        setSyncMsg("Upload failed: HTTP " + r.status);
-      }
-    }).catch(function(){
-      done();
-      setSyncMsg("Upload failed: network error.");
     });
-  } catch(e){ done(); setSyncMsg("Upload failed."); }
+  }).then(function(r){
+    done();
+    if(r.ok){
+      noteSyncSuccess();
+      setLastSyncOk(new Date().toISOString()); setLocalLibTs(now);
+      setSyncMsg("Uploaded " + n + " items to cloud.", q);
+    } else {
+      noteSyncFailure();
+      setSyncMsg("Upload failed: HTTP " + r.status, q);
+    }
+  }).catch(function(){
+    done(); noteSyncFailure();
+    setSyncMsg("Upload failed: network error.", q);
+  });
 }
 function cloudDownloadNow(cb, quiet){
   /* v2.2.92: kept for compatibility — full bidirectional sync now lives in cloudSyncNow. */
   try { cloudSyncNow(quiet); if(cb) cb(false); } catch(e){ if(cb) cb(false); }
 }
 function applyCloudRow(row){
+  /* v2.2.97: remember TV focus before the re-render — the innerHTML
+     rebuilds below destroy the focused control. Restored afterwards;
+     focus inside the player or an open layer is left untouched. */
+  var savedFocus = null;
+  try { if(typeof IS_TV !== "undefined" && IS_TV && typeof tvNavCaptureFocus === "function") savedFocus = tvNavCaptureFocus(); } catch(e){}
   _syncApplying = true;
   try {
     setJSONRaw("lm_albums", row.albums || []);
@@ -1030,6 +1075,7 @@ function applyCloudRow(row){
   _syncApplying = false;
   try { if(typeof renderLibrary === "function") renderLibrary(); } catch(e){}
   try { if(typeof renderHome === "function") renderHome(); } catch(e){}
+  try { if(savedFocus && typeof tvNavRestoreFocus === "function") tvNavRestoreFocus(savedFocus); } catch(e){}
 }
 function syncStatusText(){
   var last = getLastSyncOk();
@@ -1957,6 +2003,7 @@ function bindAlbumTrackButtons(root, tracks){
   });
 }
 function albumTrackMenu(t, anchor){
+  if(typeof tvNavSetOpener === "function") tvNavSetOpener(anchor);
   var m = $("albumMoreMenu");
   var items = [
     { label: "Play next", fn: function(){ state.queue.splice(state.qi + 1, 0, t); say("Will play next: " + t.title); } },
@@ -2050,6 +2097,278 @@ function tvFocusFirst(containerId, preferredId){
     if(target){ target.focus(); }
   } catch(e){}
 }
+/* ================= v2.2.97: explicit TV navigation controller =================
+   The v2.2.89–v2.2.96 fixes set a starting focus on individual
+   screens, but movement BETWEEN controls still relied on the
+   WebView's spatial navigation everywhere except the side menu —
+   the unreliable piece behind every TV regression. This controller
+   owns D-pad arrow movement on TV: it collects the visible, enabled
+   controls of the current topmost layer, moves to the nearest one
+   in the pressed direction, scrolls it into view and announces it.
+   The side menu keeps its own v2.2.96 handler. */
+var _tvNavMemory = {};    /* layerKey -> {id, label} of last focused control */
+var _tvNavOpener = null;  /* element that opened the current layer */
+function tvNavLabel(el){
+  if(!el) return "";
+  var s = "";
+  try { s = el.getAttribute("aria-label") || ""; } catch(e){}
+  if(!s) s = el.textContent || el.value || "";
+  return String(s).trim().replace(/\s+/g, " ").slice(0, 90);
+}
+function tvNavVisible(el){
+  if(!el || el === document.body || !el.getBoundingClientRect) return false;
+  var n = el;
+  while(n && n !== document.body){
+    if(n.hidden) return false;
+    n = n.parentElement;
+  }
+  try {
+    var cs = window.getComputedStyle(el);
+    if(cs.display === "none" || cs.visibility === "hidden") return false;
+  } catch(e){}
+  var r = el.getBoundingClientRect();
+  return r.width > 0 && r.height > 0;
+}
+function tvNavLayerOf(el){
+  if(!el || !el.closest) return "main";
+  if(el.closest("#lmDialog")) return "dialog";
+  if(el.closest("#albumMoreMenu")) return "albumMenu";
+  if(el.closest("#fpMenu")) return "fpMenu";
+  if(el.closest(".srchMenu")) return "searchMenu";
+  if(el.closest("#newSheet")) return "newSheet";
+  if(el.closest("#tv-menu")) return "tvMenu";
+  if(el.closest("#fpUpNextBody")) return "upNext";
+  if(el.closest("#lyricsPanel")) return "lyrics";
+  if(el.closest("#fullPlayer")) return "player";
+  if(el.closest("#albumPanel")) return "album";
+  if(el.closest("#artistView")) return "artist";
+  if(el.closest("#seeAllView")) return "seeAll";
+  if(el.closest("#searchView")) return "search";
+  if(el.closest("#accountView")) return "account";
+  if(el.closest("#settingsView")) return "settings";
+  if(el.closest("#libraryView")) return "library";
+  if(el.closest("#exploreView")) return "explore";
+  if(el.closest("#homeView")) return "home";
+  return "main";
+}
+function tvNavCurrentKey(){
+  try {
+    if(state.tab === "explore") return "explore";
+    if(state.tab === "library") return "library";
+    if(state.tab === "settings") return "settings";
+    if(state.tab === "account") return "account";
+  } catch(e){}
+  return "home";
+}
+function tvNavTopLayer(){
+  /* The topmost open layer, in priority order; null = main view. */
+  try {
+    var d = $("lmDialog"); if(d && !d.hidden) return { key: "dialog", root: d };
+    var am = $("albumMoreMenu"); if(am && !am.hidden) return { key: "albumMenu", root: am };
+    var fm = $("fpMenu"); if(fm && !fm.hidden) return { key: "fpMenu", root: fm };
+    var sm = document.querySelector(".srchMenu"); if(sm) return { key: "searchMenu", root: sm };
+    var ns = $("newSheet"); if(ns && !ns.hidden) return { key: "newSheet", root: ns };
+    if(tvMenuOpen()) return { key: "tvMenu", root: tvMenu };
+    var fp = $("fullPlayer");
+    if(fp && !fp.hidden){
+      var lp = $("lyricsPanel"); if(lp && !lp.hidden) return { key: "lyrics", root: lp };
+      var up = $("fpUpNextBody"); if(up && !up.hidden) return { key: "upNext", root: fp };
+      return { key: "player", root: fp };
+    }
+    var ap = $("albumPanel"); if(ap && !ap.hidden) return { key: "album", root: ap };
+    var av = $("artistView"); if(av && !av.hidden) return { key: "artist", root: av };
+    var sa = $("seeAllView"); if(sa && !sa.hidden) return { key: "seeAll", root: sa };
+    if(state.searchOpen){ var sv = $("searchView"); if(sv && !sv.hidden) return { key: "search", root: sv }; }
+    var ac = $("accountView"); if(ac && !ac.hidden) return { key: "account", root: ac };
+    var st = $("settingsView"); if(st && !st.hidden) return { key: "settings", root: st };
+  } catch(e){}
+  return null;
+}
+function tvNavCandidates(layer){
+  var root = layer ? layer.root : document.body;
+  var nodes = root.querySelectorAll("button, input, select, textarea, a[href], [tabindex]");
+  var out = [];
+  for(var i = 0; i < nodes.length; i++){
+    var el = nodes[i];
+    if(el.disabled) continue;
+    if(el.getAttribute("tabindex") === "-1") continue;
+    /* Up Next drawer layer: only the handle + the drawer's controls. */
+    if(layer && layer.key === "upNext" && !el.closest("#fpUpNextBody") && el.id !== "fpUpNextHandle") continue;
+    /* Player layer: the open drawer belongs to its own layer. */
+    if(layer && layer.key === "player" && el.closest("#fpUpNextBody")) continue;
+    if(!tvNavVisible(el)) continue;
+    out.push(el);
+  }
+  return out;
+}
+function tvNavFocusEl(el, silent){
+  if(!el) return;
+  try { el.focus(); } catch(e){}
+  try { el.scrollIntoView({ block: "nearest", inline: "nearest" }); } catch(e){}
+  _tvNavMemory[tvNavLayerOf(el)] = { id: el.id || "", label: tvNavLabel(el) };
+  if(!silent){
+    var lbl = tvNavLabel(el);
+    if(lbl) say(lbl);
+  }
+}
+function tvNavSetOpener(el){
+  _tvNavOpener = el || document.activeElement || null;
+}
+function tvNavReturnToOpener(){
+  var el = _tvNavOpener; _tvNavOpener = null;
+  if(!el) return;
+  var d = $("lmDialog");
+  if(d && !d.hidden) return; /* a chained dialog opened — leave focus there */
+  if(!tvNavVisible(el)) return;
+  /* Only restore when the opener lives in the layer that is on top
+     now; if the user has moved to a different screen, that screen's
+     own starting focus wins. */
+  var top = tvNavTopLayer();
+  var topKey = top ? top.key : tvNavCurrentKey();
+  var elKey = tvNavLayerOf(el);
+  var viewKeys = ["home", "explore", "library", "main"];
+  var same = (elKey === topKey) || (viewKeys.indexOf(elKey) >= 0 && viewKeys.indexOf(topKey) >= 0);
+  if(!same) return;
+  tvNavFocusEl(el, true);
+}
+function tvNavAfterLayerClose(){
+  tvNavReturnToOpener();
+  var ae = document.activeElement;
+  if(!ae || ae === document.body || !tvNavVisible(ae)) tvFocusRescue();
+}
+/* Snapshot of TV focus before a re-render that may destroy the
+   focused control (cloud apply). Returns null when focus sits in
+   the player or an open layer — those are not rebuilt, so their
+   focus must be left completely alone. */
+function tvNavCaptureFocus(){
+  var ae = document.activeElement;
+  if(!ae || ae === document.body || !tvNavVisible(ae)) return null;
+  var key = tvNavLayerOf(ae);
+  if(["player","upNext","lyrics","dialog","albumMenu","fpMenu","searchMenu","newSheet","tvMenu","album"].indexOf(key) >= 0) return null;
+  return { key: key, id: ae.id || "", label: tvNavLabel(ae) };
+}
+function tvNavRestoreFocus(cap){
+  if(!cap) return;
+  var ae = document.activeElement;
+  if(ae && ae !== document.body && tvNavVisible(ae)) return; /* focus survived */
+  var layer = tvNavTopLayer();
+  var cands = tvNavCandidates(layer);
+  var target = null, i;
+  if(cap.id){
+    for(i = 0; i < cands.length; i++){ if(cands[i].id === cap.id){ target = cands[i]; break; } }
+  }
+  if(!target && cap.label){
+    for(i = 0; i < cands.length; i++){ if(tvNavLabel(cands[i]) === cap.label){ target = cands[i]; break; } }
+  }
+  if(target) tvNavFocusEl(target, true);
+  else tvFocusRescue();
+}
+function tvNavMove(dir){
+  var layer = tvNavTopLayer();
+  if(layer && layer.key === "tvMenu") return false; /* side menu: own handler */
+  var cands = tvNavCandidates(layer);
+  if(!cands.length) return false;
+  var ae = document.activeElement;
+  var idx = cands.indexOf(ae);
+  if(idx < 0){
+    /* Focus is lost or sits outside the current layer: restore the
+       remembered control for this layer, else its first control. */
+    var target = null;
+    var keys = [layer ? layer.key : tvNavCurrentKey(), "main"];
+    for(var k = 0; k < keys.length && !target; k++){
+      var mem = _tvNavMemory[keys[k]];
+      if(!mem) continue;
+      for(var j = 0; j < cands.length; j++){
+        if((mem.id && cands[j].id === mem.id) || (mem.label && tvNavLabel(cands[j]) === mem.label)){ target = cands[j]; break; }
+      }
+    }
+    tvNavFocusEl(target || cands[0]);
+    return true;
+  }
+  var cur = ae.getBoundingClientRect();
+  var cx = cur.left + cur.width / 2, cy = cur.top + cur.height / 2;
+  var best = null, bestScore = Infinity;
+  for(var i = 0; i < cands.length; i++){
+    if(cands[i] === ae) continue;
+    var r = cands[i].getBoundingClientRect();
+    var x = r.left + r.width / 2, y = r.top + r.height / 2;
+    var dx = x - cx, dy = y - cy, primary, secondary, overlap;
+    if(dir === "up"){ if(dy > -2) continue; primary = -dy; secondary = Math.abs(dx); }
+    else if(dir === "down"){ if(dy < 2) continue; primary = dy; secondary = Math.abs(dx); }
+    else if(dir === "left"){ if(dx > -2) continue; primary = -dx; secondary = Math.abs(dy); }
+    else { if(dx < 2) continue; primary = dx; secondary = Math.abs(dy); }
+    if(dir === "up" || dir === "down") overlap = Math.min(cur.right, r.right) - Math.max(cur.left, r.left);
+    else overlap = Math.min(cur.bottom, r.bottom) - Math.max(cur.top, r.top);
+    var score = primary + secondary * 2 + (overlap > 0 ? 0 : 500);
+    if(score < bestScore){ bestScore = score; best = cands[i]; }
+  }
+  if(!best){
+    /* v2.2.97: a text field or the seek slider must always be
+       leavable with Up/Down, even when nothing sits geometrically
+       in that direction (e.g. an empty results list) — fall back to
+       the nearest control in the layer. Lists and buttons keep
+       strict edge behavior. */
+    var tag0 = (ae.tagName || "").toLowerCase();
+    if(tag0 === "input" || tag0 === "textarea"){
+      var bd = Infinity;
+      for(var m = 0; m < cands.length; m++){
+        if(cands[m] === ae) continue;
+        var rm = cands[m].getBoundingClientRect();
+        var ddx = (rm.left + rm.width / 2) - cx, ddy = (rm.top + rm.height / 2) - cy;
+        var dd = ddx * ddx + ddy * ddy;
+        if(dd < bd){ bd = dd; best = cands[m]; }
+      }
+    }
+  }
+  if(best){ tvNavFocusEl(best); return true; }
+  return false;
+}
+/* Remember the last focused control per layer, whoever set it. */
+document.addEventListener("focusin", function(e){
+  if(typeof IS_TV === "undefined" || !IS_TV) return;
+  var el = e.target;
+  if(!el || el === document.body || !el.getBoundingClientRect) return;
+  _tvNavMemory[tvNavLayerOf(el)] = { id: el.id || "", label: tvNavLabel(el) };
+});
+/* The controller itself: owns all D-pad arrows on TV. Registered
+   after the v2.2.89 left-edge menu listener and the v2.2.95 rescue
+   listener, and defers to both (menu gesture + the side menu's own
+   handler keep working exactly as before). */
+document.addEventListener("keydown", function(e){
+  if(typeof IS_TV === "undefined" || !IS_TV) return;
+  var dir = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" }[e.key];
+  if(!dir) return;
+  if(tvMenuOpen()) return; /* the side menu has its own handler */
+  /* If the left-edge listener just closed the menu on THIS keypress,
+     don't also move in the content underneath. */
+  if(window._tvMenuClosedAt && (Date.now() - window._tvMenuClosedAt) < 80) return;
+  var ae = document.activeElement;
+  var tag = (ae && ae.tagName) ? ae.tagName.toLowerCase() : "";
+  var type = (ae && ae.getAttribute) ? (ae.getAttribute("type") || "").toLowerCase() : "";
+  if(tag === "select") return; /* leave native select behavior alone */
+  if(tag === "input" && type === "range"){
+    /* Left/Right seek while the slider has focus; Up/Down leave it. */
+    if(dir === "left" || dir === "right") return;
+  } else if((tag === "input" && type !== "button" && type !== "checkbox" && type !== "radio" && type !== "submit" && type !== "range") || tag === "textarea"){
+    /* Text fields: Left/Right move the caret until its boundary;
+       Up/Down always leave the field. */
+    try {
+      if(dir === "left" && ae.selectionStart > 0) return;
+      if(dir === "right" && ae.selectionStart < String(ae.value || "").length) return;
+    } catch(err){}
+  }
+  /* Left at the far-left edge is the menu gesture — the v2.2.89
+     listener owns it — unless focus is inside a modal layer. */
+  if(dir === "left" && ae && ae.getBoundingClientRect){
+    var inModal = ae.closest && (ae.closest("#lmDialog") || ae.closest("#albumMoreMenu") || ae.closest("#fpMenu") || ae.closest(".srchMenu") || ae.closest("#newSheet") || ae.closest("#fpUpNextBody") || ae.closest("#lyricsPanel"));
+    if(!inModal){
+      var r0 = ae.getBoundingClientRect();
+      if(r0.width > 0 && r0.left < window.innerWidth * 0.18) return;
+    }
+  }
+  e.preventDefault();
+  tvNavMove(dir);
+});
 if(tvMenu){
   tvMenu.addEventListener("click", function(e){
     var tab = e.target.closest("[data-tv-tab]");
@@ -2079,11 +2398,18 @@ document.addEventListener("keydown", function(e){
   if(tvMenuOpen()){
     closeTvMenu();
     e.preventDefault();
+    /* v2.2.97: mark the close so the navigation controller ignores
+       this same keypress instead of also moving in the content. */
+    window._tvMenuClosedAt = Date.now();
     /* v2.2.96: return D-pad focus to the content when the menu closes. */
     tvFocusRescue();
     say("Menu closed.");
     return;
   }
+  /* v2.2.97: never open the side menu over a modal layer — a dialog,
+     an options menu, or the New sheet owns the remote until it
+     closes. (The player case is already excluded above.) */
+  if(!$("lmDialog").hidden || !$("albumMoreMenu").hidden || !$("fpMenu").hidden || !$("newSheet").hidden || document.querySelector(".srchMenu")) return;
   var ae = document.activeElement;
   if(!ae || !ae.getBoundingClientRect) return;
   var tag = (ae.tagName || "").toLowerCase();
@@ -2107,8 +2433,16 @@ document.addEventListener("keydown", function(e){
     if(!lost){
       var el = ae;
       while(el && el !== document.body){
-        if(el.hidden || el.offsetParent === null){ lost = true; break; }
+        if(el.hidden){ lost = true; break; }
         el = el.parentElement;
+      }
+      /* v2.2.97: offsetParent is null for position:fixed controls
+         (mini player, dialogs, sheets), which made this check yank
+         focus away from them on every arrow press. A zero-size rect
+         is the reliable "not rendered" signal. */
+      if(!lost && ae.getBoundingClientRect){
+        var rr = ae.getBoundingClientRect();
+        if(rr.width === 0 && rr.height === 0) lost = true;
       }
     }
     if(lost){
@@ -2152,18 +2486,35 @@ document.addEventListener("keydown", function(e){
 window.lmRemotePlayPause = function(){ try { togglePlayPause(); } catch(e){} return "handled"; };
 window.lmRemoteNext = function(){ try { playNext(false); } catch(e){} return "handled"; };
 window.lmRemotePrev = function(){ try { playPrev(); } catch(e){} return "handled"; };
-/* Back chain for the Android back button (called from Java):
-   full player -> playlist detail -> artist panel -> search screen -> Home tab -> exit app */
+/* Back chain for the Android back button (called from Java).
+   v2.2.97: strictly topmost-first — dialog, menus, New sheet, the
+   TV-link screen, Up Next drawer, TV menu, lyrics, full player,
+   Settings, Account, album, playlist detail, Search, See All,
+   artist, then tab -> Home -> exit. (Previously Back could collapse
+   the player or switch tabs while a dialog/menu/sheet was still
+   open on top of it.) Closing a layer returns focus to its opener
+   where one is known. */
 window.lmHandleBack = function(){
   try {
-    if(tvMenuOpen()){ closeTvMenu(); say("Menu closed."); return "handled"; }
-    /* v2.2.89: TV Up Next overlay drawer closes before the player collapses. */
+    var dlg = $("lmDialog");
+    if(dlg && !dlg.hidden){ hideDialog(); tvNavAfterLayerClose(); say("Dialog closed."); return "handled"; }
+    var am = $("albumMoreMenu");
+    if(am && !am.hidden){ am.hidden = true; tvNavAfterLayerClose(); return "handled"; }
+    var fm = $("fpMenu");
+    if(fm && !fm.hidden){ toggleFpMenu(false); try { $("fpMenuBtn").focus(); } catch(e){} return "handled"; }
+    if(document.querySelector(".srchMenu")){ closeSearchMenu(); tvNavAfterLayerClose(); return "handled"; }
+    var ns = $("newSheet");
+    if(ns && !ns.hidden){ closeNewSheet(); tvNavAfterLayerClose(); say("Closed."); return "handled"; }
+    /* An active TV-link (QR sign-in) screen cancels before Account closes. */
+    if(typeof _tvLinkCode !== "undefined" && _tvLinkCode && !$("accountView").hidden){ cancelTvLink(); return "handled"; }
+    /* TV Up Next overlay drawer closes before the player collapses. */
     if(IS_TV && !$("fullPlayer").hidden && !$("fpUpNextBody").hidden){ toggleUpNext(false); try { $("fpUpNextHandle").focus(); } catch(e){} return "handled"; }
-    /* v2.2.54: Full player first - collapse it before closing panels underneath */
+    if(tvMenuOpen()){ closeTvMenu(); window._tvMenuClosedAt = Date.now(); tvFocusRescue(); say("Menu closed."); return "handled"; }
+    var lp = $("lyricsPanel");
+    if(lp && !lp.hidden){ lp.hidden = true; try { $("fpPlayBtn").focus(); } catch(e){} say("Back to player."); return "handled"; }
+    /* Full player next — collapse it before closing panels underneath. */
     if(!$("fullPlayer").hidden){ collapsePlayer(); return "handled"; }
-    /* v2.2.66: Explicit settings back (was accidental fallthrough) */
     if(!$("settingsView").hidden){ $("settingsView").hidden = true; showTab(state.tab && state.tab !== "settings" ? state.tab : "home"); say("Back."); return "handled"; }
-    /* v2.2.69: Account view back */
     if(!$("accountView").hidden){ closeAccount(); return "handled"; }
     var ab = $("albumPanel");
     if(ab && !ab.hidden){ closeAlbumPanel(); return "handled"; }
@@ -2206,6 +2557,19 @@ function showLibSeg(name){
     $("lib" + s.charAt(0).toUpperCase() + s.slice(1)).hidden = (s !== name);
   });
   renderLibrary();
+  /* v2.2.97: renderLibrary() rebuilds the segment panels — if the
+     focused control was inside one and got destroyed, land back on
+     the selected segment chip so the remote is never stranded. */
+  try {
+    if(typeof IS_TV !== "undefined" && IS_TV){
+      var ae = document.activeElement;
+      var lost = !ae || ae === document.body || !tvNavVisible(ae);
+      if(lost){
+        var chip = $("libTab-" + name);
+        if(chip) chip.focus();
+      }
+    }
+  } catch(e){}
 }
 LIBSEGS.forEach(function(s){
   $("libTab-" + s).addEventListener("click", function(){ showLibSeg(s); });
@@ -2681,6 +3045,7 @@ function closeSearchMenu(){
   if(old) old.remove();
 }
 function searchTrackMenu(v, anchorBtn){
+  if(typeof tvNavSetOpener === "function") tvNavSetOpener(anchorBtn);
   closeSearchMenu();
   var m = document.createElement("div");
   m.className = "srchMenu";
@@ -3370,12 +3735,28 @@ function renderQueue(){
   h += state.queue.map(function(v, i){
     var rm = (i === state.qi) ? "" : ' <button class="iconbtn" data-rmq="' + i + '" aria-label="Remove ' + esc(v.title) + ' from queue">✖</button>';
     var p = parseTrack(v.title, v.channel);
-    return '<div class="queue-item' + (i === state.qi ? " current" : "") + '"><span data-qi="' + i + '">' + esc(p.title) + "</span>" + rm + "</div>";
+    /* v2.2.97: the row itself is focusable and activatable, so a TV
+       remote can land on the song — not only on its remove button. */
+    return '<div class="queue-item' + (i === state.qi ? " current" : "") + '" tabindex="0" role="button" data-qrow="' + i + '" aria-label="Play ' + esc(p.title) + ' by ' + esc(p.artist) + '"><span data-qi="' + i + '">' + esc(p.title) + "</span>" + rm + "</div>";
   }).join("");
   box.innerHTML = h;
   box.querySelectorAll("[data-qi]").forEach(function(el){
     el.addEventListener("click", function(){
       playQueueIndex(parseInt(el.getAttribute("data-qi"), 10));
+    });
+  });
+  box.querySelectorAll("[data-qrow]").forEach(function(row){
+    row.addEventListener("click", function(e){
+      /* The title span and the remove button have their own handlers. */
+      if(e.target.closest("[data-rmq]") || e.target.hasAttribute("data-qi")) return;
+      playQueueIndex(parseInt(row.getAttribute("data-qrow"), 10));
+    });
+    row.addEventListener("keydown", function(e){
+      if(e.target !== row) return;
+      if(e.key === "Enter" || e.key === " "){
+        e.preventDefault();
+        playQueueIndex(parseInt(row.getAttribute("data-qrow"), 10));
+      }
     });
   });
   box.querySelectorAll("[data-rmq]").forEach(function(b){
@@ -3471,6 +3852,8 @@ function renderRecentActivity(){
 }
 /* v2.2.81: "+ New" floating button + bottom sheet (YouTube Music Library pattern). */
 function openNewSheet(){
+  /* v2.2.97: remember the opener so Back/close can return focus to it. */
+  if(typeof tvNavSetOpener === "function") tvNavSetOpener(document.activeElement);
   renderNewSheetHome();
   $("newSheetScrim").hidden = false;
   $("newSheet").hidden = false;
@@ -4341,6 +4724,8 @@ function updateSleepBtn(){
 /* ================= v2.2.2: in-app dialog (replaces prompt()) ================= */
 function showDialog(title, bodyHTML, buttons){
   /* buttons: [{label, fn, primary}] */
+  /* v2.2.97: remember the opener so focus can return when it closes. */
+  if(typeof tvNavSetOpener === "function") tvNavSetOpener(document.activeElement);
   var d = $("lmDialog");
   $("lmDialogTitle").textContent = title;
   $("lmDialogBody").innerHTML = bodyHTML;
@@ -4353,12 +4738,19 @@ function showDialog(title, bodyHTML, buttons){
     btn.addEventListener("click", function(){
       d.hidden = true;
       if(b.fn) b.fn();
+      /* v2.2.97: give focus back to whatever opened the dialog. */
+      if(typeof tvNavReturnToOpener === "function") tvNavReturnToOpener();
     });
     bb.appendChild(btn);
   });
   d.hidden = false;
+  /* v2.2.97: focus the first input, or — when the dialog has no
+     input — its first button, so remote/TV users land inside the
+     dialog instead of being stranded behind it. */
   var firstInput = $("lmDialogBody").querySelector("input");
+  var firstBtn = bb.querySelector("button");
   if(firstInput) firstInput.focus();
+  else if(firstBtn) firstBtn.focus();
 }
 function hideDialog(){ $("lmDialog").hidden = true; }
 /* ---- v2.2.0: player overflow menu (YouTube Music style) ---- */
@@ -4400,6 +4792,7 @@ function fpMenuItems(){
 function toggleFpMenu(show){
   var m = $("fpMenu");
   var willShow = (typeof show === "boolean") ? show : m.hidden;
+  if(willShow && typeof tvNavSetOpener === "function") tvNavSetOpener($("fpMenuBtn"));
   if(willShow){
     var items = fpMenuItems();
     if(!items.length){ say("Nothing playing."); return; }
@@ -5407,6 +5800,31 @@ function isRecentRelease(dateStr){
   } catch(e){ return true; }
 }
 
+/* v2.2.97: English-only filter for the New releases and Top singles
+   feeds. This is the JS mirror of is_latin_text() in
+   python/ytm_bridge.py: the Python side filters the new-releases
+   feed (get_new_releases), while the charts feed is filtered HERE,
+   in its consumers, because Explore's Trending uses the same bridge
+   call and must stay unfiltered. An item is kept only when BOTH
+   its title and its artist are Latin-script: ASCII and Latin
+   Extended letters pass (accents are fine — Beyoncé, Motörhead);
+   any letter from another script (Han, Hangul, Cyrillic, Arabic,
+   Greek, Thai, Devanagari, ...) fails. Latin-script non-English
+   (Spanish, French) cannot be told apart without a language
+   detector and passes — accepted trade-off. */
+var _latinLetterRe = null, _latinScriptRe = null;
+try { _latinLetterRe = /\p{L}/u; _latinScriptRe = /\p{Script=Latin}/u; } catch(e){}
+function isLatinText(s){
+  if(!_latinLetterRe || !_latinScriptRe) return true; /* ancient engine: don't filter */
+  s = String(s == null ? "" : s);
+  for(var i = 0; i < s.length; i++){
+    var ch = s.charAt(i);
+    if(_latinLetterRe.test(ch) && !_latinScriptRe.test(ch)) return false;
+  }
+  return true;
+}
+function isLatinItem(title, artist){ return isLatinText(title) && isLatinText(artist); }
+
 /* v2.2.37: Load singles via Python ytmusicapi (charts = trending now). */
 function loadAllSingles(){
   var box = $("allSingles");
@@ -5427,7 +5845,9 @@ function loadAllSingles(){
             videoId: t.videoId || "",
             releaseDate: ""
           };
-        }).filter(function(x){ return x.name && x.artist; });
+        }).filter(function(x){ return x.name && x.artist; })
+        /* v2.2.97: English-only (Latin-script title + artist). */
+        .filter(function(x){ return isLatinItem(x.name, x.artist); });
         /* v2.2.83: metal + rock first, like YouTube Music. */
         allSinglesCache = metalRockFirst(allSinglesCache);
         renderAllSingles(allSinglesCache);
@@ -5534,7 +5954,11 @@ function loadAllReleases(){
             kind: a.kind || "album",
             explicit: !!a.explicit
           };
-        }).filter(function(x){ return x.name && x.artist; });
+        }).filter(function(x){ return x.name && x.artist; })
+        /* v2.2.97: English-only (Latin-script title + artist). The
+           Python feed already filters; this mirror keeps the shelf
+           clean even if bridge data ever arrives unfiltered. */
+        .filter(function(x){ return isLatinItem(x.name, x.artist); });
         /* v2.2.83: metal + rock first, like YouTube Music. */
         allReleasesCache = metalRockFirst(allReleasesCache);
         allReleasesCacheTime = Date.now();
@@ -5709,7 +6133,8 @@ function loadExploreNew(){
   try {
     if(typeof LynxosYTM !== "undefined" && LynxosYTM.getNewReleases){
       var a = JSON.parse(LynxosYTM.getNewReleases(60));
-      if(a && !a.error){ albums = (a || []).filter(function(x){ return x.title; }).slice(0, 12).map(function(x){
+      /* v2.2.97: English-only filter BEFORE the slice, so the shelf still fills. */
+      if(a && !a.error){ albums = (a || []).filter(function(x){ return x.title && isLatinItem(x.title, x.artist || ""); }).slice(0, 12).map(function(x){
         return { kind: x.kind || "album", name: x.title || "", artist: x.artist || "", art: x.thumb || "",
                  id: x.browseId || "", explicit: !!x.explicit };
       }); }
@@ -5718,7 +6143,8 @@ function loadExploreNew(){
   try {
     if(typeof LynxosYTM !== "undefined" && LynxosYTM.getCharts){
       var c = JSON.parse(LynxosYTM.getCharts("US", 60));
-      if(c && !c.error){ singles = (c || []).filter(function(x){ return x.title; }).slice(0, 12).map(function(x){
+      /* v2.2.97: English-only filter BEFORE the slice, so the shelf still fills. */
+      if(c && !c.error){ singles = (c || []).filter(function(x){ return x.title && isLatinItem(x.title, x.channel || x.ownerChannel || ""); }).slice(0, 12).map(function(x){
         return { kind: "single", name: x.title || "", artist: x.channel || x.ownerChannel || "",
                  art: x.thumb || x.art || "", videoId: x.videoId || "" };
       }); }
@@ -6192,6 +6618,7 @@ wireBtn("albumShareBtn", function(){
    try/catch so it can never silently die. */
 function openAlbumOptionsMenu(){
   try {
+    if(typeof tvNavSetOpener === "function") tvNavSetOpener(document.activeElement);
     var m = $("albumMoreMenu");
     var tracks = getCurrentAlbumTracks();
     var name = $("albumName").textContent || "Album";
@@ -6433,9 +6860,9 @@ $("fpShareBtn").addEventListener("click", function(){
   var p = parseTrack(v.title, v.channel);
   shareText(p.title + " by " + p.artist + " — https://www.youtube.com/watch?v=" + v.videoId, "Song");
 });
-$("artistBackBtn").addEventListener("click", function(){ $("artistPanel").hidden = true; say("Back to player."); });
+$("fpArtistBackBtn").addEventListener("click", function(){ $("artistPanel").hidden = true; say("Back to player."); });
 $("artistShareBtn").addEventListener("click", function(){
-  var name = $("artistName").textContent.trim();
+  var name = $("fpArtistName").textContent.trim();
   if(!name){ say("No artist to share."); return; }
   shareText("Check out " + name + " — https://www.youtube.com/results?search_query=" + encodeURIComponent(name), "Artist");
 });
@@ -6444,7 +6871,7 @@ function openArtistPanel(){
   if(!v){ say("Play something first."); return; }
   var artist = trackArtist(v);
   if(!artist){ say("Couldn't figure out the artist for this song."); return; }
-  $("artistName").textContent = displayArtist(v.channel);
+  $("fpArtistName").textContent = displayArtist(v.channel);
   $("artistAlbums").innerHTML = "<p style='color:#999'>Loading albums…</p>";
   $("artistSongs").innerHTML = "";
   $("artistPanel").hidden = false;
@@ -6521,18 +6948,41 @@ function sbGetTokens(){
     return (a && r) ? { access: a, refresh: r, provider: p } : null;
   } catch(e){ return null; }
 }
-function sbSaveTokens(access, refresh, provider){
+/* v2.2.97: decode the access token's expiry (JWT `exp` claim). */
+function sbJwtExpMs(access){
+  try {
+    var parts = String(access || "").split(".");
+    if(parts.length < 2) return 0;
+    var payload = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    while(payload.length % 4) payload += "=";
+    var data = JSON.parse(atob(payload));
+    return (data && data.exp) ? data.exp * 1000 : 0;
+  } catch(e){ return 0; }
+}
+function sbSaveTokens(access, refresh, provider, expiresAtMs){
   try {
     localStorage.setItem("lm_sb_access", access || "");
     localStorage.setItem("lm_sb_refresh", refresh || "");
     localStorage.setItem("lm_sb_provider", provider || "");
+    /* v2.2.97: remember when the access token expires, so the session
+       can be refreshed BEFORE Supabase starts returning 401. Falls
+       back to the JWT's own exp claim when no expiry is passed in
+       (OAuth callback passes expires_in; the TV-link flow passes
+       neither, so the JWT decode covers it). */
+    var exp = expiresAtMs || sbJwtExpMs(access);
+    if(exp) localStorage.setItem("lm_sb_expires", String(exp));
+    else localStorage.removeItem("lm_sb_expires");
   } catch(e){}
+}
+function sbSessionExpMs(){
+  try { return parseInt(localStorage.getItem("lm_sb_expires") || "0", 10) || 0; } catch(e){ return 0; }
 }
 function sbClearTokens(){
   try {
     localStorage.removeItem("lm_sb_access");
     localStorage.removeItem("lm_sb_refresh");
     localStorage.removeItem("lm_sb_provider");
+    localStorage.removeItem("lm_sb_expires");
     localStorage.removeItem("lm_sb_user");
   } catch(e){}
 }
@@ -6541,6 +6991,76 @@ function sbGetUser(){
     var u = localStorage.getItem("lm_sb_user");
     return u ? JSON.parse(u) : null;
   } catch(e){ return null; }
+}
+var _sbRefreshPromise = null;
+/* v2.2.97: single-flight session refresh. Supabase access tokens
+   expire (about an hour after sign-in); the refresh token saved at
+   sign-in was never used, so every cloud call eventually failed
+   with HTTP 401 while the app still looked signed in. This helper
+   exchanges the saved refresh token for a fresh session and saves
+   the rotated pair. The Google provider token is preserved as-is.
+   Resolves true when a usable session exists afterwards; it never
+   rejects, and concurrent callers share one in-flight refresh. */
+function sbEnsureSession(force){
+  try {
+    var tokens = sbGetTokens();
+    if(!tokens) return Promise.resolve(false);
+    var exp = sbSessionExpMs();
+    if(!force && exp && (exp - Date.now() > 60000)) return Promise.resolve(true);
+    if(_sbRefreshPromise) return _sbRefreshPromise;
+    _sbRefreshPromise = fetch(SUPABASE_URL + "/auth/v1/token?grant_type=refresh_token", {
+      method: "POST",
+      headers: { "apikey": SB_ANON, "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: tokens.refresh })
+    }).then(function(r){
+      if(!r.ok) return null;
+      return r.json();
+    }).then(function(data){
+      _sbRefreshPromise = null;
+      if(data && data.access_token){
+        var cur = sbGetTokens() || tokens;
+        sbSaveTokens(data.access_token, data.refresh_token || cur.refresh, cur.provider,
+          data.expires_at ? data.expires_at * 1000 : (data.expires_in ? Date.now() + data.expires_in * 1000 : 0));
+        if(data.user && data.user.id){
+          try { localStorage.setItem("lm_sb_user", JSON.stringify(data.user)); } catch(e){}
+        }
+        return true;
+      }
+      return false;
+    }).catch(function(){
+      _sbRefreshPromise = null;
+      return false;
+    });
+    return _sbRefreshPromise;
+  } catch(e){ return Promise.resolve(false); }
+}
+/* v2.2.97: fetch a Supabase REST/Auth URL with the saved session.
+   On a 401 it forces ONE session refresh and retries the request
+   exactly once with the new token. */
+function sbRest(url, opts){
+  opts = opts || {};
+  function attempt(retried){
+    var tokens = sbGetTokens();
+    var headers = { "apikey": SB_ANON };
+    if(tokens) headers["Authorization"] = "Bearer " + tokens.access;
+    if(opts.headers){
+      for(var k in opts.headers){
+        if(opts.headers.hasOwnProperty(k)) headers[k] = opts.headers[k];
+      }
+    }
+    var o = { method: opts.method || "GET", headers: headers };
+    if(opts.body) o.body = opts.body;
+    return fetch(url, o).then(function(r){
+      if(r.status === 401 && !retried && tokens){
+        return sbEnsureSession(true).then(function(ok){
+          if(ok) return attempt(true);
+          return r;
+        });
+      }
+      return r;
+    });
+  }
+  return attempt(false);
 }
 
 function openAccount(){
@@ -6555,6 +7075,8 @@ function openAccount(){
   $("accountView").hidden = false;
   state.tab = "account";
   renderAccount();
+  /* v2.2.97: deliberate TV starting focus on the Back button. */
+  tvFocusFirst("accountView", "accountBackBtn");
   say("Account.");
 }
 function closeAccount(){
@@ -6620,21 +7142,47 @@ function renderAccount(){
 }
 function fetchUserInfo(accessToken){
   var box = $("accountContent");
-  fetch("https://klykzghndlrfwwxwaczm.supabase.co/auth/v1/user", {
-    headers: { "apikey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtseWt6Z2huZGxyZnd3eHdhY3ptIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk1MzUxNDUsImV4cCI6MjEwNTExMTE0NX0.02AcmkbA_wjLN5XOfwuisJjck2TijjqH66bX5ddVV0Q", "Authorization": "Bearer " + accessToken }
-  }).then(function(r){ return r.json(); }).then(function(user){
-    if(user && user.id){
-      try { localStorage.setItem("lm_sb_user", JSON.stringify(user)); } catch(e){}
-      renderAccount();
-      /* v2.2.90: user info just arrived — pull the cloud library now. v2.2.93: quiet. */
-      try { cloudDownloadNow(function(changed){ if(changed) renderAccount(); }, true); } catch(e){}
-    } else {
-      sbClearTokens();
-      if(box) box.innerHTML = "<p>Session expired. Please sign in again.</p>";
-      renderAccount();
-    }
-  }).catch(function(){
-    if(box) box.innerHTML = "<p>Couldn't load account. Check your connection.</p>";
+  function doFetch(tok, retried){
+    fetch(SUPABASE_URL + "/auth/v1/user", {
+      headers: { "apikey": SB_ANON, "Authorization": "Bearer " + tok }
+    }).then(function(r){
+      return r.json().then(function(j){ return { status: r.status, user: j }; },
+                           function(){ return { status: r.status, user: null }; });
+    }).then(function(res){
+      var user = res.user;
+      if(res.status === 401 && !retried){
+        /* v2.2.97: the saved token may simply be expired — force one
+           refresh and retry before giving up on the session. */
+        sbEnsureSession(true).then(function(ok){
+          var t = sbGetTokens();
+          if(ok && t){ doFetch(t.access, true); }
+          else {
+            sbClearTokens();
+            if(box) box.innerHTML = "<p>Session expired. Please sign in again.</p>";
+            renderAccount();
+          }
+        });
+        return;
+      }
+      if(user && user.id){
+        try { localStorage.setItem("lm_sb_user", JSON.stringify(user)); } catch(e){}
+        renderAccount();
+        /* v2.2.90: user info just arrived — pull the cloud library now. v2.2.93: quiet. */
+        try { cloudDownloadNow(function(changed){ if(changed) renderAccount(); }, true); } catch(e){}
+      } else {
+        sbClearTokens();
+        if(box) box.innerHTML = "<p>Session expired. Please sign in again.</p>";
+        renderAccount();
+      }
+    }).catch(function(){
+      if(box) box.innerHTML = "<p>Couldn't load account. Check your connection.</p>";
+    });
+  }
+  /* v2.2.97: refresh first if the saved session is stale, then use
+     the freshest token we have. */
+  sbEnsureSession(false).then(function(){
+    var t = sbGetTokens();
+    doFetch((t && t.access) || accessToken, false);
   });
 }
 function startGoogleLogin(){
@@ -6657,7 +7205,10 @@ function handleAuthCallback(url){
       if(kv[0]) params[kv[0]] = decodeURIComponent(kv[1] || "");
     });
     if(params.access_token && params.refresh_token){
-      sbSaveTokens(params.access_token, params.refresh_token, params.provider_token || "");
+      /* v2.2.97: also record the session expiry (expires_in) so the
+         refresh flow knows when this access token goes stale. */
+      sbSaveTokens(params.access_token, params.refresh_token, params.provider_token || "",
+        params.expires_in ? Date.now() + parseInt(params.expires_in, 10) * 1000 : 0);
       say("Signed in! Loading your account.");
       renderAccount();
       /* v2.2.90: pull the cloud library right after sign-in. */
