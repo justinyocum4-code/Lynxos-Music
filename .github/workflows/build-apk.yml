@@ -326,10 +326,17 @@ jobs:
                   @Override public void onTrackError(String msg) {
                       js("window.lmNativeError&&window.lmNativeError(" + JSONObject.quote(msg == null ? "" : msg) + ")");
                   }
-                  @Override public boolean onTrackResolveFailed(final int index) {
+                  @Override public boolean onTrackResolveFailed(final int index, final int kind, final String message) {
                       if (!pageAlive) return false;
-                      js("window.lmNativeResolveFailed&&window.lmNativeResolveFailed(" + index + ")");
+                      /* v2.2.98: forward the failure kind ("dead"/"transient")
+                         and message to the page's resolve-failure handler. */
+                      String kindStr = (kind == MusicService.KIND_DEAD) ? "dead" : "transient";
+                      js("window.lmNativeResolveFailed&&window.lmNativeResolveFailed(" + index + "," + JSONObject.quote(kindStr) + "," + JSONObject.quote(message == null ? "" : message) + ")");
                       return true;
+                  }
+                  @Override public void onTrackResolved(final int index, final String resolvedVideoId) {
+                      if (!pageAlive) return;
+                      js("window.lmNativeResolved&&window.lmNativeResolved(" + index + "," + JSONObject.quote(resolvedVideoId == null ? "" : resolvedVideoId) + ")");
                   }
                   @Override public void onTrackEnded() {
                       js("window.lmNativeEnded&&window.lmNativeEnded()");
@@ -1305,8 +1312,16 @@ jobs:
                   void onTrackEnded();
                   /* v2.1.4: the extractor failed on this videoId. Return true
                      when the web page supplies another candidate upload;
-                     false to fall back to the plain skip path. */
-                  boolean onTrackResolveFailed(int index);
+                     false to fall back to the plain skip path.
+                     v2.2.98: carries the failure kind (KIND_DEAD /
+                     KIND_TRANSIENT) and message so the page can skip the
+                     pointless same-id retries for uploads that are gone for
+                     good and go straight to another copy. */
+                  boolean onTrackResolveFailed(int index, int kind, String message);
+                  /* v2.2.98: an alternative upload produced the playable URL —
+                     tell the page which videoId actually worked so it can
+                     adopt it in its queue and resolve cache. */
+                  void onTrackResolved(int index, String resolvedVideoId);
                   // Notification buttons. Return true when the web page handled it
                   // (its own shuffle/repeat/radio policy); false for simple fallback.
                   boolean onNotifToggle();
@@ -1319,6 +1334,18 @@ jobs:
                   public String title = "";
                   public String channel = "";
                   public String thumb = "";
+              }
+
+              /* v2.2.98: structured resolve outcome — the playable URL, the
+                 videoId that actually produced it (an alternative upload may
+                 win), and a failure kind so JS can tell a deleted upload
+                 (KIND_DEAD: never retry that id) from a network blip
+                 (KIND_TRANSIENT: backoff retry is worthwhile). */
+              public static class ResolveResult {
+                  public String url = null;
+                  public String resolvedVideoId = null;
+                  public int kind = KIND_TRANSIENT;
+                  public String message = "";
               }
 
               public class LocalBinder extends Binder {
@@ -1338,15 +1365,50 @@ jobs:
               private final Handler main = new Handler(Looper.getMainLooper());
               /* v2.2.42: Multi-threaded for parallel prefetch - much faster skipping. */
               private final ExecutorService bg = Executors.newFixedThreadPool(3);
+              /* v2.2.98: the tapped track resolves on its OWN single thread so
+                 it never queues behind background prefetches; the actual
+                 NewPipe/Python work runs on resolveExec so no pool's threads
+                 ever block waiting on tasks submitted to themselves. */
+              private final ExecutorService playExec = Executors.newSingleThreadExecutor();
+              private final ExecutorService resolveExec = Executors.newFixedThreadPool(4);
+              /* v2.2.98: single-flight map — play and prefetch for the same
+                 videoId share ONE in-flight resolve instead of duplicating it. */
+              private final java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.Future<ResolveResult>> inFlight =
+                      new java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.Future<ResolveResult>>();
+              /* v2.2.98: play generation — bumped on every playAtInternal;
+                 prefetch tasks use it to notice the user has moved on. */
+              private final java.util.concurrent.atomic.AtomicLong playGen =
+                      new java.util.concurrent.atomic.AtomicLong(0);
+              /* v2.2.98: session negative cache for uploads YouTube says are
+                 gone (30-min TTL) — they short-circuit to a DEAD failure. */
+              private final java.util.concurrent.ConcurrentHashMap<String, Long> deadIds =
+                      new java.util.concurrent.ConcurrentHashMap<String, Long>();
+              private static final long DEAD_TTL_MS = 30 * 60 * 1000;
+              public static final int KIND_OK = 0;
+              public static final int KIND_DEAD = 1;
+              public static final int KIND_TRANSIENT = 2;
+              /* v2.2.98: aggregate cap for one full resolve chain
+                 (NewPipe + Python) — a resolve can no longer hold a thread
+                 hostage for minutes. */
+              private static final long RESOLVE_DEADLINE_MS = 15000;
               private final List<Track> queue = new ArrayList<>();
               /* v2.1.7: cache of resolved audio URLs (videoId -> url) plus
                  prefetch of the next track so skipping songs is instant. */
               /* v2.2.79: URL cache with expiration - YouTube URLs go stale after ~6h */
               /* v2.2.79: Track retry attempts per track to avoid infinite loops */
               private final java.util.Map<String, Integer> retryCount = new java.util.HashMap<String, Integer>();
-              private static final int MAX_RETRIES = 2;
+              /* v2.2.98: one fresh-URL retry (was 2) — with error kinds now
+                 propagated, dead uploads never reach this path at all. */
+              private static final int MAX_RETRIES = 1;
               private final java.util.Map<String, Long> urlCacheTime = new java.util.HashMap<String, Long>();
-              private final java.util.Map<String, String> urlCache = new java.util.HashMap<String, String>();
+              /* v2.2.98: access-ordered LRU capped at 100 entries (was: the
+                 WHOLE cache was cleared past 100, wiping upcoming prefetches
+                 mid-session). All access stays synchronized on urlCache. */
+              private final java.util.Map<String, String> urlCache = new java.util.LinkedHashMap<String, String>(16, 0.75f, true) {
+                  @Override protected boolean removeEldestEntry(java.util.Map.Entry<String, String> eldest) {
+                      return size() > 100;
+                  }
+              };
               private static final long URL_CACHE_TTL_MS = 4 * 60 * 60 * 1000; /* 4 hours */
               private String getCachedUrl(String videoId) {
                   try {
@@ -1369,7 +1431,6 @@ jobs:
               private void putCachedUrl(String videoId, String url) {
                   try {
                       synchronized (urlCache) {
-                          if (urlCache.size() > 100) { urlCache.clear(); urlCacheTime.clear(); }
                           urlCache.put(videoId, url);
                           urlCacheTime.put(videoId, System.currentTimeMillis());
                       }
@@ -1382,6 +1443,110 @@ jobs:
                           urlCacheTime.remove(videoId);
                       }
                   } catch (Exception ignored) {}
+              }
+              /* v2.2.98: negative-cache helpers (see deadIds above). */
+              private boolean isDeadId(String videoId) {
+                  try {
+                      Long t = deadIds.get(videoId);
+                      if (t == null) return false;
+                      if (System.currentTimeMillis() - t < DEAD_TTL_MS) return true;
+                      deadIds.remove(videoId);
+                  } catch (Exception ignored) {}
+                  return false;
+              }
+              private void markDeadId(String videoId) {
+                  try { if (videoId != null && !videoId.isEmpty()) deadIds.put(videoId, System.currentTimeMillis()); } catch (Exception ignored) {}
+              }
+              /* v2.2.98: does this extractor error mean the upload itself is
+                 gone (private / removed / unavailable) rather than a blip?
+                 Class-name checks cover NewPipe's ContentNotAvailable family;
+                 message matching is the fallback. */
+              private boolean isUnavailableError(Throwable th) {
+                  try {
+                      String name = th.getClass().getName();
+                      if (name.contains("ContentNotAvailable") || name.contains("PrivateContent") ||
+                          name.contains("SignInRequired") || name.contains("RemovedContent") ||
+                          name.contains("DeletedContent")) return true;
+                      String m = String.valueOf(th.getMessage()).toLowerCase();
+                      return m.contains("video unavailable") || m.contains("private video") ||
+                             m.contains("no longer available") || m.contains("video removed") ||
+                             m.contains("this video is private") || m.contains("has been removed");
+                  } catch (Exception ignored) {}
+                  return false;
+              }
+              /* v2.2.98: the URL the player is currently holding (the one
+                 that just failed), so a "fresh" resolve that returns the
+                 identical URL isn't retried pointlessly. */
+              private String currentMediaUrl() {
+                  try {
+                      if (player != null && player.getCurrentMediaItem() != null &&
+                          player.getCurrentMediaItem().localConfiguration != null &&
+                          player.getCurrentMediaItem().localConfiguration.uri != null) {
+                          return String.valueOf(player.getCurrentMediaItem().localConfiguration.uri);
+                      }
+                  } catch (Exception ignored) {}
+                  return "";
+              }
+              /* v2.2.98: single-flight resolve with an aggregate deadline.
+                 The first caller for a videoId starts ONE resolve on
+                 resolveExec; everyone else (play path included) waits on the
+                 same Future, capped at RESOLVE_DEADLINE_MS. The resolve task
+                 itself writes the URL cache, so a waiter that times out
+                 doesn't lose the result — the orphan still populates the
+                 cache when it lands. Timeouts classify TRANSIENT. */
+              private ResolveResult resolveShared(final String videoId, final String title, final String artist) {
+                  ResolveResult out = new ResolveResult();
+                  if (videoId == null || videoId.isEmpty()) { out.message = "No video id"; return out; }
+                  String cached = getCachedUrl(videoId);
+                  if (cached != null && !cached.isEmpty()) {
+                      out.url = cached; out.resolvedVideoId = videoId; out.kind = KIND_OK;
+                      return out;
+                  }
+                  if (isDeadId(videoId)) {
+                      out.kind = KIND_DEAD; out.message = "Upload known to be gone";
+                      return out;
+                  }
+                  java.util.concurrent.Callable<ResolveResult> task = new java.util.concurrent.Callable<ResolveResult>() {
+                      @Override public ResolveResult call() {
+                          ResolveResult r = resolveAudioUrl(videoId, title, artist);
+                          try {
+                              if (r != null && r.kind == KIND_OK && r.url != null && !r.url.isEmpty()) {
+                                  /* Cache under the WINNING id — an alternative
+                                     upload's URL must not be filed under the
+                                     dead id that was originally asked for. */
+                                  String wid = (r.resolvedVideoId != null && !r.resolvedVideoId.isEmpty()) ? r.resolvedVideoId : videoId;
+                                  putCachedUrl(wid, r.url);
+                              }
+                          } catch (Exception ignored) {}
+                          return r;
+                      }
+                  };
+                  java.util.concurrent.FutureTask<ResolveResult> ft =
+                          new java.util.concurrent.FutureTask<ResolveResult>(task);
+                  java.util.concurrent.Future<ResolveResult> existing = inFlight.putIfAbsent(videoId, ft);
+                  boolean owner = (existing == null);
+                  java.util.concurrent.Future<ResolveResult> f = owner ? ft : existing;
+                  if (owner) {
+                      try { resolveExec.execute(ft); }
+                      catch (Exception e) {
+                          inFlight.remove(videoId, ft);
+                          out.message = String.valueOf(e);
+                          return out;
+                      }
+                  }
+                  try {
+                      ResolveResult r = f.get(RESOLVE_DEADLINE_MS, java.util.concurrent.TimeUnit.MILLISECONDS);
+                      if (r != null) out = r;
+                  } catch (java.util.concurrent.TimeoutException te) {
+                      out.kind = KIND_TRANSIENT; out.message = "Resolve timed out";
+                      /* Not cancelled: the orphan may still fill the cache. */
+                  } catch (Exception e) {
+                      out.kind = KIND_TRANSIENT; out.message = String.valueOf(e);
+                  } finally {
+                      if (owner) inFlight.remove(videoId, ft);
+                  }
+                  if (out.kind == KIND_DEAD) markDeadId(videoId);
+                  return out;
               }
               private int currentIndex = -1;
               private UiListener ui;
@@ -1425,6 +1590,9 @@ jobs:
                       } catch (Exception ignored) {}
                       /* v2.2.14: debounce rapid duplicate Bluetooth commands. */
                       final long[] lastBtCommandTime = new long[] { 0 };
+                      /* v2.2.98: separate debounce clock for next/previous so a
+                         play/pause press can't swallow a skip (or vice versa). */
+                      final long[] lastBtNavTime = new long[] { 0 };
                       MediaSession.Builder sessionBuilder = new MediaSession.Builder(this, player)
                           .setCallback(new MediaSession.Callback() {
                               @Override
@@ -1440,31 +1608,43 @@ jobs:
                                           KeyEvent event = (KeyEvent) p;
                                           if (event.getAction() == KeyEvent.ACTION_DOWN) {
                                               int kc = event.getKeyCode();
-                                              /* v2.2.43: Bluetooth NEXT - bypass UI thread hop for instant response.
-                                                 Call playAtInternal directly, update UI after. */
+                                              /* v2.2.98: Bluetooth NEXT — single path. The page
+                                                 owns queue policy (shuffle/repeat/radio), so
+                                                 when it's alive we ONLY ask it; native
+                                                 sequential advance is the no-page fallback.
+                                                 (The v2.2.43 code did BOTH — a JS advance
+                                                 plus a direct playAtInternal — and pre-queued
+                                                 prefetches, causing double-advances and
+                                                 duplicate resolves.) Debounced like play/pause. */
                                               if (kc == KeyEvent.KEYCODE_MEDIA_NEXT) {
-                                                  try { prefetchNext(currentIndex + 2); prefetchNext(currentIndex + 3); } catch (Exception ignored) {}
-                                                  final int nextIdx = currentIndex + 1;
-                                                  /* Update UI immediately on main thread, start playback on bg thread */
-                                                  main.post(new Runnable() {
-                                                      @Override public void run() {
-                                                          UiListener l = ui;
-                                                          if (l != null) { try { l.onNotifNext(); } catch (Exception ignored) {} }
-                                                      }
-                                                  });
-                                                  playAtInternal(nextIdx);
+                                                  long nowN = android.os.SystemClock.uptimeMillis();
+                                                  if (nowN - lastBtNavTime[0] > 800) {
+                                                      lastBtNavTime[0] = nowN;
+                                                      main.post(new Runnable() {
+                                                          @Override public void run() {
+                                                              UiListener l = ui;
+                                                              boolean consumed = false;
+                                                              if (l != null) { try { consumed = l.onNotifNext(); } catch (Exception ignored) {} }
+                                                              if (!consumed) playAtInternal(currentIndex + 1);
+                                                          }
+                                                      });
+                                                  }
                                                   return true;
                                               }
-                                              /* v2.2.43: Bluetooth PREV - same instant response fix. */
+                                              /* v2.2.98: Bluetooth PREV — same single path. */
                                               if (kc == KeyEvent.KEYCODE_MEDIA_PREVIOUS) {
-                                                  final int prevIdx = currentIndex - 1;
-                                                  main.post(new Runnable() {
-                                                      @Override public void run() {
-                                                          UiListener l = ui;
-                                                          if (l != null) { try { l.onNotifPrev(); } catch (Exception ignored) {} }
-                                                      }
-                                                  });
-                                                  playAtInternal(prevIdx);
+                                                  long nowP = android.os.SystemClock.uptimeMillis();
+                                                  if (nowP - lastBtNavTime[0] > 800) {
+                                                      lastBtNavTime[0] = nowP;
+                                                      main.post(new Runnable() {
+                                                          @Override public void run() {
+                                                              UiListener l = ui;
+                                                              boolean consumed = false;
+                                                              if (l != null) { try { consumed = l.onNotifPrev(); } catch (Exception ignored) {} }
+                                                              if (!consumed) playAtInternal(currentIndex - 1);
+                                                          }
+                                                      });
+                                                  }
                                                   return true;
                                               }
                                               /* v2.2.14: handle play/pause here too and consume it,
@@ -1586,15 +1766,38 @@ jobs:
                                   }
                                   if (retries < MAX_RETRIES) {
                                       synchronized (retryCount) { retryCount.put(key, retries + 1); }
-                                      /* Clear stale cached URL and retry same track */
+                                      /* Clear stale cached URL and retry same track.
+                                         v2.2.98: resolve the fresh URL FIRST (250ms
+                                         delay, was a blind 1000ms) — if it comes back
+                                         identical to the URL that just failed, don't
+                                         waste the retry on it; fall to the error path. */
                                       clearCachedUrl(t.videoId);
                                       android.util.Log.i("LynxosMusic", "Retrying track " + currentIndex + " (attempt " + (retries + 1) + ")");
                                       final int retryIdx = currentIndex;
-                                      main.postDelayed(new Runnable() {
+                                      final Track retryTrack = t;
+                                      final String failedUrl = currentMediaUrl();
+                                      bg.execute(new Runnable() {
                                           @Override public void run() {
-                                              playAtInternal(retryIdx);
+                                              ResolveResult fresh = null;
+                                              try { fresh = resolveShared(retryTrack.videoId, retryTrack.title, retryTrack.channel); } catch (Throwable ignored) {}
+                                              final ResolveResult fr = fresh;
+                                              main.postDelayed(new Runnable() {
+                                                  @Override public void run() {
+                                                      if (fr != null && fr.url != null && !fr.url.isEmpty() && fr.url.equals(failedUrl)) {
+                                                          android.util.Log.w("LynxosMusic", "Fresh resolve returned the failed URL — not retrying it");
+                                                          UiListener l = ui;
+                                                          if (l != null) { try { l.onTrackError("Playback failed."); } catch (Exception ignored) {} }
+                                                          else playAtInternal(currentIndex + 1);
+                                                          return;
+                                                      }
+                                                      /* A good fresh URL is already in the
+                                                         cache (resolveShared put it there),
+                                                         so this play starts instantly. */
+                                                      playAtInternal(retryIdx);
+                                                  }
+                                              }, 250);
                                           }
-                                      }, 1000);
+                                      });
                                       return;
                                   } else {
                                       /* Retries exhausted - clear counter and skip */
@@ -1639,6 +1842,9 @@ jobs:
               public void onDestroy() {
                   try { main.removeCallbacks(progressTick); } catch (Exception ignored) {}
                   try { bg.shutdownNow(); } catch (Exception ignored) {}
+                  /* v2.2.98: shut down the play + resolve executors too. */
+                  try { playExec.shutdownNow(); } catch (Exception ignored) {}
+                  try { resolveExec.shutdownNow(); } catch (Exception ignored) {}
                   /* v2.2.7: release the media session. */
                   try { if (mediaSession != null) mediaSession.release(); } catch (Exception ignored) {}
                   mediaSession = null;
@@ -1724,43 +1930,47 @@ jobs:
               private void playAtInternal(int i) {
                   if (player == null || i < 0 || i >= queue.size()) return;
                   currentIndex = i;
+                  playGen.incrementAndGet();
                   final Track t = queue.get(i);
                   final int wantIndex = i;
                   goForeground(t, true);
-                  bg.execute(new Runnable() {
+                  /* v2.2.98: resolve on the dedicated play thread (never stuck
+                     behind prefetches), through the single-flight resolver. */
+                  playExec.execute(new Runnable() {
                       @Override public void run() {
-                          String url = null;
-                          String err = "";
-                          /* v2.2.79: use cached URL only if not expired */
-                          url = getCachedUrl(t.videoId);
-                          try {
-                              if (url == null || url.isEmpty()) {
-                                  url = resolveAudioUrl(t.videoId, t.title, t.channel);
-                                  if (url != null && !url.isEmpty()) {
-                                      putCachedUrl(t.videoId, url);
-                                  }
-                              }
-                          }
-                          catch (Throwable th) { try { err = String.valueOf(th.toString()); } catch (Exception ignored) {} }
-                          final String fUrl = url;
-                          final String fErr = err;
+                          /* Stale queued play (user already tapped on): drop it
+                             before it burns a resolve — currentIndex moved. */
+                          if (wantIndex != currentIndex) return;
+                          final ResolveResult rr = resolveShared(t.videoId, t.title, t.channel);
                           main.post(new Runnable() {
                               @Override public void run() {
                                   if (player == null || wantIndex != currentIndex) return;
-                                  if (fUrl == null || fUrl.isEmpty()) {
+                                  if (rr.url == null || rr.url.isEmpty()) {
                                       UiListener l = ui;
                                       /* v2.1.4: let the web page try another upload
-                                         of the same song before skipping it. */
+                                         of the same song before skipping it.
+                                         v2.2.98: the failure kind + message go
+                                         along so the page can react properly. */
                                       boolean consumed = false;
-                                      if (l != null) { try { consumed = l.onTrackResolveFailed(wantIndex); } catch (Exception ignored) {} }
+                                      if (l != null) { try { consumed = l.onTrackResolveFailed(wantIndex, rr.kind, rr.message); } catch (Exception ignored) {} }
                                       if (!consumed) {
-                                          if (l != null) { try { l.onTrackError(fErr); } catch (Exception ignored) {} }
+                                          if (l != null) { try { l.onTrackError(rr.message); } catch (Exception ignored) {} }
                                           else playAtInternal(currentIndex + 1);
                                       }
                                       return;
                                   }
+                                  /* v2.2.98: an alternative upload won — adopt
+                                     its id in the service queue (notification
+                                     + prefetch stay consistent) and tell the
+                                     page so its queue/cache learn it too. */
+                                  String winId = rr.resolvedVideoId;
+                                  if (winId != null && !winId.isEmpty() && !winId.equals(t.videoId)) {
+                                      try { queue.get(wantIndex).videoId = winId; } catch (Exception ignored) {}
+                                      UiListener lr = ui;
+                                      if (lr != null) { try { lr.onTrackResolved(wantIndex, winId); } catch (Exception ignored) {} }
+                                  }
                                   try {
-                                      player.setMediaItem(MediaItem.fromUri(fUrl));
+                                      player.setMediaItem(MediaItem.fromUri(rr.url));
                                       player.prepare();
                                       player.play();
                                   } catch (Throwable th) {
@@ -1783,23 +1993,37 @@ jobs:
                   });
               }
 
-              /* v2.1.7: resolve the next track's audio URL ahead of time. */
+              /* v2.1.7: resolve the next track's audio URL ahead of time.
+                 v2.2.98: passes the track's real title/artist (the Python
+                 alternative search needs them — it used to get "" and could
+                 never help a prefetch), skips known-dead ids, shares the
+                 single-flight resolver, and abandons when the playhead has
+                 moved on and the target fell out of the next-3 window. */
               private void prefetchNext(final int i) {
                   if (i < 0 || i >= queue.size()) return;
-                  final String vid;
-                  try { vid = queue.get(i).videoId; } catch (Exception e) { return; }
+                  final Track pt;
+                  try { pt = queue.get(i); } catch (Exception e) { return; }
+                  final String vid = pt.videoId;
                   if (vid == null || vid.isEmpty()) return;
                   try {
                       if (getCachedUrl(vid) != null) return;
                   } catch (Exception ignored) {}
+                  if (isDeadId(vid)) return;
+                  final long gen = playGen.get();
+                  final String pTitle = pt.title != null ? pt.title : "";
+                  final String pChannel = pt.channel != null ? pt.channel : "";
                   bg.execute(new Runnable() {
                       @Override public void run() {
                           try {
+                              /* Stale-prefetch abandon: the playhead moved since
+                                 this was queued AND the target is no longer in
+                                 the next-3 window — don't burn a resolve on it. */
+                              if (gen != playGen.get() && (i <= currentIndex || i > currentIndex + 3)) return;
+                              if (i < 0 || i >= queue.size()) return;
+                              Track now = queue.get(i);
+                              if (now == null || !vid.equals(now.videoId)) return;
                               if (getCachedUrl(vid) != null) return;
-                              String url = resolveAudioUrl(vid, "", "");
-                              if (url != null && !url.isEmpty()) {
-                                  putCachedUrl(vid, url);
-                              }
+                              resolveShared(vid, pTitle, pChannel);
                           } catch (Throwable ignored) {}
                       }
                   });
@@ -1807,44 +2031,64 @@ jobs:
 
               /* v2.2.39: Direct Python call with automatic alternatives.
                  If the primary video ID fails, Python searches for alternative
-                 versions of the same song. This is the permanent skip fix. */
-              private String getStreamUrlViaPythonDirect(String videoId, String title, String artist) {
+                 versions of the same song. This is the permanent skip fix.
+                 v2.2.98: returns the full ResolveResult — Python reports the
+                 winning videoId (resolved_video_id) and an error_kind, parsed
+                 as real JSON instead of string-scraping just the URL. */
+              private ResolveResult getStreamUrlViaPythonDirect(String videoId, String title, String artist) {
+                  ResolveResult out = new ResolveResult();
+                  out.resolvedVideoId = videoId;
                   try {
                       if (!com.chaquo.python.Python.isStarted()) {
                           com.chaquo.python.Python.start(new com.chaquo.python.android.AndroidPlatform(MusicService.this));
                       }
                       com.chaquo.python.PyObject mod = com.chaquo.python.Python.getInstance().getModule("ytm_bridge");
                       if (mod != null) {
-                          com.chaquo.python.PyObject r = mod.callAttr("get_playable_stream", 
-                              title != null ? title : "", 
-                              artist != null ? artist : "", 
+                          com.chaquo.python.PyObject r = mod.callAttr("get_playable_stream",
+                              title != null ? title : "",
+                              artist != null ? artist : "",
                               videoId);
                           String json = r.toString();
-                          if (json != null && json.contains("\"url\"")) {
-                              int start = json.indexOf("\"url\"") + 7;
-                              int end = json.indexOf("\"", start);
-                              if (start > 6 && end > start) {
-                                  String url = json.substring(start, end);
-                                  if (url != null && !url.isEmpty() && url.startsWith("http")) {
-                                      if (json.contains("\"alternative\"")) {
+                          if (json != null) {
+                              try {
+                                  org.json.JSONObject o = new org.json.JSONObject(json);
+                                  String url = o.optString("url", "");
+                                  if (!url.isEmpty() && url.startsWith("http")) {
+                                      out.url = url;
+                                      out.kind = KIND_OK;
+                                      String wid = o.optString("resolved_video_id", "");
+                                      if (wid.isEmpty()) wid = o.optString("videoId", "");
+                                      out.resolvedVideoId = !wid.isEmpty() ? wid : videoId;
+                                      if (o.has("alternative")) {
                                           android.util.Log.i("LynxosMusic", "Used alternative version for " + title);
                                       }
-                                      return url;
+                                      return out;
                                   }
+                                  out.kind = "dead".equals(o.optString("error_kind", "")) ? KIND_DEAD : KIND_TRANSIENT;
+                                  out.message = o.optString("error", "");
+                                  android.util.Log.w("LynxosMusic", "Python stream error for " + videoId + ": " + json);
+                              } catch (Exception je) {
+                                  out.message = "Unparseable Python result";
                               }
-                          } else if (json != null && json.contains("\"error\"")) {
-                              android.util.Log.w("LynxosMusic", "Python stream error for " + videoId + ": " + json);
                           }
                       }
                   } catch (Exception e) {
                       android.util.Log.w("LynxosMusic", "Direct Python failed for " + videoId, e);
+                      out.message = String.valueOf(e.getMessage());
                   }
-                  return null;
+                  return out;
               }
               /* v2.2.42: Speed fix - NewPipe FIRST (fast 1-2s), yt-dlp second (robust 3-5s).
-                 NewPipe just parses the page; yt-dlp does full extraction. */
-              private String resolveAudioUrl(String videoId, String title, String artist) throws Exception {
+                 NewPipe just parses the page; yt-dlp does full extraction.
+                 v2.2.98: returns a structured ResolveResult instead of
+                 throwing a generic ExtractionException that erased WHY the
+                 resolve failed — an explicit unavailable/private/removed
+                 signal from either layer classifies the failure DEAD. */
+              private ResolveResult resolveAudioUrl(String videoId, String title, String artist) {
+                  ResolveResult out = new ResolveResult();
+                  out.resolvedVideoId = videoId;
                   // Try NewPipeExtractor first (fast)
+                  Exception npErr = null;
                   try {
                       StreamExtractor ex = ServiceList.YouTube.getStreamExtractor("https://www.youtube.com/watch?v=" + videoId);
                       ex.fetchPage();
@@ -1858,6 +2102,8 @@ jobs:
                           if (best == null || s.getAverageBitrate() > best.getAverageBitrate()) best = s;
                       }
                       if (best == null) {
+                          /* No progressive stream: any audio stream beats none
+                             (this list is audio-only by construction). */
                           for (AudioStream s : streams) {
                               String u = "";
                               try { u = s.getUrl(); } catch (Exception ignored) {}
@@ -1866,22 +2112,32 @@ jobs:
                       }
                       if (best != null) {
                           android.util.Log.i("LynxosMusic", "NewPipe fast-path OK for " + videoId);
-                          return best.getUrl();
+                          out.url = best.getUrl();
+                          out.kind = KIND_OK;
+                          return out;
                       }
                   } catch (Exception e) {
+                      npErr = e;
                       android.util.Log.w("LynxosMusic", "NewPipe failed for " + videoId + ", trying yt-dlp", e);
                   }
                   // Fall back to Python yt-dlp with automatic alternatives (robust)
-                  try {
-                      String pyUrl = getStreamUrlViaPythonDirect(videoId, title, artist);
-                      if (pyUrl != null && !pyUrl.isEmpty()) {
-                          android.util.Log.i("LynxosMusic", "Got stream URL via Python yt-dlp for " + videoId);
-                          return pyUrl;
-                      }
-                  } catch (Exception e) {
-                      android.util.Log.w("LynxosMusic", "Python yt-dlp failed for " + videoId, e);
+                  ResolveResult py = null;
+                  try { py = getStreamUrlViaPythonDirect(videoId, title, artist); }
+                  catch (Exception e) { android.util.Log.w("LynxosMusic", "Python yt-dlp failed for " + videoId, e); }
+                  if (py != null && py.url != null && !py.url.isEmpty()) {
+                      android.util.Log.i("LynxosMusic", "Got stream URL via Python yt-dlp for " + videoId);
+                      return py;
                   }
-                  throw new ExtractionException("No playable audio stream found");
+                  /* Both layers failed — classify, preserving the real reason. */
+                  int kind = KIND_TRANSIENT;
+                  String msg = "";
+                  if (py != null && py.kind == KIND_DEAD) { kind = KIND_DEAD; msg = py.message; }
+                  else if (npErr != null && isUnavailableError(npErr)) { kind = KIND_DEAD; msg = String.valueOf(npErr.getMessage()); }
+                  else if (py != null && py.message != null && !py.message.isEmpty()) { msg = py.message; }
+                  else if (npErr != null) { msg = String.valueOf(npErr.getMessage()); }
+                  out.kind = kind;
+                  out.message = (msg == null) ? "" : msg;
+                  return out;
               }
 
               private List<Track> parseTracks(String json) {
