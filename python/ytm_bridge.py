@@ -525,7 +525,11 @@ def get_stream_url(video_id):
         ydl_opts = {
             # v2.2.105: capped audio (see _pick_capped_audio_url) — the
             # heaviest stream starved the player on his connection.
-            'format': 'bestaudio[abr<=96]/bestaudio/best',
+            # v2.2.106: the trailing muxed "best" cascade is DELETED —
+            # that fallback is a video-bearing format, and on his
+            # device it is the prime suspect for the Z-Ro album's
+            # stalls. Audio-only or this attempt fails cleanly.
+            'format': 'bestaudio[abr<=96]/bestaudio',
             'quiet': True,
             'no_warnings': True,
             'extract_flat': False,
@@ -539,10 +543,12 @@ def get_stream_url(video_id):
             # Get the best audio URL
             stream_url = info.get('url', '')
             if not stream_url:
-                # Try formats list (same ~96 kbps cap as the selector)
+                # Try formats list (same ~96 kbps cap as the selector).
+                # v2.2.106: the old last-ditch first-format grab is
+                # deleted — it could hand back ANY format in list
+                # order, including video. No audio-only URL means this
+                # attempt fails and the caller's machinery moves on.
                 stream_url = _pick_capped_audio_url(info)
-                if not stream_url and info.get('formats'):
-                    stream_url = info['formats'][0].get('url', '')
             if stream_url:
                 return json.dumps({"url": stream_url})
             else:
@@ -713,7 +719,9 @@ def get_playable_stream(title, artist, video_id, max_alternatives=2):
             url = "https://www.youtube.com/watch?v=" + vid
             ydl_opts = {
                 # v2.2.105: capped audio (see _pick_capped_audio_url).
-                'format': 'bestaudio[abr<=96]/bestaudio/best',
+                # v2.2.106: muxed "best" cascade deleted — see
+                # get_stream_url. Audio-only or clean failure.
+                'format': 'bestaudio[abr<=96]/bestaudio',
                 'quiet': True,
                 'no_warnings': True,
                 'extract_flat': False,
@@ -725,9 +733,9 @@ def get_playable_stream(title, artist, video_id, max_alternatives=2):
                 stream_url = info.get('url', '')
                 if not stream_url:
                     # Same ~96 kbps cap as the selector above.
+                    # v2.2.106: first-format last-ditch deleted (see
+                    # get_stream_url) — no audio-only URL, no stream.
                     stream_url = _pick_capped_audio_url(info)
-                    if not stream_url and info.get('formats'):
-                        stream_url = info['formats'][0].get('url', '')
                 if stream_url:
                     return stream_url, ""
                 return None, "No stream URL found"
