@@ -3310,6 +3310,8 @@ jobs:
                       AudioStream best = null;
                       AudioStream lightest = null;
                       AudioStream firstUsable = null;
+                      int bestKbps = 0;
+                      int lightestKbps = 0;
                       for (AudioStream s : streams) {
                           if (s.getDeliveryMethod() != DeliveryMethod.PROGRESSIVE_HTTP) continue;
                           String u = "";
@@ -3318,12 +3320,28 @@ jobs:
                           if (firstUsable == null) firstUsable = s;
                           int br = 0;
                           try { br = s.getAverageBitrate(); } catch (Exception ignored) {}
-                          if (br > 0) {
-                              if (lightest == null || br < lightest.getAverageBitrate()) lightest = s;
-                              if (br <= 96000 && (best == null || br > best.getAverageBitrate())) best = s;
+                          /* v2.2.107: normalize the raw getter value to
+                             kbps ONCE — on this NewPipe build it returns
+                             kbps (device log: abr=160 for a ~160 kbps
+                             stream), but the v2.2.105 cap compared the raw
+                             value against 96000 as if it were bps, so the
+                             cap never engaged and the heaviest stream
+                             always won. A raw value over 2000 is treated
+                             as bps and converted, so the comparisons
+                             below are correct under either convention. */
+                          int kbps = br > 2000 ? br / 1000 : br;
+                          if (kbps > 0) {
+                              if (lightest == null || kbps < lightestKbps) { lightest = s; lightestKbps = kbps; }
+                              if (kbps <= 96 && (best == null || kbps > bestKbps)) { best = s; bestKbps = kbps; }
                           }
                       }
-                      if (best == null) best = lightest;
+                      /* The chosen stream's normalized kbps, so the resolve
+                         diag line below reads true. Fallback picks
+                         (firstUsable / the non-progressive scan below)
+                         never had a measured bitrate — 0 = unknown there,
+                         exactly as the raw getter printed for them. */
+                      int chosenKbps = bestKbps;
+                      if (best == null) { best = lightest; chosenKbps = lightestKbps; }
                       if (best == null) best = firstUsable;
                       if (best == null) {
                           /* No progressive stream: any audio stream beats none
@@ -3338,8 +3356,11 @@ jobs:
                           /* v2.2.106: this line is a diag() now — in v2.2.105
                              it went to Log.i (logcat) only, so the picked
                              weight never reached the Settings Playback log
-                             Justin can actually read back. */
-                          diag("resolve newpipe abr=" + best.getAverageBitrate() + " " + describeStreamUrl(best.getUrl()));
+                             Justin can actually read back.
+                             v2.2.107: prints chosenKbps (normalized), not
+                             the raw getter value, so the logged weight is
+                             real kbps. */
+                          diag("resolve newpipe abr=" + chosenKbps + " " + describeStreamUrl(best.getUrl()));
                           out.url = best.getUrl();
                           out.kind = KIND_OK;
                           return out;
