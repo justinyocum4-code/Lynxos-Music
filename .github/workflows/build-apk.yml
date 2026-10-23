@@ -1885,7 +1885,18 @@ jobs:
                      stop this process with the screen off. */
                   diag("service start - " + android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL
                           + " - SDK " + Build.VERSION.SDK_INT + " - batteryExempt=" + batteryExemptStr(this));
-                  player = new ExoPlayer.Builder(this).build();
+                  /* v2.2.105: deeper buffer — his connection delivers
+                     ~35 KB/s in bursts, and the stock load control only
+                     asks for ~5s of audio before resuming after a stall,
+                     so a thin pipe stop-started every few seconds. Now a
+                     stall refills ~15s before playback resumes and the
+                     player targets 50-90s of buffered audio (about 1 MB
+                     at the capped stream rate). Standard knobs only. */
+                  player = new ExoPlayer.Builder(this)
+                          .setLoadControl(new androidx.media3.exoplayer.DefaultLoadControl.Builder()
+                                  .setBufferDurationsMs(50000, 90000, 2500, 15000)
+                                  .build())
+                          .build();
                   /* v2.2.7: media session — routes Bluetooth headset play/pause/next/prev.
                      Next/prev go to the app queue (the player holds one item at a time).
                      v2.2.8: advertise next/prev commands — the single-item player
@@ -2674,7 +2685,11 @@ jobs:
                  so songs stop stopping-and-restarting around every
                  interruption. Only a permanent loss pauses, and a later GAIN
                  resumes ONLY that focus-caused pause (focusPaused), never a
-                 pause the user made. Nothing is abandoned on a duck. */
+                 pause the user made. Nothing is abandoned on a duck.
+                 v2.2.105: transients no longer duck at all — ambient
+                 transients on his tablet (TalkBack, notification blips)
+                 fired every few seconds and pumped the volume. They are
+                 logged and ignored now; only a permanent loss pauses. */
               private void handleFocusChange(int focusChange) {
                   try {
                       if (player == null) return;
@@ -2693,14 +2708,14 @@ jobs:
                               }
                               break;
                           case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
+                              /* v2.2.105: logged and ignored — transient grabs
+                                 no longer duck the volume (see the note above
+                                 handleFocusChange). Nothing is touched: no
+                                 volume change, no focusDucked, no pause. */
+                              diag("focus transient (ignored)");
+                              break;
                           case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
-                              if (player.getPlayWhenReady() && !focusDucked) {
-                                  focusDucked = true;
-                                  player.setVolume(0.2f);
-                                  diag("focus transient (ducked)");
-                              } else {
-                                  diag("focus transient");
-                              }
+                              diag("focus transient can-duck (ignored)");
                               break;
                           case AudioManager.AUDIOFOCUS_GAIN:
                               if (focusDucked) {
@@ -3132,14 +3147,33 @@ jobs:
                       StreamExtractor ex = ServiceList.YouTube.getStreamExtractor("https://www.youtube.com/watch?v=" + videoId);
                       ex.fetchPage();
                       List<AudioStream> streams = ex.getAudioStreams();
+                      /* v2.2.105: lighter streams — his connection delivers
+                         ~35 KB/s in bursts, and the heaviest stream (this
+                         loop used to take the max bitrate) starved the
+                         player into 8-10s stalls. Prefer the highest
+                         average bitrate at or under ~96 kbps; if every
+                         known bitrate is above the cap, take the lightest
+                         known one; if no bitrate is known, the first
+                         usable stream (the pre-cap pick). The cap never
+                         fails a resolve. */
                       AudioStream best = null;
+                      AudioStream lightest = null;
+                      AudioStream firstUsable = null;
                       for (AudioStream s : streams) {
                           if (s.getDeliveryMethod() != DeliveryMethod.PROGRESSIVE_HTTP) continue;
                           String u = "";
                           try { u = s.getUrl(); } catch (Exception ignored) {}
                           if (u == null || u.isEmpty()) continue;
-                          if (best == null || s.getAverageBitrate() > best.getAverageBitrate()) best = s;
+                          if (firstUsable == null) firstUsable = s;
+                          int br = 0;
+                          try { br = s.getAverageBitrate(); } catch (Exception ignored) {}
+                          if (br > 0) {
+                              if (lightest == null || br < lightest.getAverageBitrate()) lightest = s;
+                              if (br <= 96000 && (best == null || br > best.getAverageBitrate())) best = s;
+                          }
                       }
+                      if (best == null) best = lightest;
+                      if (best == null) best = firstUsable;
                       if (best == null) {
                           /* No progressive stream: any audio stream beats none
                              (this list is audio-only by construction). */
@@ -3150,7 +3184,7 @@ jobs:
                           }
                       }
                       if (best != null) {
-                          android.util.Log.i("LynxosMusic", "NewPipe fast-path OK for " + videoId);
+                          android.util.Log.i("LynxosMusic", "NewPipe fast-path OK for " + videoId + " (abr=" + best.getAverageBitrate() + ")");
                           out.url = best.getUrl();
                           out.kind = KIND_OK;
                           return out;
