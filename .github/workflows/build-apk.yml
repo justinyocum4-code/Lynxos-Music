@@ -2005,6 +2005,35 @@ jobs:
                   return out;
               }
               private int currentIndex = -1;
+              /* v2.2.108: next-track AUDIO preload. The player may hold a
+                 second media item — the effective next track, its URL
+                 resolved through resolveShared exactly like a played URL —
+                 so its bytes download while the current track plays and
+                 the boundary arrives with a banked cushion. Until now a
+                 track's download only STARTED at its boundary, and on his
+                 connection the first ~30-40s of a fresh download crawl
+                 (~4 KB/s against a ~35 KB/s sustained rate); with the
+                 buffer empty at every track start, that crawl was the
+                 one-stall-per-song at the beginning of album tracks.
+                 preloadedIndex / preloadedVideoId / preloadedUrl describe
+                 the appended item (-1 / "" when the player holds one
+                 item). landingPlayGen is the playGen of a playAtInternal
+                 whose setMediaItem has not landed yet — while it is set,
+                 an auto-transition must not adopt bookkeeping, because
+                 the command owns the window and rebuilds it.
+                 autoAdvancedIndex / autoAdvancedGen record the boundary
+                 the player last crossed by auto-transition, so a command
+                 that was entered BEFORE that crossing and lands behind
+                 it can adopt the already-playing item instead of
+                 restarting it (see playAtInternal). Repeat-one suppresses
+                 the append entirely (see schedulePreloadNext): it keeps
+                 its single-item fresh-resolve replay, unchanged. */
+              private volatile int preloadedIndex = -1;
+              private volatile String preloadedVideoId = "";
+              private volatile String preloadedUrl = "";
+              private volatile long landingPlayGen = -1;
+              private volatile int autoAdvancedIndex = -1;
+              private volatile long autoAdvancedGen = -1;
               private UiListener ui;
               /* v2.2.102: previous playback state, so the player listener
                  can log STATE_BUFFERING exits (see onPlaybackStateChanged). */
@@ -2430,6 +2459,83 @@ jobs:
                               updateNotification();
                           }
                       }
+                      /* v2.2.108: an AUTO media-item transition is a track
+                         boundary whose driver is the player itself. The
+                         ONLY way one can occur is the appended preload item
+                         (the player otherwise holds a single item, and its
+                         own repeat mode is never enabled), so this handler
+                         adopts the crossing as THE advance for that
+                         boundary — the same bookkeeping a playAtInternal
+                         advance performs (currentIndex/gen move, page sync
+                         via onTrackEnded + onTrackChanged, prefetch, locks)
+                         — and then rolls the window forward. While a
+                         playAtInternal is landing (landingPlayGen set), the
+                         command owns the window: the crossing is noted and
+                         left alone, and the command's setMediaItem rebuilds
+                         everything. STATE_ENDED never fires for a boundary
+                         crossed this way, so advanceAfterEnded can never
+                         double-drive it; a boundary the preload didn't
+                         cover still ends the playlist and takes the
+                         STATE_ENDED path exactly as before. */
+                      @Override public void onMediaItemTransition(MediaItem mediaItem, int reason) {
+                          if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) return;
+                          try {
+                              if (player == null) return;
+                              if (landingPlayGen != -1) {
+                                  diag("advance auto (superseded by command)");
+                                  return;
+                              }
+                              int newIdx = -1;
+                              if (preloadedIndex >= 0 && preloadedIndex < queue.size()
+                                      && queue.get(preloadedIndex) != null
+                                      && preloadedVideoId != null
+                                      && preloadedVideoId.equals(queue.get(preloadedIndex).videoId)) {
+                                  newIdx = preloadedIndex;
+                              } else if (currentIndex + 1 < queue.size()) {
+                                  /* Orphan path: an appended item outlived
+                                     its bookkeeping (a removal failed
+                                     somewhere). Adopt the sequential next
+                                     only if the player's new current item is
+                                     provably that track's cached URL. */
+                                  Track nt = queue.get(currentIndex + 1);
+                                  String cu = (nt != null && nt.videoId != null) ? getCachedUrl(nt.videoId) : null;
+                                  if (cu != null && !cu.isEmpty() && cu.equals(currentMediaUrl())) {
+                                      newIdx = currentIndex + 1;
+                                      diag("advance auto (orphan) idx=" + newIdx);
+                                  }
+                              }
+                              if (newIdx < 0) { diag("advance auto (untracked)"); return; }
+                              preloadedIndex = -1; preloadedVideoId = ""; preloadedUrl = "";
+                              /* Drop the finished item (it sits before the
+                                 current one) so the player again holds just
+                                 the current track. */
+                              try {
+                                  int cur = player.getCurrentMediaItemIndex();
+                                  if (cur > 0 && player.getMediaItemCount() > cur) player.removeMediaItem(0);
+                              } catch (Exception ignored) {}
+                              currentIndex = newIdx;
+                              /* The auto-advance IS the current play now: a
+                                 fresh generation, so floors armed for the
+                                 previous track stand down and an error on
+                                 this track keys to this play. */
+                              currentPlayGen = playGen.incrementAndGet();
+                              autoAdvancedIndex = newIdx;
+                              autoAdvancedGen = currentPlayGen;
+                              diag("advance auto idx=" + newIdx);
+                              acquirePlayLocks();
+                              updateNotification();
+                              pushProgress();
+                              UiListener l = ui;
+                              if (l != null) { try { l.onTrackEnded(); } catch (Exception ignored) {} }
+                              if (l != null) { try { l.onTrackChanged(newIdx); } catch (Exception ignored) {} }
+                              /* Same warm-up + window roll as a commanded
+                                 track start. */
+                              prefetchNext(newIdx + 1);
+                              prefetchNext(newIdx + 2);
+                              prefetchNext(newIdx + 3);
+                              schedulePreloadNext(newIdx, playGen.get());
+                          } catch (Exception ignored) {}
+                      }
                       @Override public void onIsPlayingChanged(boolean isPlaying) {
                           /* v2.2.102: the transition itself is logged — it
                              is what flips the mini-player icon between play
@@ -2459,6 +2565,36 @@ jobs:
                           diag("playWhenReady=" + playWhenReady + " reason=" + playWhenReadyReasonName(reason));
                       }
                       @Override public void onPlayerError(PlaybackException error) {
+                          /* v2.2.108: boundary-error reconcile. If the player
+                             has moved onto the appended preload item — i.e.
+                             this error is the PRELOADED track failing at its
+                             boundary (its URL is the player's current one)
+                             while the service still counts the previous
+                             track as current — adopt the preloaded track as
+                             current first, so the retry/skip machinery below
+                             works on the track that actually failed instead
+                             of restarting the one that just ended. (If the
+                             AUTO transition was already adopted above, this
+                             is a plain current-track error and the reconcile
+                             does not trigger: preloadedIndex no longer names
+                             the failing item.) */
+                          try {
+                              if (preloadedIndex >= 0 && currentIndex != preloadedIndex && player != null
+                                      && preloadedUrl != null && !preloadedUrl.isEmpty()
+                                      && preloadedUrl.equals(currentMediaUrl())) {
+                                  int errIdx = preloadedIndex;
+                                  preloadedIndex = -1; preloadedVideoId = ""; preloadedUrl = "";
+                                  try {
+                                      int cur = player.getCurrentMediaItemIndex();
+                                      if (cur > 0) player.removeMediaItem(0);
+                                  } catch (Exception ignored) {}
+                                  currentIndex = errIdx;
+                                  currentPlayGen = playGen.incrementAndGet();
+                                  autoAdvancedIndex = errIdx;
+                                  autoAdvancedGen = currentPlayGen;
+                                  diag("advance auto (error boundary) idx=" + errIdx);
+                              }
+                          } catch (Exception ignored) {}
                           String msg = "";
                           try { msg = String.valueOf(error.getMessage()); } catch (Exception ignored) {}
                           /* v2.2.101: mirror the error into the Playback log. */
@@ -2603,7 +2739,18 @@ jobs:
 
               public void setUiListener(UiListener l) { ui = l; }
               /* v2.2.5: the web page sets this when the user changes repeat mode. */
-              public void setRepeatMode(int mode) { repeatMode = mode; }
+              public void setRepeatMode(int mode) {
+                  repeatMode = mode;
+                  /* v2.2.108: the appended next was derived under the OLD
+                     mode (repeat-one suppresses it entirely; repeat-all may
+                     wrap to the queue head) — drop it and re-derive under
+                     the new mode, so a mode change mid-track can never let
+                     a stale next item auto-play. */
+                  if (preloadedIndex >= 0) {
+                      dropPreloaded("repeat change");
+                      if (currentIndex >= 0) schedulePreloadNext(currentIndex, playGen.get());
+                  }
+              }
               /* v2.2.5: advance the queue natively (screen-off safe).
                  v2.2.100: these plays are marked fromAdvance — they get the
                  long resolve deadline and the native failure floor, because
@@ -2901,10 +3048,27 @@ jobs:
                   if (index < 0 || index >= queue.size() || index == currentIndex) return;
                   queue.remove(index);
                   if (index < currentIndex) currentIndex--;
+                  /* v2.2.108: keep the preload window truthful across queue
+                     edits — if the appended track itself was removed, its
+                     player item goes too and a fresh next is derived; if it
+                     merely shifted down with everything after the removed
+                     slot, its bookkeeping index shifts with it. */
+                  if (preloadedIndex == index) {
+                      dropPreloaded("queue edit");
+                      schedulePreloadNext(currentIndex, playGen.get());
+                  } else if (preloadedIndex > index) {
+                      preloadedIndex--;
+                  }
               }
 
               public void truncateAfter(int index) {
                   while (queue.size() > index + 1) queue.remove(queue.size() - 1);
+                  /* v2.2.108: if the cut removed the appended track, drop
+                     its player item too and re-derive a next. */
+                  if (preloadedIndex > index) {
+                      dropPreloaded("queue edit");
+                      schedulePreloadNext(currentIndex, playGen.get());
+                  }
               }
 
               // ---- internals ----
@@ -2974,6 +3138,15 @@ jobs:
                   currentIndex = i;
                   final long myGen = playGen.incrementAndGet();
                   currentPlayGen = myGen;
+                  /* v2.2.108: this command owns the player window until its
+                     setMediaItem lands (or it fails trying). While
+                     landingPlayGen is set, an AUTO transition from the
+                     previously appended preload must not adopt bookkeeping
+                     — the command rebuilds the window itself (see
+                     onMediaItemTransition). The claim is released at the
+                     top of this play's posted completion, or by the
+                     pre-resolve staleness drop below if it never posts. */
+                  landingPlayGen = myGen;
                   /* v2.2.100: (re)arm the play locks for this track — they
                      are what carry the advance across the boundary gap. */
                   acquirePlayLocks();
@@ -2987,11 +3160,25 @@ jobs:
                       @Override public void run() {
                           /* Stale queued play (user already tapped on): drop it
                              before it burns a resolve — currentIndex moved. */
-                          if (wantIndex != currentIndex) return;
+                          if (wantIndex != currentIndex) {
+                              /* v2.2.108: this play will never land — release
+                                 the landing claim if it is still ours (a
+                                 newer play has already replaced it with its
+                                 own generation). */
+                              if (landingPlayGen == myGen) landingPlayGen = -1;
+                              return;
+                          }
                           final ResolveResult rr = resolveShared(t.videoId, t.title, t.channel,
                                   adv ? ADVANCE_RESOLVE_DEADLINE_MS : RESOLVE_DEADLINE_MS);
                           main.post(new Runnable() {
                               @Override public void run() {
+                                  /* v2.2.108: landed or failed — the landing
+                                     claim ends here either way. This whole
+                                     runnable is atomic on the main thread
+                                     relative to player callbacks, so no
+                                     auto-transition can slip between this
+                                     release and the setMediaItem below. */
+                                  if (landingPlayGen == myGen) landingPlayGen = -1;
                                   if (player == null || wantIndex != currentIndex) {
                                       /* Superseded play: drop any retry-seek queued for it. */
                                       if (pendingSeekIndex == wantIndex) { pendingSeekIndex = -1; pendingSeekMs = 0; }
@@ -3040,14 +3227,50 @@ jobs:
                                       UiListener lr = ui;
                                       if (lr != null) { try { lr.onTrackResolved(wantIndex, winId); } catch (Exception ignored) {} }
                                   }
+                                  boolean adoptedStart = false;
                                   try {
-                                      player.setMediaItem(MediaItem.fromUri(rr.url));
-                                      player.prepare();
-                                      /* v2.2.99: every track start (re)requests
-                                         audio focus under the app's own focus
-                                         management. */
-                                      requestAudioFocus();
-                                      player.play();
+                                      /* v2.2.108: adopt, don't restart. If a
+                                         preload auto-transition already started
+                                         THIS track — it became current after
+                                         this play was entered (autoAdvancedGen
+                                         is newer than this play's generation),
+                                         the player is holding the very URL just
+                                         resolved, and it is mid-playback rather
+                                         than ended/idle — then the boundary has
+                                         already been driven by the player, and
+                                         setMediaItem would restart a playing
+                                         song and double-drive it. Just make
+                                         sure it is playing. A command entered
+                                         after the crossing (a deliberate re-tap
+                                         of the playing song) has a NEWER
+                                         generation and takes the normal restart
+                                         path below, exactly as before. */
+                                      try {
+                                          adoptedStart = wantIndex == autoAdvancedIndex
+                                                  && autoAdvancedGen > myGen
+                                                  && player.getPlaybackState() != Player.STATE_ENDED
+                                                  && player.getPlaybackState() != Player.STATE_IDLE
+                                                  && rr.url.equals(currentMediaUrl());
+                                      } catch (Exception ignored) {}
+                                      if (adoptedStart) {
+                                          /* v2.2.99: every track start
+                                             (re)requests audio focus under the
+                                             app's own focus management. */
+                                          requestAudioFocus();
+                                          try { player.play(); } catch (Exception ignored) {}
+                                      } else {
+                                          player.setMediaItem(MediaItem.fromUri(rr.url));
+                                          player.prepare();
+                                          /* v2.2.99: every track start (re)requests
+                                             audio focus under the app's own focus
+                                             management. */
+                                          requestAudioFocus();
+                                          player.play();
+                                          /* v2.2.108: setMediaItem replaced the
+                                             whole window — any appended preload
+                                             is physically gone with it. */
+                                          preloadedIndex = -1; preloadedVideoId = ""; preloadedUrl = "";
+                                      }
                                       /* v2.2.99: an error retry resumes where
                                          the track broke instead of restarting
                                          from 0; the pending seek is consumed
@@ -3070,13 +3293,22 @@ jobs:
                                   /* v2.2.101: a started track closes the
                                      boundary story the "track ended" entry
                                      opened. */
-                                  diag("started idx=" + wantIndex + (adv ? " (advance)" : ""));
+                                  diag("started idx=" + wantIndex + (adoptedStart ? " (auto-adopted)" : (adv ? " (advance)" : "")));
                                   /* v2.1.7: while this song plays, resolve the
                                      next one in the background so skipping is instant. */
                                   /* v2.2.38: Prefetch next 3 tracks aggressively for instant skipping. */
                                   prefetchNext(wantIndex + 1);
                                   prefetchNext(wantIndex + 2);
                                   prefetchNext(wantIndex + 3);
+                                  /* v2.2.108: append the effective next track
+                                     to the player so its audio downloads
+                                     during this one (see schedulePreloadNext).
+                                     Uses the freshest generation: if a
+                                     transition superseded this play while it
+                                     resolved, that crossing already rolled the
+                                     window and this call re-derives/no-ops
+                                     against the live state. */
+                                  schedulePreloadNext(wantIndex, playGen.get());
                               }
                           });
                       }
@@ -3232,6 +3464,120 @@ jobs:
                           } catch (Throwable ignored) {}
                       }
                   });
+              }
+
+              /* v2.2.108: the effective next index under the service's own
+                 advance policy — the same computation advanceAfterEnded
+                 performs (sequential; repeat-all wraps; repeat-one replays
+                 the same track). Returns -1 when there is no next to
+                 preload. Repeat-one ALWAYS returns -1 here: its replay is
+                 a fresh resolve + setMediaItem per repetition (today's
+                 behavior, incl. picking up a rotated URL), and appending
+                 the same track as a second item would let a stale URL
+                 auto-play instead. Page shuffle order is NOT known to the
+                 service (the page's playNext owns manual skips); the
+                 native boundary advance has always been sequential too,
+                 so preloading the sequential next matches exactly the
+                 track a natural boundary would have started. */
+              private int effectiveNextIndex(int curIdx) {
+                  if (repeatMode == 2) return -1;
+                  if (curIdx < 0 || curIdx >= queue.size()) return -1;
+                  if (curIdx + 1 < queue.size()) return curIdx + 1;
+                  if (repeatMode == 1 && !queue.isEmpty() && curIdx != 0) return 0;
+                  return -1;
+              }
+
+              /* v2.2.108: append the effective next track's media item to
+                 the player so ExoPlayer downloads its audio while the
+                 current track plays (the LoadControl's 90s total buffer is
+                 shared across the window, so the next track banks up to a
+                 full cushion by the boundary). The URL goes through
+                 resolveShared — the same single-flight, video-gated,
+                 diag-logged choke point as every played URL; a failed
+                 resolve simply leaves the window empty and the boundary
+                 takes today's STATE_ENDED path. The append itself lands
+                 on the main thread and re-validates everything it derived
+                 before resolving: same play generation, same current
+                 track, empty window, no command landing, mode unchanged,
+                 and the queue slot still holds the track it resolved (by
+                 videoId identity — the winning alternative id is adopted
+                 into the queue first, exactly like the play path). */
+              private void schedulePreloadNext(final int curIdx, final long gen) {
+                  try {
+                      if (player == null) return;
+                      if (player.getPlaybackState() == Player.STATE_ENDED) return;
+                      if (preloadedIndex != -1) return;
+                      final int target = effectiveNextIndex(curIdx);
+                      if (target < 0) return;
+                      final Track tt = queue.get(target);
+                      if (tt == null || tt.videoId == null || tt.videoId.isEmpty()) return;
+                      final String wantVid = tt.videoId;
+                      bg.execute(new Runnable() {
+                          @Override public void run() {
+                              ResolveResult rr = null;
+                              try { rr = resolveShared(tt.videoId, tt.title, tt.channel); } catch (Throwable ignored) {}
+                              final ResolveResult fr = rr;
+                              main.post(new Runnable() {
+                                  @Override public void run() {
+                                      try {
+                                          if (player == null || fr == null || fr.url == null || fr.url.isEmpty()) return;
+                                          if (playGen.get() != gen) return;
+                                          if (currentIndex != curIdx) return;
+                                          if (preloadedIndex != -1) return;
+                                          if (landingPlayGen != -1) return;
+                                          if (effectiveNextIndex(curIdx) != target) return;
+                                          if (target < 0 || target >= queue.size()) return;
+                                          Track now = queue.get(target);
+                                          if (now == null || !wantVid.equals(now.videoId)) return;
+                                          /* Adopt a winning alternative id
+                                             the same way the play path does,
+                                             so notifications, retries and the
+                                             page stay consistent. */
+                                          String winId = fr.resolvedVideoId;
+                                          if (winId != null && !winId.isEmpty() && !winId.equals(now.videoId)) {
+                                              try { queue.get(target).videoId = winId; } catch (Exception ignored) {}
+                                              UiListener lr = ui;
+                                              if (lr != null) { try { lr.onTrackResolved(target, winId); } catch (Exception ignored) {} }
+                                              now = queue.get(target);
+                                          }
+                                          player.addMediaItem(MediaItem.fromUri(fr.url));
+                                          preloadedIndex = target;
+                                          preloadedVideoId = (now != null && now.videoId != null) ? now.videoId : wantVid;
+                                          preloadedUrl = fr.url;
+                                          diag("preload next idx=" + target);
+                                      } catch (Exception ignored) {}
+                                  }
+                              });
+                          }
+                      });
+                  } catch (Exception ignored) {}
+              }
+
+              /* v2.2.108: remove the appended preload item from the player
+                 (found by its URL, skipping the current item — robust to
+                 index drift) and clear its bookkeeping. Called when the
+                 derivation inputs change under it: repeat mode changed, or
+                 a queue edit removed the track it points at. */
+              private void dropPreloaded(String why) {
+                  if (preloadedIndex < 0) return;
+                  int idx = preloadedIndex;
+                  String url = preloadedUrl;
+                  preloadedIndex = -1; preloadedVideoId = ""; preloadedUrl = "";
+                  try {
+                      if (player != null && url != null && !url.isEmpty()) {
+                          int cur = player.getCurrentMediaItemIndex();
+                          for (int k = 0; k < player.getMediaItemCount(); k++) {
+                              if (k == cur) continue;
+                              MediaItem mi = player.getMediaItemAt(k);
+                              if (mi != null && mi.localConfiguration != null
+                                      && url.equals(String.valueOf(mi.localConfiguration.uri))) {
+                                  player.removeMediaItem(k);
+                                  break;
+                              }
+                          }
+                      }
+                  } catch (Exception ignored) {}
+                  diag("preload dropped idx=" + idx + " (" + why + ")");
               }
 
               /* v2.2.39: Direct Python call with automatic alternatives.
