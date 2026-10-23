@@ -146,6 +146,11 @@ jobs:
               implementation 'androidx.media3:media3-exoplayer:1.4.1'
               /* v2.2.7: media session for Bluetooth headset buttons. */
               implementation 'androidx.media3:media3-session:1.4.1'
+              /* v2.2.101: media-byte cache — SimpleCache / CacheDataSource /
+                 CacheWriter (datasource) and StandaloneDatabaseProvider
+                 (database), at the same media3 version as above. */
+              implementation 'androidx.media3:media3-datasource:1.4.1'
+              implementation 'androidx.media3:media3-database:1.4.1'
               implementation 'com.github.TeamNewPipe:NewPipeExtractor:v0.26.5'
               /* v2.2.92: FileProvider for the in-app updater. */
               implementation 'androidx.core:core:1.12.0'
@@ -904,6 +909,38 @@ jobs:
                           @Override public void run() { musicService.pausePlayback(); }
                       });
                   }
+                  /* v2.2.101: playback diagnostics for the Settings
+                     "Playback log" list. MusicService records events into
+                     SharedPreferences ("lm_diag", same process); this reads
+                     them straight back through its static helper — no
+                     service binding needed. Newline-joined "HH:mm:ss event"
+                     lines, oldest first. */
+                  @JavascriptInterface public String getPlaybackLog() {
+                      return MusicService.diagDump(MainActivity.this);
+                  }
+                  /* v2.2.101: battery-exemption state for the Settings row —
+                     the same PowerManager check onCreate's prompt uses. */
+                  @JavascriptInterface public boolean isBatteryExempt() {
+                      try {
+                          android.os.PowerManager pm = (android.os.PowerManager) getSystemService(Context.POWER_SERVICE);
+                          return pm != null && pm.isIgnoringBatteryOptimizations(getPackageName());
+                      } catch (Exception e) { return false; }
+                  }
+                  /* v2.2.101: fire the same exemption request intent the
+                     onCreate prompt fires, from the Settings button. Posted
+                     to the main thread — bridge methods run on a WebView
+                     thread, and startActivity belongs on the UI thread. */
+                  @JavascriptInterface public void requestBatteryExemption() {
+                      mainHandler.post(new Runnable() {
+                          @Override public void run() {
+                              try {
+                                  Intent battIntent = new Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                                  battIntent.setData(android.net.Uri.parse("package:" + getPackageName()));
+                                  startActivity(battIntent);
+                              } catch (Exception ignored) {}
+                          }
+                      });
+                  }
                   @JavascriptInterface public void seekTo(final int sec) {
                       withService(new Runnable() {
                           @Override public void run() { musicService.seekTo(sec); }
@@ -1428,6 +1465,100 @@ jobs:
               private volatile long nativeFloorEngagedSeq = -1;
               private volatile long currentPlayGen = 0;
               private static final long NATIVE_FLOOR_GRACE_MS = 4000;
+              /* v2.2.101: playback diagnostics — a 50-entry ring buffer of
+                 what the player actually did (service start + battery state,
+                 lock acquire/release, track ends and advance outcomes,
+                 resolve deadline expiries, native-floor decisions, audio-
+                 focus changes, player errors), persisted in SharedPreferences
+                 so it survives process death and can be read back in
+                 Settings ("Playback log"). Every write is wrapped so logging
+                 can NEVER break playback. On a budget tablet the OS layer —
+                 not this code — is the prime suspect for screen-off stops,
+                 and until now there was no evidence either way; this log is
+                 that evidence. */
+              private static final Object DIAG_LOCK = new Object();
+              private static final String DIAG_PREFS = "lm_diag";
+              private static final int DIAG_MAX = 50;
+              /* v2.2.101: session-scoped locks. The locks are claimed by any
+                 play command / track start and then HELD for the whole
+                 listening session — a user pause no longer releases them
+                 (v2.2.100 released on pause, dropping the very protection a
+                 boundary needs the moment playback resumes into it). They
+                 are released only when: the service is destroyed, or the
+                 idle watchdog below finds nothing playing ~35 minutes after
+                 the last play activity (the wake lock's own 30-minute
+                 acquire timeout is the second bound). A paused-and-abandoned
+                 app therefore holds the locks for at most ~35 minutes —
+                 bounded waste, never an indefinite drain. */
+              private volatile boolean lockSessionActive = false;
+              private static final long PLAY_LOCK_WATCHDOG_MS = PLAY_LOCK_TIMEOUT_MS + 5 * 60 * 1000;
+              private final Runnable lockIdleWatchdog = new Runnable() {
+                  @Override public void run() {
+                      try {
+                          boolean busy = false;
+                          try {
+                              busy = player != null && (player.isPlaying()
+                                      || (player.getPlayWhenReady()
+                                          && player.getPlaybackState() != Player.STATE_IDLE
+                                          && player.getPlaybackState() != Player.STATE_ENDED));
+                          } catch (Exception ignored) {}
+                          if (busy) {
+                              /* Still listening — check again later. */
+                              main.postDelayed(this, PLAY_LOCK_WATCHDOG_MS);
+                              return;
+                          }
+                          if (lockSessionActive) {
+                              releasePlayLocks();
+                              diag("locks released (idle - nothing playing)");
+                          }
+                      } catch (Exception ignored) {}
+                  }
+              };
+              /* v2.2.101: media-byte cache. Prefetch used to warm only the
+                 next track's URL — at the boundary, prepare() still had to
+                 cold-fetch the audio over the network, exactly what Doze
+                 defers with the screen off. Now a SimpleCache (128 MB LRU)
+                 sits in front of the player's data source, and the URL
+                 prefetch also downloads the next tracks' BYTES into it, so
+                 a boundary can start from local storage with no network at
+                 all. Keying is the make-or-break detail: googlevideo URLs
+                 are re-signed at every resolve, so keying spans by URL
+                 would miss every time. Instead, spans are keyed by videoId
+                 ("lmvid_<id>"): lmCacheKeyFactory (below) maps a playback
+                 request URL back to its videoId through urlVideoIds
+                 (populated on every successful resolve with the
+                 URL -> winning-id pair), and the byte-prefetch CacheWriter
+                 writes under an explicit DataSpec key with the same string.
+                 Both directions land on the same key, so prefetched bytes
+                 are actually found again at playback. */
+              private static final long MEDIA_CACHE_MAX_BYTES = 128L * 1024L * 1024L;
+              private final java.util.Map<String, String> urlVideoIds =
+                      java.util.Collections.synchronizedMap(new java.util.LinkedHashMap<String, String>(16, 0.75f, true) {
+                          @Override protected boolean removeEldestEntry(java.util.Map.Entry<String, String> eldest) {
+                              return size() > 64;
+                          }
+                      });
+              private final androidx.media3.datasource.cache.CacheKeyFactory lmCacheKeyFactory =
+                      new androidx.media3.datasource.cache.CacheKeyFactory() {
+                          @Override public String buildCacheKey(androidx.media3.datasource.DataSpec dataSpec) {
+                              try {
+                                  if (dataSpec.key != null) return dataSpec.key;
+                                  String uriStr = (dataSpec.uri != null) ? dataSpec.uri.toString() : "";
+                                  String vid = urlVideoIds.get(uriStr);
+                                  if (vid != null && !vid.isEmpty()) return "lmvid_" + vid;
+                                  return uriStr;
+                              } catch (Exception e) {
+                                  try { return (dataSpec.uri != null) ? dataSpec.uri.toString() : ""; }
+                                  catch (Exception e2) { return ""; }
+                              }
+                          }
+                      };
+              private androidx.media3.datasource.cache.SimpleCache mediaCache;
+              private boolean mediaCacheTried = false;
+              /* v2.2.101: byte downloads run on their OWN single thread —
+                 strictly sequential, and never on a thread a play resolve
+                 waits on, so a slow download can never block a song start. */
+              private final ExecutorService byteExec = Executors.newSingleThreadExecutor();
               private final Handler main = new Handler(Looper.getMainLooper());
               /* v2.2.42: Multi-threaded for parallel prefetch - much faster skipping. */
               private final ExecutorService bg = Executors.newFixedThreadPool(3);
@@ -1523,6 +1654,182 @@ jobs:
               private void markDeadId(String videoId) {
                   try { if (videoId != null && !videoId.isEmpty()) deadIds.put(videoId, System.currentTimeMillis()); } catch (Exception ignored) {}
               }
+              /* v2.2.101: diagnostics write — see the DIAG_PREFS field
+                 comment. Static storage helpers so MainActivity can read
+                 the same prefs file for the Settings bridge without needing
+                 the service bound. The whole body is wrapped: a logging
+                 failure must never reach playback code. */
+              private void diag(String event) {
+                  try { diagLog(this, event); } catch (Throwable ignored) {}
+              }
+              static void diagLog(Context ctx, String event) {
+                  try {
+                      if (ctx == null || event == null) return;
+                      synchronized (DIAG_LOCK) {
+                          android.content.SharedPreferences sp =
+                                  ctx.getSharedPreferences(DIAG_PREFS, Context.MODE_PRIVATE);
+                          String old = sp.getString("entries", "");
+                          String ts = new java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
+                                  .format(new java.util.Date());
+                          String line = ts + " " + event;
+                          String all = (old == null || old.isEmpty()) ? line : old + "\n" + line;
+                          String[] parts = all.split("\n");
+                          if (parts.length > DIAG_MAX) {
+                              StringBuilder sb = new StringBuilder();
+                              for (int k = parts.length - DIAG_MAX; k < parts.length; k++) {
+                                  if (sb.length() > 0) sb.append('\n');
+                                  sb.append(parts[k]);
+                              }
+                              all = sb.toString();
+                          }
+                          sp.edit().putString("entries", all).apply();
+                      }
+                  } catch (Throwable ignored) {}
+              }
+              public static String diagDump(Context ctx) {
+                  try {
+                      if (ctx == null) return "";
+                      synchronized (DIAG_LOCK) {
+                          android.content.SharedPreferences sp =
+                                  ctx.getSharedPreferences(DIAG_PREFS, Context.MODE_PRIVATE);
+                          String s = sp.getString("entries", "");
+                          return (s == null) ? "" : s;
+                      }
+                  } catch (Throwable ignored) {}
+                  return "";
+              }
+              private static String batteryExemptStr(Context ctx) {
+                  try {
+                      android.os.PowerManager pm = (android.os.PowerManager) ctx.getSystemService(Context.POWER_SERVICE);
+                      if (pm == null) return "unknown";
+                      return pm.isIgnoringBatteryOptimizations(ctx.getPackageName()) ? "yes" : "no";
+                  } catch (Throwable ignored) {}
+                  return "unknown";
+              }
+              private static String shorten(String s) {
+                  try {
+                      if (s == null) return "";
+                      s = s.replace('\n', ' ').replace('\r', ' ');
+                      return (s.length() > 60) ? s.substring(0, 60) : s;
+                  } catch (Exception ignored) { return ""; }
+              }
+              /* v2.2.101: remember which videoId a resolved URL belongs to
+                 (the WINNING id when an alternative upload won), so the
+                 media cache's key factory can file the playback bytes under
+                 the same "lmvid_<id>" key the byte prefetch wrote. */
+              private void mapResolvedUrl(String url, String videoId) {
+                  try {
+                      if (url != null && !url.isEmpty() && videoId != null && !videoId.isEmpty()) {
+                          urlVideoIds.put(url, videoId);
+                      }
+                  } catch (Exception ignored) {}
+              }
+              /* v2.2.101: the shared media SimpleCache (created lazily, once;
+                 null when anything about it fails — playback then runs
+                 exactly as it did before this cache existed). */
+              private synchronized androidx.media3.datasource.cache.SimpleCache mediaCache() {
+                  if (mediaCache != null || mediaCacheTried) return mediaCache;
+                  mediaCacheTried = true;
+                  try {
+                      java.io.File dir = new java.io.File(getCacheDir(), "lm_media_cache");
+                      mediaCache = new androidx.media3.datasource.cache.SimpleCache(dir,
+                              new androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor(MEDIA_CACHE_MAX_BYTES),
+                              new androidx.media3.database.StandaloneDatabaseProvider(this));
+                  } catch (Throwable th) {
+                      android.util.Log.w("LynxosMusic", "Media byte cache unavailable", th);
+                      mediaCache = null;
+                  }
+                  return mediaCache;
+              }
+              /* v2.2.101: read-through/write-through cache data source in
+                 front of the app's usual upstream — normal playback also
+                 populates the cache, and cached spans are served from local
+                 storage even with the network asleep. */
+              private androidx.media3.datasource.cache.CacheDataSource.Factory cacheDataSourceFactory() {
+                  try {
+                      androidx.media3.datasource.cache.SimpleCache c = mediaCache();
+                      if (c == null) return null;
+                      return new androidx.media3.datasource.cache.CacheDataSource.Factory()
+                              .setCache(c)
+                              .setUpstreamDataSourceFactory(new androidx.media3.datasource.DefaultDataSource.Factory(this))
+                              .setCacheKeyFactory(lmCacheKeyFactory)
+                              .setFlags(androidx.media3.datasource.cache.CacheDataSource.FLAG_BLOCK_ON_CACHE
+                                      | androidx.media3.datasource.cache.CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR);
+                  } catch (Throwable ignored) {}
+                  return null;
+              }
+              /* v2.2.101: build the player with the byte cache in its data
+                 source chain; any failure falls back to the plain player
+                 this app has always used. */
+              private ExoPlayer buildPlayerWithCache() {
+                  try {
+                      androidx.media3.datasource.cache.CacheDataSource.Factory cdf = cacheDataSourceFactory();
+                      if (cdf != null) {
+                          return new ExoPlayer.Builder(this)
+                                  .setMediaSourceFactory(new androidx.media3.exoplayer.source.DefaultMediaSourceFactory(this)
+                                          .setDataSourceFactory(cdf))
+                                  .build();
+                      }
+                  } catch (Throwable th) {
+                      android.util.Log.w("LynxosMusic", "Cache player build failed, using plain player", th);
+                  }
+                  return new ExoPlayer.Builder(this).build();
+              }
+              /* v2.2.101: queue a media-BYTE download for a track whose URL
+                 just resolved (called from the prefetch path). Runs on
+                 byteExec — sequential, behind any earlier downloads, never
+                 on a thread a play resolve waits on. The download writes
+                 under the explicit key "lmvid_<winId>", the same key
+                 lmCacheKeyFactory produces when the player later asks for
+                 this track's URL (via the urlVideoIds mapping), so the
+                 prefetched bytes are what playback finds. Abandons if the
+                 playhead has moved on and the track fell out of the next-3
+                 window (checked again at download start). */
+              private void queueBytePrefetch(final String reqId, final String winId, final String url,
+                                             final int index, final long gen) {
+                  if (reqId == null || reqId.isEmpty() || winId == null || winId.isEmpty()
+                          || url == null || url.isEmpty()) return;
+                  try {
+                      byteExec.execute(new Runnable() {
+                          @Override public void run() {
+                              try {
+                                  if (gen != playGen.get() && (index <= currentIndex || index > currentIndex + 3)) return;
+                                  if (index < 0 || index >= queue.size()) return;
+                                  Track now = queue.get(index);
+                                  if (now == null) return;
+                                  String cur = now.videoId;
+                                  /* The queue slot must still be this track —
+                                     it may hold the requested id, or the
+                                     winning id if a play adopted it meanwhile. */
+                                  if (cur == null || (!cur.equals(reqId) && !cur.equals(winId))) return;
+                                  downloadTrackBytes(winId, url);
+                              } catch (Throwable ignored) {}
+                          }
+                      });
+                  } catch (Exception ignored) {}
+              }
+              /* v2.2.101: pull one track's bytes into the SimpleCache with
+                 a CacheWriter over the same cache data source the player
+                 uses. The DataSpec carries the explicit videoId key: both
+                 CacheWriter (through the data source's key factory, which
+                 honors an explicit key first) and later playback (through
+                 the URL -> videoId map) resolve to "lmvid_<winId>". A fully
+                 cached track returns quickly; any failure is ignored — this
+                 is an optimization, never a gate on playback. */
+              private void downloadTrackBytes(final String winId, final String url) {
+                  try {
+                      androidx.media3.datasource.cache.CacheDataSource.Factory cdf = cacheDataSourceFactory();
+                      if (cdf == null) return;
+                      androidx.media3.datasource.cache.CacheDataSource cds = cdf.createDataSource();
+                      androidx.media3.datasource.DataSpec spec = new androidx.media3.datasource.DataSpec.Builder()
+                              .setUri(android.net.Uri.parse(url))
+                              .setKey("lmvid_" + winId)
+                              .build();
+                      androidx.media3.datasource.cache.CacheWriter writer =
+                              new androidx.media3.datasource.cache.CacheWriter(cds, spec, null, null);
+                      writer.cache();
+                  } catch (Throwable ignored) {}
+              }
               /* v2.2.98: does this extractor error mean the upload itself is
                  gone (private / removed / unavailable) rather than a blip?
                  Class-name checks cover NewPipe's ContentNotAvailable family;
@@ -1580,6 +1887,9 @@ jobs:
                   String cached = getCachedUrl(videoId);
                   if (cached != null && !cached.isEmpty()) {
                       out.url = cached; out.resolvedVideoId = videoId; out.kind = KIND_OK;
+                      /* v2.2.101: keep the byte-cache URL -> videoId map warm
+                         on the cache-hit path too. */
+                      mapResolvedUrl(cached, videoId);
                       return out;
                   }
                   if (isDeadId(videoId)) {
@@ -1630,6 +1940,10 @@ jobs:
                       ResolveResult r = f.get(deadlineMs, java.util.concurrent.TimeUnit.MILLISECONDS);
                       if (r != null) out = r;
                   } catch (java.util.concurrent.TimeoutException te) {
+                      /* v2.2.101: record the deadline expiry (which deadline,
+                         which videoId) — the diagnostics log's evidence for
+                         whether screen-off advances starve right here. */
+                      diag("resolve timeout " + deadlineMs + "ms id=" + videoId);
                       /* Not cancelled: the task is still running and will
                          fill the cache when it lands. The long-deadline
                          (advance) caller gets one cache re-check before
@@ -1645,6 +1959,15 @@ jobs:
                       }
                   } catch (Exception e) {
                       out.kind = KIND_TRANSIENT; out.message = String.valueOf(e);
+                  }
+                  /* v2.2.101: every successful resolve files its URL under
+                     the WINNING videoId, so the byte cache can find these
+                     bytes again when the (re-signed) URL comes back as a
+                     playback request. */
+                  if (out.kind == KIND_OK && out.url != null && !out.url.isEmpty()) {
+                      String wid = (out.resolvedVideoId != null && !out.resolvedVideoId.isEmpty())
+                              ? out.resolvedVideoId : videoId;
+                      mapResolvedUrl(out.url, wid);
                   }
                   if (out.kind == KIND_DEAD) markDeadId(videoId);
                   return out;
@@ -1672,7 +1995,16 @@ jobs:
               public void onCreate() {
                   super.onCreate();
                   try { NewPipe.init(new ExtractorDownloader()); } catch (Exception ignored) {}
-                  player = new ExoPlayer.Builder(this).build();
+                  /* v2.2.101: every service (re)start leaves a marker with
+                     the device facts and the battery-exemption state, so the
+                     Playback log can show whether the OS layer was free to
+                     stop this process with the screen off. */
+                  diag("service start - " + android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL
+                          + " - SDK " + Build.VERSION.SDK_INT + " - batteryExempt=" + batteryExemptStr(this));
+                  /* v2.2.101: player runs through the media-byte cache when
+                     it initializes (see cacheDataSourceFactory); falls back
+                     to the plain builder on any failure. */
+                  player = buildPlayerWithCache();
                   /* v2.2.7: media session — routes Bluetooth headset play/pause/next/prev.
                      Next/prev go to the app queue (the player holds one item at a time).
                      v2.2.8: advertise next/prev commands — the single-item player
@@ -1846,6 +2178,12 @@ jobs:
                   player.addListener(new Player.Listener() {
                       @Override public void onPlaybackStateChanged(int state) {
                           if (state == Player.STATE_ENDED) {
+                              /* v2.2.101: the boundary marker — the advance
+                                 outcome lines that follow this entry
+                                 ("started", "resolve failed", "floor
+                                 engaged"...) are the Playback log's core
+                                 evidence for the screen-off stall. */
+                              diag("track ended idx=" + currentIndex);
                               /* v2.2.9: advance natively IMMEDIATELY. The 3s delayed
                                  fallback wasn't reliable — the WebView can partially
                                  wake and confuse the state check. Native is now the
@@ -1872,6 +2210,8 @@ jobs:
                       @Override public void onPlayerError(PlaybackException error) {
                           String msg = "";
                           try { msg = String.valueOf(error.getMessage()); } catch (Exception ignored) {}
+                          /* v2.2.101: mirror the error into the Playback log. */
+                          diag("player error idx=" + currentIndex + " " + shorten(msg));
                           /* v2.2.100: the generation of the play that is
                              erroring — a native floor scheduled below is
                              keyed to it, so any newer play stands it down. */
@@ -1996,6 +2336,10 @@ jobs:
                   /* v2.2.98: shut down the play + resolve executors too. */
                   try { playExec.shutdownNow(); } catch (Exception ignored) {}
                   try { resolveExec.shutdownNow(); } catch (Exception ignored) {}
+                  /* v2.2.101: byte-prefetch executor + session-lock watchdog
+                     die with the service too. */
+                  try { byteExec.shutdownNow(); } catch (Exception ignored) {}
+                  try { main.removeCallbacks(lockIdleWatchdog); } catch (Exception ignored) {}
                   /* v2.2.100: drop the play locks with the service. */
                   releasePlayLocks();
                   /* v2.2.99: give audio focus back. */
@@ -2065,9 +2409,13 @@ jobs:
                  undo a pause the user made. */
               private void pauseOnlyInternal() {
                   focusPaused = false;
-                  /* v2.2.100: a user pause ends the listening session's
-                     claim on the CPU/Wi-Fi — drop the play locks. */
-                  releasePlayLocks();
+                  /* v2.2.101: session-scoped locks — a user pause does NOT
+                     release the play locks anymore (v2.2.100 did). The
+                     session stays claimed until the idle watchdog finds
+                     nothing playing ~35 minutes after the last play
+                     activity, or the service is destroyed. Resuming into a
+                     boundary therefore never depends on re-acquiring a lock
+                     the OS may be slow to grant with the screen off. */
                   try { if (player != null && player.getPlayWhenReady()) player.pause(); } catch (Exception ignored) {}
                   pushProgress();
                   updateNotification();
@@ -2080,6 +2428,13 @@ jobs:
                   try {
                       if (player == null) return;
                       if (!player.getPlayWhenReady() && currentIndex >= 0 && currentIndex < queue.size()) {
+                          /* v2.2.101: a manual resume is a new play
+                             generation — any pending native floor stands
+                             down NOW, instead of relying on its isPlaying()
+                             guard (false while the resumed track is still
+                             buffering, which is exactly the window the floor
+                             could misfire in). */
+                          currentPlayGen = playGen.incrementAndGet();
                           requestAudioFocus();
                           acquirePlayLocks();
                           player.play();
@@ -2140,6 +2495,12 @@ jobs:
                  30-minute safety timeout is released and re-acquired so a
                  long session never outlives it mid-song. */
               private void acquirePlayLocks() {
+                  /* v2.2.101: capture held-state before/after (and any error
+                     the OS throws) for the Playback log — a budget tablet
+                     refusing or dropping a lock must be visible, not silent. */
+                  boolean wakeBefore = false, wifiBefore = false, refreshed = false;
+                  try { wakeBefore = playWakeLock != null && playWakeLock.isHeld(); } catch (Exception ignored) {}
+                  try { wifiBefore = playWifiLock != null && playWifiLock.isHeld(); } catch (Exception ignored) {}
                   try {
                       if (playWakeLock == null) {
                           android.os.PowerManager pm = (android.os.PowerManager) getSystemService(Context.POWER_SERVICE);
@@ -2149,31 +2510,56 @@ jobs:
                           long now = System.currentTimeMillis();
                           if (playWakeLock.isHeld() && now - playWakeLockAt > PLAY_LOCK_TIMEOUT_MS - 5 * 60 * 1000) {
                               try { playWakeLock.release(); } catch (Exception ignored) {}
+                              refreshed = true;
                           }
                           if (!playWakeLock.isHeld()) {
                               playWakeLock.acquire(PLAY_LOCK_TIMEOUT_MS);
                               playWakeLockAt = now;
                           }
                       }
-                  } catch (Exception ignored) {}
+                  } catch (Exception e) { diag("wake lock acquire error: " + e); }
                   try {
                       if (playWifiLock == null) {
                           android.net.wifi.WifiManager wm = (android.net.wifi.WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
                           if (wm != null) playWifiLock = wm.createWifiLock(android.net.wifi.WifiManager.WIFI_MODE_FULL, "LynxosMusic:playback");
                       }
                       if (playWifiLock != null && !playWifiLock.isHeld()) playWifiLock.acquire();
+                  } catch (Exception e) { diag("wifi lock acquire error: " + e); }
+                  boolean wakeAfter = false, wifiAfter = false;
+                  try { wakeAfter = playWakeLock != null && playWakeLock.isHeld(); } catch (Exception ignored) {}
+                  try { wifiAfter = playWifiLock != null && playWifiLock.isHeld(); } catch (Exception ignored) {}
+                  if (wakeAfter != wakeBefore || wifiAfter != wifiBefore) {
+                      diag("locks acquired - wake " + wakeBefore + "->" + wakeAfter + " wifi " + wifiBefore + "->" + wifiAfter);
+                  } else if (refreshed) {
+                      diag("locks refreshed (near 30-min timeout)");
+                  }
+                  /* v2.2.101: claim/refresh the session and re-arm the idle
+                     watchdog (see the lockSessionActive field comment). */
+                  lockSessionActive = true;
+                  try {
+                      main.removeCallbacks(lockIdleWatchdog);
+                      main.postDelayed(lockIdleWatchdog, PLAY_LOCK_WATCHDOG_MS);
                   } catch (Exception ignored) {}
               }
 
-              /* v2.2.100: release the play locks — user pause, stop, and
-                 service destroy only. A focus-caused pause deliberately
-                 does NOT release: playback is expected to resume, and the
-                 30-minute wake-lock timeout bounds that case anyway.
-                 Guarded so releasing an unheld lock is impossible. */
+              /* v2.2.100: release the play locks. v2.2.101: the callers are
+                 now session-end only — service destroy, or the idle
+                 watchdog after ~35 idle minutes. A user pause deliberately
+                 does NOT release anymore (session-scoped locks: resuming
+                 into a boundary must never wait on re-acquiring them), and
+                 a focus-caused pause never did. Guarded so releasing an
+                 unheld lock is impossible. */
               private void releasePlayLocks() {
+                  boolean wakeHeld = false, wifiHeld = false;
+                  try { wakeHeld = playWakeLock != null && playWakeLock.isHeld(); } catch (Exception ignored) {}
+                  try { wifiHeld = playWifiLock != null && playWifiLock.isHeld(); } catch (Exception ignored) {}
                   try { if (playWakeLock != null && playWakeLock.isHeld()) playWakeLock.release(); } catch (Exception ignored) {}
                   try { if (playWifiLock != null && playWifiLock.isHeld()) playWifiLock.release(); } catch (Exception ignored) {}
                   playWakeLockAt = 0;
+                  /* v2.2.101: log the release and end the session claim. */
+                  if (wakeHeld || wifiHeld) diag("locks released - wake was " + wakeHeld + " wifi was " + wifiHeld);
+                  lockSessionActive = false;
+                  try { main.removeCallbacks(lockIdleWatchdog); } catch (Exception ignored) {}
               }
 
               /* v2.2.99: the app's own audio-focus reactions (the player no
@@ -2188,6 +2574,8 @@ jobs:
                       if (player == null) return;
                       switch (focusChange) {
                           case AudioManager.AUDIOFOCUS_LOSS:
+                              /* v2.2.101: focus events go to the Playback log. */
+                              diag("focus loss" + (player.getPlayWhenReady() ? " (paused)" : ""));
                               if (player.getPlayWhenReady()) {
                                   focusPaused = true;
                                   player.pause();
@@ -2200,6 +2588,9 @@ jobs:
                               if (player.getPlayWhenReady() && !focusDucked) {
                                   focusDucked = true;
                                   player.setVolume(0.2f);
+                                  diag("focus transient (ducked)");
+                              } else {
+                                  diag("focus transient");
                               }
                               break;
                           case AudioManager.AUDIOFOCUS_GAIN:
@@ -2212,6 +2603,9 @@ jobs:
                                   player.play();
                                   pushProgress();
                                   updateNotification();
+                                  diag("focus gain (resumed)");
+                              } else {
+                                  diag("focus gain");
                               }
                               break;
                           default:
@@ -2248,10 +2642,16 @@ jobs:
                          flag: focus regain must never undo the user's choice. */
                       if (player.getPlayWhenReady()) {
                           focusPaused = false;
-                          releasePlayLocks();
+                          /* v2.2.101: session-scoped locks — a toggle-pause
+                             does NOT release the play locks (see
+                             pauseOnlyInternal). */
                           player.pause();
                       } else if (currentIndex >= 0 && currentIndex < queue.size()) {
                           focusPaused = false;
+                          /* v2.2.101: a manual resume bumps the play
+                             generation, standing any pending native floor
+                             down immediately (see playOnlyInternal). */
+                          currentPlayGen = playGen.incrementAndGet();
                           requestAudioFocus();
                           acquirePlayLocks();
                           player.play();
@@ -2316,6 +2716,10 @@ jobs:
                                       return;
                                   }
                                   if (rr.url == null || rr.url.isEmpty()) {
+                                      /* v2.2.101: the failure lands in the
+                                         Playback log with its kind. */
+                                      diag("resolve failed idx=" + wantIndex + " kind="
+                                              + (rr.kind == KIND_DEAD ? "dead" : "transient") + (adv ? " advance" : ""));
                                       UiListener l = ui;
                                       /* v2.1.4: let the web page try another upload
                                          of the same song before skipping it.
@@ -2381,6 +2785,10 @@ jobs:
                                   updateNotification();
                                   UiListener l = ui;
                                   if (l != null) { try { l.onTrackChanged(wantIndex); } catch (Exception ignored) {} }
+                                  /* v2.2.101: a started track closes the
+                                     boundary story the "track ended" entry
+                                     opened. */
+                                  diag("started idx=" + wantIndex + (adv ? " (advance)" : ""));
                                   /* v2.1.7: while this song plays, resolve the
                                      next one in the background so skipping is instant. */
                                   /* v2.2.38: Prefetch next 3 tracks aggressively for instant skipping. */
@@ -2414,6 +2822,10 @@ jobs:
                  so a queue of failures walks forward one index per failure
                  — always progress, terminating at the end of the queue. */
               private void scheduleNativeFloor(final int index, final long gen, final boolean freshResolve, final String failedUrl) {
+                  /* v2.2.101: the floor's decisions go to the Playback log —
+                     armed / engaged / stood down (and why) is exactly the
+                     evidence a boundary-stall report needs. */
+                  diag("floor armed idx=" + index + (freshResolve ? " (fresh resolve)" : ""));
                   final long fseq = failureSeq.incrementAndGet();
                   final String fUrl = (failedUrl != null) ? failedUrl : "";
                   main.postDelayed(new Runnable() {
@@ -2426,14 +2838,15 @@ jobs:
               private void runNativeFloor(final int index, final long gen, final long fseq, final boolean freshResolve, final String failedUrl) {
                   try {
                       if (player == null) return;
-                      if (playGen.get() != gen) return;
-                      if (failureSeq.get() != fseq) return;
-                      if (nativeFloorEngagedSeq == fseq) return;
-                      if (player.isPlaying()) return;
-                      if (index < 0 || index >= queue.size()) return;
+                      if (playGen.get() != gen) { diag("floor stand-down idx=" + index + " (newer play)"); return; }
+                      if (failureSeq.get() != fseq) { diag("floor stand-down idx=" + index + " (superseded)"); return; }
+                      if (nativeFloorEngagedSeq == fseq) { diag("floor stand-down idx=" + index + " (already engaged)"); return; }
+                      if (player.isPlaying()) { diag("floor stand-down idx=" + index + " (already playing)"); return; }
+                      if (index < 0 || index >= queue.size()) { diag("floor stand-down idx=" + index + " (bad index)"); return; }
                       final Track ft = queue.get(index);
                       if (ft == null) return;
                       nativeFloorEngagedSeq = fseq;
+                      diag("floor engaged idx=" + index);
                       if (ft.videoId == null || ft.videoId.isEmpty()) { advanceNativeFloor(index); return; }
                       final Track retryTrack = ft;
                       playExec.execute(new Runnable() {
@@ -2489,7 +2902,12 @@ jobs:
                  when the page wakes, its own repeat/shuffle policy resumes
                  control from wherever playback stopped. */
               private void advanceNativeFloor(int failedIndex) {
-                  if (failedIndex + 1 < queue.size()) playAtInternal(failedIndex + 1, true);
+                  if (failedIndex + 1 < queue.size()) {
+                      diag("floor advancing idx=" + failedIndex + " -> " + (failedIndex + 1));
+                      playAtInternal(failedIndex + 1, true);
+                  } else {
+                      diag("floor at queue end idx=" + failedIndex);
+                  }
               }
 
               /* v2.1.7: resolve the next track's audio URL ahead of time.
@@ -2505,7 +2923,11 @@ jobs:
                   final String vid = pt.videoId;
                   if (vid == null || vid.isEmpty()) return;
                   try {
-                      if (getCachedUrl(vid) != null) return;
+                      String cu = getCachedUrl(vid);
+                      /* v2.2.101: URL already warm — the media BYTES may
+                         still be missing (e.g. the play path resolved it),
+                         so queue the byte download for it too. */
+                      if (cu != null) { queueBytePrefetch(vid, vid, cu, i, playGen.get()); return; }
                   } catch (Exception ignored) {}
                   if (isDeadId(vid)) return;
                   final long gen = playGen.get();
@@ -2522,7 +2944,17 @@ jobs:
                               Track now = queue.get(i);
                               if (now == null || !vid.equals(now.videoId)) return;
                               if (getCachedUrl(vid) != null) return;
-                              resolveShared(vid, pTitle, pChannel);
+                              ResolveResult prr = resolveShared(vid, pTitle, pChannel);
+                              /* v2.2.101: URL warm — now pull the media
+                                 BYTES into the SimpleCache as well (on
+                                 byteExec, so a slow download never sits on
+                                 a resolve thread), keyed by the WINNING id
+                                 so playback finds them. */
+                              if (prr != null && prr.kind == KIND_OK && prr.url != null && !prr.url.isEmpty()) {
+                                  String winId = (prr.resolvedVideoId != null && !prr.resolvedVideoId.isEmpty())
+                                          ? prr.resolvedVideoId : vid;
+                                  queueBytePrefetch(vid, winId, prr.url, i, gen);
+                              }
                           } catch (Throwable ignored) {}
                       }
                   });
