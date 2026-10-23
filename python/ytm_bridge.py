@@ -496,6 +496,26 @@ def get_album(browse_id, limit=50):
     except Exception as e:
         return json.dumps({"error": str(e)})
 
+def _pick_capped_audio_url(info):
+    """v2.2.105: pick an audio-only format URL under the ~96 kbps cap —
+    the highest abr at or under 96, else the lowest abr available, else
+    the first audio-only format (the pre-cap behavior). The heaviest
+    stream starved the player on his ~35 KB/s connection. Returns ''
+    when no audio-only format carries a URL."""
+    audio = []
+    for f in info.get('formats', []) or []:
+        if f.get('acodec') != 'none' and f.get('vcodec') == 'none':
+            if f.get('url', ''):
+                audio.append(f)
+    if not audio:
+        return ''
+    known = [f for f in audio if f.get('abr')]
+    if known:
+        under = [f for f in known if f['abr'] <= 96]
+        pick = max(under, key=lambda f: f['abr']) if under else min(known, key=lambda f: f['abr'])
+        return pick.get('url', '')
+    return audio[0].get('url', '')
+
 def get_stream_url(video_id):
     """Get playable audio stream URL for a video ID using yt-dlp.
     Returns JSON with url or error. This is the fallback when NewPipe fails."""
@@ -503,7 +523,9 @@ def get_stream_url(video_id):
         import yt_dlp
         url = "https://www.youtube.com/watch?v=" + video_id
         ydl_opts = {
-            'format': 'bestaudio/best',
+            # v2.2.105: capped audio (see _pick_capped_audio_url) — the
+            # heaviest stream starved the player on his connection.
+            'format': 'bestaudio[abr<=96]/bestaudio/best',
             'quiet': True,
             'no_warnings': True,
             'extract_flat': False,
@@ -517,12 +539,8 @@ def get_stream_url(video_id):
             # Get the best audio URL
             stream_url = info.get('url', '')
             if not stream_url:
-                # Try formats list
-                for f in info.get('formats', []):
-                    if f.get('acodec') != 'none' and f.get('vcodec') == 'none':
-                        stream_url = f.get('url', '')
-                        if stream_url:
-                            break
+                # Try formats list (same ~96 kbps cap as the selector)
+                stream_url = _pick_capped_audio_url(info)
                 if not stream_url and info.get('formats'):
                     stream_url = info['formats'][0].get('url', '')
             if stream_url:
@@ -694,7 +712,8 @@ def get_playable_stream(title, artist, video_id, max_alternatives=2):
         try:
             url = "https://www.youtube.com/watch?v=" + vid
             ydl_opts = {
-                'format': 'bestaudio/best',
+                # v2.2.105: capped audio (see _pick_capped_audio_url).
+                'format': 'bestaudio[abr<=96]/bestaudio/best',
                 'quiet': True,
                 'no_warnings': True,
                 'extract_flat': False,
@@ -705,11 +724,8 @@ def get_playable_stream(title, artist, video_id, max_alternatives=2):
                 info = ydl.extract_info(url, download=False)
                 stream_url = info.get('url', '')
                 if not stream_url:
-                    for f in info.get('formats', []):
-                        if f.get('acodec') != 'none' and f.get('vcodec') == 'none':
-                            stream_url = f.get('url', '')
-                            if stream_url:
-                                break
+                    # Same ~96 kbps cap as the selector above.
+                    stream_url = _pick_capped_audio_url(info)
                     if not stream_url and info.get('formats'):
                         stream_url = info['formats'][0].get('url', '')
                 if stream_url:
