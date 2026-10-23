@@ -525,7 +525,7 @@
 <!-- v2.2.89: TV-visible toast (say() shows it on TV; phones never see it). -->
 <div id="tvToast" hidden></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.98</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.99</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -692,6 +692,11 @@
       <button class="btn secondary" id="themeToggleBtn" aria-label="Switch theme">🌙 Dark theme</button>
     </div>
     <div class="card">
+      <h3>English only for New releases &amp; Top singles</h3>
+      <p class="hint">When on, albums and songs whose title or artist is written in a non-Latin script (for example Japanese, Korean, Russian or Arabic letters) are kept out of the New releases and Top singles shelves. On by default.</p>
+      <button class="btn secondary" id="englishOnlyToggleBtn" aria-label="English only for New releases & Top singles" aria-pressed="true">✅ English only: On</button>
+    </div>
+    <div class="card">
       <h3>App updates</h3>
       <p class="hint">Check for a new version and install it right here — no need to uninstall and reinstall.</p>
       <button class="btn" id="checkUpdateBtn">Check for updates</button>
@@ -704,7 +709,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.98. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.99. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -1442,6 +1447,8 @@ function openSettings(){
   say("Settings tab.");
   /* v2.2.98: refresh the recent-skips list every time Settings opens. */
   try { renderSkipLog(); } catch(e){}
+  /* v2.2.99: keep the English-only toggle's label in sync too. */
+  try { applyEnglishOnlyBtn(); } catch(e){}
   /* v2.2.92: never leave TV focus stranded. */
   tvFocusRescue();
 }
@@ -4058,12 +4065,21 @@ function openLocalAlbum(idx){
   });
 }
 /* v2.1.6: put a Takeout album's songs in the original album order.
-   MusicBrainz is the primary source (the iTunes search API often misses real
-   albums entirely — e.g. Korn's Follow the Leader); iTunes is the fallback.
-   Runs once per album; the order is saved. */
+   Runs once per album (per successful lookup); the order is saved. */
 /* v2.1.7: bump when the ordering logic changes so albums get re-checked
    with the new logic instead of trusting an old (possibly wrong) order. */
-var ORDER_VER = "2.1.8";
+/* v2.2.99: the MusicBrainz/iTunes lookups this used fetched
+   disabled.invalid, so they could NEVER succeed — and orderVer was
+   stamped before the attempt, so a failed album was never retried
+   either. The tracklist now comes through the working Python bridge
+   (find the album by artist+name, verify the match, read its tracks
+   in order), and orderVer is stamped ONLY when the new order is
+   actually applied and saved. */
+var ORDER_VER = "2.2.99";
+/* v2.2.99: albums already attempted this session — a failed lookup
+   leaves orderVer unstamped so a later session retries, but the same
+   album isn't re-fetched on every open within one session. */
+var _orderAttempted = {};
 function orderLocalAlbum(a, idx){
   if(!a || a.orderVer === ORDER_VER || !a.tracks || a.tracks.length < 2) return;
   /* Albums saved from the app's album pages are already in order. */
@@ -4072,7 +4088,9 @@ function orderLocalAlbum(a, idx){
   if(a.browseId){ a.orderVer = ORDER_VER; return; }
   var artist = String(a.artist || "").trim(), name = String(a.name || "").trim();
   if(!artist || !name) return;
-  a.orderVer = ORDER_VER; /* one attempt — misses keep the current order */
+  var attemptKey = artist.toLowerCase() + "|" + name.toLowerCase();
+  if(_orderAttempted[attemptKey]) return;
+  _orderAttempted[attemptKey] = 1;
   function normTitle(s){
     return String(s || "").toLowerCase().replace(/\(.*?\)/g, "").replace(/\[.*?\]/g, "").replace(/[^a-z0-9]/g, "");
   }
@@ -4118,82 +4136,46 @@ function orderLocalAlbum(a, idx){
     } catch(e){}
     return true;
   }
-  function mbOrder(){
-    var q = 'artist:"' + artist.replace(/"/g, "") + '" AND release:"' + name.replace(/"/g, "") + '"';
-    return fetch("https://disabled.invalid/musicbrainz/ws/2/release/?query=" + encodeURIComponent(q) + "&fmt=json&limit=8")
-      .then(function(r){ return r.json(); })
-      .then(function(d){
-        var aq = artist.toLowerCase(), nq = normTitle(name);
-        var best = null, bestScore = -1;
-        (d.releases || []).forEach(function(r){
-          var ra = String((((r['artist-credit'] || [])[0] || {}).name) || "").toLowerCase();
-          if(ra !== aq || normTitle(r.title) !== nq) return;
-          /* Prefer the edition whose track count matches his album. */
-          var score = 100 - Math.abs((r['track-count'] || 0) - a.tracks.length);
-          if(score > bestScore){ bestScore = score; best = r; }
-        });
-        if(!best) throw new Error("no mb match");
-        /* MusicBrainz asks for ~1 request per second. */
-        return new Promise(function(res){ setTimeout(res, 1100); }).then(function(){
-          return fetch("https://disabled.invalid/musicbrainz/ws/2/release/" + best.id + "?fmt=json&inc=recordings")
-            .then(function(r){ return r.json(); });
-        });
-      })
-      .then(function(d){
-        var list = [], seenKey = {};
-        (d.media || []).forEach(function(med, di){
-          (med.tracks || []).forEach(function(t){
-            var title = (t.recording || {}).title || "";
-            var key = normTitle(title);
-            if(key && !seenKey[key]){
-              seenKey[key] = true;
-              list.push({ key: key, title: title, pos: (di + 1) * 1000 + (t.position || 0) });
-            }
-          });
-        });
-        return list;
-      });
-  }
-  function itunesOrder(){
-    var q = (artist + " " + name).trim();
-    return fetch("https://disabled.invalid/itunes/search?term=" + encodeURIComponent(q) + "&entity=album&limit=10")
-      .then(function(r){ return r.json(); })
-      .then(function(d){
-        var aq = artist.toLowerCase(), nq = name.toLowerCase();
-        var best = null, bestScore = -1;
-        (d.results || []).forEach(function(r){
-          if(!r.collectionId) return;
-          var ra = String(r.artistName || "").toLowerCase(), rn = String(r.collectionName || "").toLowerCase();
-          var as = (ra === aq) ? 2 : ((ra.indexOf(aq) === 0 || aq.indexOf(ra) === 0) ? 1 : 0);
-          var ns = (rn === nq) ? 2 : ((rn.indexOf(nq) === 0 || nq.indexOf(rn) === 0) ? 1 : 0);
-          if(as > 0 && ns > 0 && as + ns > bestScore){ bestScore = as + ns; best = r; }
-        });
-        if(!best) throw new Error("no match");
-        return fetch("https://disabled.invalid/itunes/lookup?id=" + best.collectionId + "&entity=song&limit=200")
-          .then(function(r){ return r.json(); });
-      })
-      .then(function(d){
-        var list = [], seenKey = {};
-        (d.results || []).forEach(function(r){
-          if(r.wrapperType !== "track") return;
-          var key = normTitle(r.trackName);
-          if(key && !seenKey[key]){
-            seenKey[key] = true;
-            list.push({ key: key, title: r.trackName || "", pos: (r.discNumber || 1) * 1000 + (r.trackNumber || 0) });
-          }
-        });
-        return list;
-      });
-  }
-  mbOrder().then(function(trackList){
-    if(applyOrder(trackList)) return;
-    throw new Error("empty mb");
-  }).catch(function(){
-    itunesOrder().then(function(trackList){
-      if(!applyOrder(trackList)) say("Couldn't find the official tracklist for " + name + ".");
-    }).catch(function(){
-      say("Couldn't find the official tracklist for " + name + ".");
+  /* v2.2.99: resolve the official tracklist through the Python
+     bridge — find the album by artist+name, verify the match against
+     the album's real metadata when it comes back (the finder falls
+     back loosely, so a wrong album must not reorder his tracks),
+     then take its tracks in order. Missing songs are filled in by
+     applyOrder with the usual resolve-query representation. */
+  ytmFindAlbumBrowseId(name, artist).then(function(browseId){
+    if(!browseId) throw new Error("no album match");
+    return ytmGetAlbumInfo(browseId).then(function(info){
+      if(info && info.title){
+        var titleOk = normTitle(info.title) === normTitle(name);
+        var ia = String(info.artist || "").toLowerCase().trim(), aa = artist.toLowerCase();
+        var artistOk = !!ia && (ia === aa || ia.indexOf(aa) >= 0 || aa.indexOf(ia) >= 0);
+        if(!titleOk || !artistOk) throw new Error("album match mismatch");
+      }
+      return ytmGetAlbum(browseId);
     });
+  }).then(function(tracks){
+    var list = [], seenKey = {};
+    (tracks || []).forEach(function(t, i){
+      var title = (t && t.title) || "";
+      var key = normTitle(title);
+      if(key && !seenKey[key]){
+        seenKey[key] = true;
+        list.push({ key: key, title: title, pos: i + 1 });
+      }
+    });
+    if(!list.length) throw new Error("empty tracklist");
+    /* Stamp orderVer ONLY on success: applyOrder saves the album with
+       a.orderVer on it, so the stamp persists with the new order. On
+       any failure above, nothing is stamped and nothing is saved. */
+    a.orderVer = ORDER_VER;
+    if(!applyOrder(list)){
+      /* applyOrder refused (it only does that for an empty list,
+         already excluded above) — don't leave an in-memory stamp
+         that some later save could persist. */
+      try { delete a.orderVer; } catch(e){ a.orderVer = ""; }
+    }
+  }).catch(function(){
+    say("Couldn't find the official tracklist for " + name + ".");
   });
 }
 /* ---- artists (derived from your library) ---- */
@@ -5623,13 +5605,64 @@ try { _latinLetterRe = /\p{L}/u; _latinScriptRe = /\p{Script=Latin}/u; } catch(e
 function isLatinText(s){
   if(!_latinLetterRe || !_latinScriptRe) return true; /* ancient engine: don't filter */
   s = String(s == null ? "" : s);
-  for(var i = 0; i < s.length; i++){
-    var ch = s.charAt(i);
-    if(_latinLetterRe.test(ch) && !_latinScriptRe.test(ch)) return false;
+  /* v2.2.99: iterate Unicode CODE POINTS (for...of), not UTF-16 code
+     units. The old charAt loop saw only lone surrogates for letters
+     outside the BMP, never classified them as letters at all, and
+     let them pass — stylized-font non-English titles (common on
+     K-pop/J-pop uploads) slipped through this JS-only filter for Top
+     singles. Now every letter is judged by its real script, matching
+     the Python filter: astral Latin letters (mathematical-bold and
+     friends, Script=Latin) still pass; astral Han/Hangul/Kana fail. */
+  for(var ch of s){
+    if(!_latinLetterRe.test(ch)) continue;
+    if(_latinScriptRe.test(ch)) continue;
+    /* Mathematical alphanumeric letters (𝐒𝐨𝐧𝐠-style titles) ARE
+       Latin letters wearing a font style, but the engine's script
+       data files that block as Script=Common, so \p{Script=Latin}
+       alone misses them. The block's Latin letters live at
+       U+1D400..U+1D6A5 (Greek starts at U+1D6A8); unassigned slots
+       in between aren't letters and were skipped just above. */
+    var cp = ch.codePointAt(0);
+    if(cp >= 0x1D400 && cp <= 0x1D6A5) continue;
+    return false;
   }
   return true;
 }
 function isLatinItem(title, artist){ return isLatinText(title) && isLatinText(artist); }
+/* v2.2.99: Settings toggle — "English only for New releases & Top
+   singles". Default ON (key absent = on); persisted as lm_english_only
+   "1"/"0". Consulted at every feed filter call site and passed to the
+   Python feed (get_new_releases) through the bridge. Explore Trending
+   and the genre-station heuristic are NOT gated — unfiltered by design. */
+function englishOnlyEnabled(){
+  try { return localStorage.getItem("lm_english_only") !== "0"; } catch(e){ return true; }
+}
+function applyEnglishOnlyBtn(){
+  var on = englishOnlyEnabled();
+  var b = $("englishOnlyToggleBtn");
+  if(b){
+    b.textContent = on ? "✅ English only: On" : "⬜ English only: Off";
+    b.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+}
+/* v2.2.99: the Settings toggle itself. Flipping it clears the
+   in-memory feed caches — otherwise the shelves would keep serving
+   the old (un)filtered lists until the 6-hour TTL expired — and
+   reloads the feeds so the change is visible right away. */
+$("englishOnlyToggleBtn").addEventListener("click", function(){
+  var on = !englishOnlyEnabled();
+  try { localStorage.setItem("lm_english_only", on ? "1" : "0"); } catch(e){}
+  applyEnglishOnlyBtn();
+  allSinglesCache = null; allSinglesCacheTime = 0;
+  allReleasesCache = null; allReleasesCacheTime = 0;
+  exploreNewCache = null; exploreNewCacheTime = 0;
+  try { loadAllReleases(); } catch(e){}
+  try { loadAllSingles(); } catch(e){}
+  try { loadExploreNew(); } catch(e){}
+  say(on ? "English only on for new releases and top singles."
+         : "English only off. New releases and top singles will show everything.");
+});
+applyEnglishOnlyBtn();
 
 /* v2.2.37: Load singles via Python ytmusicapi (charts = trending now). */
 function loadAllSingles(){
@@ -5652,8 +5685,9 @@ function loadAllSingles(){
             releaseDate: ""
           };
         }).filter(function(x){ return x.name && x.artist; })
-        /* v2.2.97: English-only (Latin-script title + artist). */
-        .filter(function(x){ return isLatinItem(x.name, x.artist); });
+        /* v2.2.97: English-only (Latin-script title + artist).
+           v2.2.99: gated by the Settings toggle (default on). */
+        .filter(function(x){ return !englishOnlyEnabled() || isLatinItem(x.name, x.artist); });
         /* v2.2.83: metal + rock first, like YouTube Music. */
         allSinglesCache = metalRockFirst(allSinglesCache);
         renderAllSingles(allSinglesCache);
@@ -5746,7 +5780,7 @@ function loadAllReleases(){
   box.innerHTML = "<p style='color:#999'>Loading new releases…</p>";
   try {
     if (typeof LynxosYTM !== "undefined" && LynxosYTM.getNewReleases) {
-      var jsonStr = LynxosYTM.getNewReleases(100);
+      var jsonStr = LynxosYTM.getNewReleases(100, englishOnlyEnabled());
       var albums = JSON.parse(jsonStr);
       if (albums && albums.error) throw new Error(albums.error);
       if (albums && albums.length) {
@@ -5763,8 +5797,10 @@ function loadAllReleases(){
         }).filter(function(x){ return x.name && x.artist; })
         /* v2.2.97: English-only (Latin-script title + artist). The
            Python feed already filters; this mirror keeps the shelf
-           clean even if bridge data ever arrives unfiltered. */
-        .filter(function(x){ return isLatinItem(x.name, x.artist); });
+           clean even if bridge data ever arrives unfiltered.
+           v2.2.99: gated by the Settings toggle (default on); the
+           Python side gets the same flag through the bridge. */
+        .filter(function(x){ return !englishOnlyEnabled() || isLatinItem(x.name, x.artist); });
         /* v2.2.83: metal + rock first, like YouTube Music. */
         allReleasesCache = metalRockFirst(allReleasesCache);
         allReleasesCacheTime = Date.now();
@@ -5938,9 +5974,10 @@ function loadExploreNew(){
   var albums = [], singles = [];
   try {
     if(typeof LynxosYTM !== "undefined" && LynxosYTM.getNewReleases){
-      var a = JSON.parse(LynxosYTM.getNewReleases(60));
-      /* v2.2.97: English-only filter BEFORE the slice, so the shelf still fills. */
-      if(a && !a.error){ albums = (a || []).filter(function(x){ return x.title && isLatinItem(x.title, x.artist || ""); }).slice(0, 12).map(function(x){
+      var a = JSON.parse(LynxosYTM.getNewReleases(60, englishOnlyEnabled()));
+      /* v2.2.97: English-only filter BEFORE the slice, so the shelf still fills.
+         v2.2.99: gated by the Settings toggle (default on). */
+      if(a && !a.error){ albums = (a || []).filter(function(x){ return x.title && (!englishOnlyEnabled() || isLatinItem(x.title, x.artist || "")); }).slice(0, 12).map(function(x){
         return { kind: x.kind || "album", name: x.title || "", artist: x.artist || "", art: x.thumb || "",
                  id: x.browseId || "", explicit: !!x.explicit };
       }); }
@@ -5949,8 +5986,9 @@ function loadExploreNew(){
   try {
     if(typeof LynxosYTM !== "undefined" && LynxosYTM.getCharts){
       var c = JSON.parse(LynxosYTM.getCharts("US", 60));
-      /* v2.2.97: English-only filter BEFORE the slice, so the shelf still fills. */
-      if(c && !c.error){ singles = (c || []).filter(function(x){ return x.title && isLatinItem(x.title, x.channel || x.ownerChannel || ""); }).slice(0, 12).map(function(x){
+      /* v2.2.97: English-only filter BEFORE the slice, so the shelf still fills.
+         v2.2.99: gated by the Settings toggle (default on). */
+      if(c && !c.error){ singles = (c || []).filter(function(x){ return x.title && (!englishOnlyEnabled() || isLatinItem(x.title, x.channel || x.ownerChannel || "")); }).slice(0, 12).map(function(x){
         return { kind: "single", name: x.title || "", artist: x.channel || x.ownerChannel || "",
                  art: x.thumb || x.art || "", videoId: x.videoId || "" };
       }); }
@@ -6119,24 +6157,12 @@ function openMixesSeeAll(){
     mixDefs().forEach(function(m){ grid.appendChild(mixCard(m)); });
   });
 }
-function openReleasesSeeAll(){
-  if(!forYouCache || !forYouCache.albums.length){ say("New releases are still loading. Try again in a moment."); return; }
-  openSeeAll("New releases for you", function(grid){
-    forYouCache.albums.forEach(function(it){ grid.appendChild(releaseCard(it, "album")); });
-  });
-}
-function openSinglesSeeAll(){
-  if(!forYouCache || !forYouCache.singles.length){ say("New singles are still loading. Try again in a moment."); return; }
-  openSeeAll("New singles for you", function(grid){
-    forYouCache.singles.forEach(function(it){ grid.appendChild(releaseCard(it, "single")); });
-  });
-}
 /* v2.2.86: null-guarded — these buttons are not in the markup (their "For you"
    shelves were removed in the v2.2.80 Home redo). The unguarded calls threw a
    TypeError at init and killed EVERY listener wired after this point,
    including the album page back/radio/share/remove/more buttons. */
 (function(){
-  var pairs = [["mixesSeeAllBtn", openMixesSeeAll], ["releasesSeeAllBtn", openReleasesSeeAll], ["singlesSeeAllBtn", openSinglesSeeAll]];
+  var pairs = [["mixesSeeAllBtn", openMixesSeeAll]]; /* v2.2.99: the releases/singles entries went away with their dead For-You handlers, deleted in this version */
   pairs.forEach(function(p){ var b = $(p[0]); if(b) b.addEventListener("click", p[1]); });
 })();
 $("seeAllBackBtn").addEventListener("click", closeSeeAll);
@@ -6196,99 +6222,12 @@ function playDiscoverMix(){
     say("Discover Mix. " + mix.length + " fresh songs from your favorite artists.");
   }).catch(function(){ say("Couldn't build your Discover Mix. Check your connection."); });
 }
-/* New releases for you: the latest album from each of your top artists. */
-/* New releases + new singles for you: the latest album and latest single
-   from each of your top artists. iTunes marks singles as collectionType
-   "Album", so singles are detected by the " - Single" name suffix.
-   Exact-artist matches outrank collabs, tribute/karaoke junk is skipped. */
-var forYouCache = null;
-function releaseCard(item, kind){
-  var d = document.createElement("button");
-  d.className = "albumCard";
-  d.setAttribute("aria-label", (kind === "album" ? "Album " : "Song ") + item.name + " by " + item.artist + (item.date ? ", released " + item.date : ""));
-  d.innerHTML = (item.art ? '<img src="' + esc(item.art) + '" alt="">' : "") +
-    '<div class="an">' + esc(item.name) + '</div><div class="aa">' + esc(item.artist) + '</div>' +
-    (item.date ? '<div class="ad">' + esc(item.date) + "</div>" : "");
-  d.addEventListener("click", function(){ playItunes(item.artist, item.name, item.colId); });
-  return d;
-}
-function playItunes(artist, name, colId){
-  if(colId){ openAlbumPanel(artist, name, colId); return; }
-  say("Finding " + name + " by " + artist + ".");
-  ytSearch(artist + " " + name).then(function(videos){
-    if(!videos.length){ say("Couldn't find that on YouTube."); return; }
-    playVideo(videos[0], videos, 0);
-    say("Playing " + name + " by " + artist + ".");
-  }).catch(function(){ say("Search failed. Check your connection."); });
-}
 /* ================= album page ================= */
 var albumTracks = [];
 function fmtDur(ms){
   var s = Math.round((ms || 0) / 1000), m = Math.floor(s / 60);
   s = s % 60;
   return m + ":" + (s < 10 ? "0" : "") + s;
-}
-function openAlbumPanel(artist, name, colId){
-  $("albumArt").src = "";
-  $("albumArt").alt = name + " cover";
-  $("albumName").textContent = name;
-  $("albumArtist").textContent = artist;
-  $("albumTracks").innerHTML = "<p style='color:#999'>Loading tracks…</p>";
-  $("albumPanel").hidden = false;
-  /* v2.2.95: TV — put D-pad focus on the Play button as soon as the panel opens. */
-  tvFocusFirst("albumPanel", "albumPlayBtn");
-  say("Loading the album " + name + ".");
-  fetch("https://disabled.invalid/itunes/lookup?id=" + encodeURIComponent(colId) + "&entity=song&limit=200")
-    .then(function(r){ if(!r.ok) throw new Error("lookup " + r.status); return r.json(); })
-    .then(function(d){
-      var tracks = (d.results || []).filter(function(r){ return r.wrapperType === "track"; });
-      /* v2.1.5: disc first, then track — multi-disc albums stay in true order. */
-      tracks.sort(function(a, b){
-        var dd = (a.discNumber || 1) - (b.discNumber || 1);
-        return dd !== 0 ? dd : (a.trackNumber || 0) - (b.trackNumber || 0);
-      });
-      albumTracks = tracks.map(function(t){
-        var art = (t.artworkUrl100 || "").replace("100x100bb", "300x300bb");
-        return { videoId: "", title: t.trackName, channel: t.artistName,
-          thumb: art, art: art, dur: fmtDur(t.trackTimeMillis),
-          resolveQuery: t.artistName + " " + t.trackName + " official audio",
-          fallbackQuery: t.artistName + " " + t.trackName };
-      });
-      if(tracks.length && tracks[0].artworkUrl100)
-        $("albumArt").src = tracks[0].artworkUrl100.replace("100x100bb", "600x600bb");
-      renderAlbumTracks();
-      /* v2.1.4: a single saves to Songs, not Albums. */
-      /* v2.2.82: icon button now — update the label, not the icon. */
-      try { $("albumSaveBtn").setAttribute("aria-label", albumTracks.length === 1 ? "Save song to library" : "Save album to library"); } catch(e){}
-      say(name + " loaded. " + albumTracks.length + " tracks. Tap Play to start.");
-    })
-    .catch(function(){
-      $("albumTracks").innerHTML = "<p style='color:#999'>Couldn't load tracks. Check your connection.</p>";
-      say("Couldn't load the album.");
-    });
-}
-function renderAlbumTracks(){
-  var box = $("albumTracks");
-  box.innerHTML = "";
-  albumTracks.forEach(function(t, i){
-    (function(tr, idx){
-      var b = document.createElement("button");
-      b.className = "track";
-      b.style.width = "100%";
-      b.setAttribute("aria-label", "Play track " + (idx + 1) + ": " + tr.title + (tr.dur ? ", " + tr.dur : ""));
-      b.innerHTML = '<div class="info"><div class="title">' + esc((idx + 1) + ". " + tr.title) + '</div>' +
-        '<div class="channel">' + esc(tr.channel) + (tr.dur ? " · " + esc(tr.dur) : "") + '</div></div>' +
-        '<div class="actions"><span class="iconbtn gold">▶</span></div>';
-      b.addEventListener("click", function(){
-        state.radio = null;
-        state.queue = albumTracks.slice();
-        playQueueIndex(idx, true);
-        say("Playing track " + (idx + 1) + ": " + tr.title + ".");
-      });
-      box.appendChild(b);
-    })(t, i);
-  });
-  if(!albumTracks.length) box.innerHTML = "<p style='color:#999'>No tracks found.</p>";
 }
 function closeAlbumPanel(){
   $("albumPanel").hidden = true;
