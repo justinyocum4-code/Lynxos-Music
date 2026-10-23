@@ -557,7 +557,7 @@ def get_album_info(browse_id):
     except Exception as e:
         return json.dumps({"error": str(e)})
 
-def get_new_releases(limit=50):
+def get_new_releases(limit=50, english_only=True):
     """Get new album/single releases. Returns JSON array of typed items.
     v2.2.82: was ytm.search("new album <year>") which is relevance-ranked, not
     date-ranked — the same popular albums matched that query day after day, so
@@ -567,7 +567,12 @@ def get_new_releases(limit=50):
     v2.2.88: the curated section holds only ~10 items, so the shelf looked
     short. Keep the curated items FIRST (freshness), then top up with the
     search-based queries (deduped) until the list reaches `limit` (~40-50)
-    or the searches run dry."""
+    or the searches run dry.
+    v2.2.99: english_only comes from the app's Settings toggle ("English
+    only for New releases & Top singles", default ON). When False, the
+    Latin-script filter below is skipped entirely and items count
+    toward TARGET exactly as they did before the filter existed.
+    Callers that pass nothing keep the filtered behavior."""
     TARGET = limit or 50
     try:
         ytm = _get_ytm()
@@ -591,7 +596,8 @@ def get_new_releases(limit=50):
                     artists = item.get("artists", [])
                     artist_name = artists[0].get("name", "") if artists else ""
                     # v2.2.97: English-only filter (Latin-script title + artist).
-                    if not _is_latin_item(item.get("title", ""), artist_name):
+                    # v2.2.99: skipped when the Settings toggle is off.
+                    if english_only and not _is_latin_item(item.get("title", ""), artist_name):
                         continue
                     seen.add(browse_id)
                     rtype = (item.get("type") or "").lower()
@@ -627,7 +633,8 @@ def get_new_releases(limit=50):
                         # v2.2.97: English-only filter — applied BEFORE the
                         # item counts toward TARGET, so topping up continues
                         # with later results instead of the list going short.
-                        if not _is_latin_item(item.get("title", ""), artist_name):
+                        # v2.2.99: skipped when the Settings toggle is off.
+                        if english_only and not _is_latin_item(item.get("title", ""), artist_name):
                             continue
                         seen.add(browse_id)
                         items.append({
