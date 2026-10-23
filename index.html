@@ -525,7 +525,7 @@
 <!-- v2.2.89: TV-visible toast (say() shows it on TV; phones never see it). -->
 <div id="tvToast" hidden></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.105</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.106</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -719,7 +719,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.105. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.106. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -3458,6 +3458,69 @@ window.lmNativeResolved = function(i, videoId){
     var key = "lm_resolve_" + normTitle((v.channel || "") + "|" + (v.title || ""));
     localStorage.setItem(key, videoId);
   } catch(e){}
+};
+/* v2.2.106: a YouTube / YouTube Music link that opened the app.
+   MainActivity stashes the URL (manifest VIEW filter) and the page
+   pulls it exactly once through the LynxosPlayer bridge. A song id
+   plays through the normal tapped-track path, with title/artist
+   fetched by id; an album-playlist link opens the album page;
+   anything else gets an honest announcement. Called on page init,
+   whenever the page becomes visible again, and directly by the
+   native warm-start push. */
+window.lmHandleSharedLink = function(){
+  var url = "";
+  try {
+    if (typeof LynxosPlayer !== "undefined" && LynxosPlayer.getPendingSharedLink) {
+      url = LynxosPlayer.getPendingSharedLink() || "";
+    }
+  } catch(e){}
+  if(!url) return;
+  var u = null;
+  try { u = new URL(url); } catch(e){}
+  if(!u){ say("That link doesn't contain a song."); return; }
+  var host = (u.hostname || "").toLowerCase();
+  var vid = "";
+  if(host === "youtu.be"){
+    vid = (u.pathname || "").replace(/^\//, "").split("/")[0];
+  } else {
+    vid = u.searchParams.get("v") || "";
+    if(!vid){
+      var seg = (u.pathname || "").match(/^\/(shorts|live)\/([^/?#]+)/);
+      if(seg) vid = seg[2];
+    }
+  }
+  if(vid){
+    var art = "https://i.ytimg.com/vi/" + vid + "/hqdefault.jpg";
+    var track = { videoId: vid, title: "Shared song", channel: "", thumb: art, art: art };
+    try {
+      if (typeof LynxosYTM !== "undefined" && LynxosYTM.getSong) {
+        var info = JSON.parse(LynxosYTM.getSong(vid) || "{}");
+        if(info && !info.error && info.title){
+          track.title = info.title;
+          track.channel = info.channel || "";
+          if(info.thumb) track.thumb = info.thumb;
+          if(info.art) track.art = info.art;
+        }
+      }
+    } catch(e){}
+    say("Playing shared song: " + track.title + ".");
+    playVideo(track, [track], 0);
+    return;
+  }
+  var list = "";
+  try { list = u.searchParams.get("list") || ""; } catch(e){}
+  if(list){
+    if(list.indexOf("OLAK") === 0){
+      /* An album share: album playlists open through the album
+         page, whose browse id is the VL-prefixed playlist id. */
+      say("Opening shared album.");
+      openPythonAlbum("VL" + list, "Shared album", "", "");
+    } else {
+      say("Playlist links aren't supported yet — open a song from the playlist instead.");
+    }
+    return;
+  }
+  say("That link doesn't contain a song.");
 };
 /* Called by Java when the native extractor cannot play the current videoId.
    v2.1.4: walk the track's candidate uploads (and, for Takeout tracks with a
@@ -6971,6 +7034,15 @@ try { $("accountBackBtn").addEventListener("click", closeAccount); } catch(e){}
 renderRecentSearches();
 updateSleepBtn();
 renderHome();
+/* v2.2.106: shared-link cold start — pull any YouTube link that
+   opened the app, and re-pull whenever the page becomes visible
+   again (covers a warm start whose native push raced the page). */
+try { if(window.lmHandleSharedLink) window.lmHandleSharedLink(); } catch(e){}
+try {
+  document.addEventListener("visibilitychange", function(){
+    if(!document.hidden){ try { if(window.lmHandleSharedLink) window.lmHandleSharedLink(); } catch(e){} }
+  });
+} catch(e){}
 /* v2.2.90: pull the cloud library on start when signed in. v2.2.93: quiet — no announcements. */
 try { cloudDownloadNow(null, true); } catch(e){}
 /* v2.2.89: TV needs initial D-pad focus at launch — with no focused element
