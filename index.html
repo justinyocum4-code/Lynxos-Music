@@ -525,7 +525,7 @@
 <!-- v2.2.89: TV-visible toast (say() shows it on TV; phones never see it). -->
 <div id="tvToast" hidden></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.100</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.101</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -703,13 +703,23 @@
       <p class="hint" id="updateStatus" role="status"></p>
     </div>
     <div class="card">
+      <h3>Battery exemption</h3>
+      <p class="hint" id="batteryStatusText">Checking…</p>
+      <button class="btn secondary" id="batteryExemptBtn" hidden>Allow battery exemption</button>
+    </div>
+    <div class="card">
       <h3>Recent skips</h3>
       <p class="hint">The last 20 songs the player had to skip, and why — kept on this device only.</p>
       <div id="skipLogList"></div>
     </div>
     <div class="card">
+      <h3>Playback log</h3>
+      <p class="hint">The last 50 things the player itself did — locks, song changes, retries, pauses — kept on this device only. If playback ever stops with the screen off, this log shows what happened.</p>
+      <div id="playLogList"></div>
+    </div>
+    <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.100. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.101. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -1330,6 +1340,61 @@ function renderSkipLog(){
     return '<p class="hint">' + esc(s.title || "Unknown song") + " — " + esc(s.reason || "skipped") + "</p>";
   }).join("");
 }
+/* v2.2.101: the native playback diagnostics log (MusicService
+   records lock acquire/release, track ends + advance outcomes,
+   resolve timeouts, floor decisions, focus changes and player
+   errors into SharedPreferences; the bridge hands the page the
+   last 50 lines). Rendered newest-first like the skip log. */
+function renderPlayLog(){
+  var box = $("playLogList");
+  if(!box) return;
+  var text = "";
+  try {
+    if(window.LynxosPlayer && LynxosPlayer.getPlaybackLog) text = LynxosPlayer.getPlaybackLog() || "";
+  } catch(e){}
+  var lines = String(text || "").split("\n").filter(function(s){ return s.trim().length; });
+  if(!lines.length){ box.innerHTML = '<p class="hint">No playback events recorded yet.</p>'; return; }
+  box.innerHTML = lines.slice().reverse().map(function(s){
+    return '<p class="hint">' + esc(s) + "</p>";
+  }).join("");
+}
+/* v2.2.101: battery-exemption row — whether Android is allowed
+   to stop this app with the screen off, read live from the
+   native bridge every time Settings opens; the button fires the
+   same system request the startup prompt uses. */
+function renderBatteryRow(){
+  var txt = $("batteryStatusText");
+  var btn = $("batteryExemptBtn");
+  if(!txt) return;
+  var exempt = false, have = false;
+  try {
+    if(window.LynxosPlayer && LynxosPlayer.isBatteryExempt){
+      exempt = !!LynxosPlayer.isBatteryExempt();
+      have = true;
+    }
+  } catch(e){}
+  if(have && exempt){
+    txt.textContent = "On — the app can keep playing with the screen off";
+    if(btn) btn.hidden = true;
+  } else if(have){
+    txt.textContent = "Off — Android may stop playback with the screen off";
+    if(btn) btn.hidden = false;
+  } else {
+    txt.textContent = "Could not check the battery exemption state.";
+    if(btn) btn.hidden = true;
+  }
+}
+/* v2.2.101: the exemption button asks Android for the exemption,
+   then re-reads the state (the system dialog answers
+   asynchronously, so the row also refreshes on every Settings
+   open). */
+$("batteryExemptBtn").addEventListener("click", function(){
+  try {
+    if(window.LynxosPlayer && LynxosPlayer.requestBatteryExemption) LynxosPlayer.requestBatteryExemption();
+  } catch(e){}
+  say("Opening the battery exemption request.");
+  setTimeout(function(){ try { renderBatteryRow(); } catch(e){} }, 1500);
+});
 /* v2.2.98: videoIds the native resolver has proven are gone for good this
    session (deleted/private uploads). The permanent resolve cache must never
    resurrect them, and resolveTrack ignores cache entries pointing at them. */
@@ -1463,6 +1528,9 @@ function openSettings(){
   say("Settings tab.");
   /* v2.2.98: refresh the recent-skips list every time Settings opens. */
   try { renderSkipLog(); } catch(e){}
+  /* v2.2.101: same for the playback log and the battery row. */
+  try { renderPlayLog(); } catch(e){}
+  try { renderBatteryRow(); } catch(e){}
   /* v2.2.99: keep the English-only toggle's label in sync too. */
   try { applyEnglishOnlyBtn(); } catch(e){}
   /* v2.2.92: never leave TV focus stranded. */
