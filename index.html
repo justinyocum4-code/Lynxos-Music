@@ -525,7 +525,7 @@
 <!-- v2.2.89: TV-visible toast (say() shows it on TV; phones never see it). -->
 <div id="tvToast" hidden></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.99</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.100</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -709,7 +709,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.99. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.100. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -1351,12 +1351,28 @@ window.lmNativeTrack = function(i){
   if(isNaN(i) || i < 0 || i >= state.queue.length) return;
   state.qi = i;
   var v = state.queue[i];
+  /* v2.2.100: stamp the start. Pending resolve-failure continuations
+     (retry timers, lazy searches in lmNativeResolveFailed) compare
+     against this stamp and bail if the track they were rescuing has
+     already started by any route — a thawed continuation used to be
+     able to replay the just-started song from 0. */
+  state._startGen = (state._startGen || 0) + 1;
+  state._startedIdx = i;
   /* v2.2.84: a track is genuinely playing — clear resolve-retry counters. */
   state._resolveRetries = {};
   updateNowPlaying(v);
   logHistory(v);
   var p = parseTrack(v.title, v.channel);
   say("Playing: " + p.title + " by " + p.artist + ".");
+  /* v2.2.100: radio top-up on track start. Refills used to be triggered
+     only from playQueueIndex (a page-driven play); with the screen off
+     the native service advances on its own, playQueueIndex never runs,
+     and the queue could run dry mid-station. maybeRefillRadio is the
+     same refill path (it appends to BOTH the JS queue and the native
+     service queue and carries its own active/refilling guards). */
+  if(state.radio && state.radio.active && (state.queue.length - 1 - i) <= 3){
+    try { maybeRefillRadio(); } catch(e){}
+  }
 };
 /* Called by Java about once a second while the native player runs. */
 window.lmNativeProgress = function(pos, dur, playing){
@@ -3387,6 +3403,23 @@ window.lmNativeResolveFailed = function(i, kind, msg){
   if(isNaN(i) || i < 0 || i >= state.queue.length) return;
   var v = state.queue[i];
   var isDead = (kind === "dead");
+  /* v2.2.100: one resolve cycle owns a failure end-to-end. Every entry
+     starts a new cycle; the async continuations below (the transient
+     retry timer and the lazy search) capture this cycle plus the
+     start-generation from lmNativeTrack's stamp, and bail if either
+     moved on. With the screen off, this page freezes mid-recovery and
+     its timers/searches all fire in a burst at wake — by then the
+     native floor (or another route) may already have started the
+     track, and a stale continuation replayed it from 0. */
+  state._resolveCycle = (state._resolveCycle || 0) + 1;
+  var failCycle = state._resolveCycle;
+  var startGenAtFail = state._startGen || 0;
+  v._failCycle = failCycle;
+  function cycleStale(){
+    if(state._resolveCycle !== failCycle) return true;
+    if((state._startGen || 0) !== startGenAtFail) return true;
+    return false;
+  }
   function tryId(id){
     v.videoId = id;
     try {
@@ -3427,6 +3460,9 @@ window.lmNativeResolveFailed = function(i, kind, msg){
       state._resolveRetries[rk] = rn + 1;
       say("Connection hiccup. Retrying " + (v.title || "song") + ".");
       setTimeout(function(){
+        /* v2.2.100: bail if this failure's cycle is over — the track
+           already started by another route, or a newer failure owns it. */
+        if(cycleStale()) return;
         if(!state.queue || state.queue[i] !== v || state.qi !== i) return;
         tryId(v.videoId);
       }, 2500 * (rn + 1));
@@ -3444,8 +3480,12 @@ window.lmNativeResolveFailed = function(i, kind, msg){
     addLQ((v.channel || "") + " " + (v.title || ""));
     addLQ(v.title || "");
     function lazyTry(qi){
+      /* v2.2.100: a stale cycle abandons the search quietly — another
+         route already owns playback progression for this track. */
+      if(cycleStale()) return;
       if(qi >= lazyQs.length){ giveUp(); return; }
       ytSearch(lazyQs[qi], true, v.channel).then(function(videos){
+        if(cycleStale()) return;
         if(state.queue[i] !== v) return;
         var bad = v.videoId, alt = null, k;
         for(k = 0; k < videos.length; k++){
