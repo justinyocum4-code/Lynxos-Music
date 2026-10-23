@@ -159,6 +159,8 @@ jobs:
               <uses-permission android:name="android.permission.INTERNET" />
               <!-- v1.9 native audio: keep music playing with the screen off -->
               <uses-permission android:name="android.permission.WAKE_LOCK" />
+              <!-- v2.2.100: the playback service holds its own Wi-Fi lock across track boundaries so the next song can resolve + buffer with the screen off -->
+              <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
               <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
               <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
               <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -1391,6 +1393,41 @@ jobs:
                  only by the onPlayerError retry, consumed by playAtInternal. */
               private int pendingSeekIndex = -1;
               private long pendingSeekMs = 0;
+              /* v2.2.100: the service's OWN wake + Wi-Fi locks, held while
+                 music is playing. ExoPlayer's WAKE_MODE_NETWORK locks (set
+                 at player setup) are released the moment a track ENDS —
+                 exactly when the advance still has to resolve the next
+                 track over the network and cold-fetch its bytes. With the
+                 screen off, that lock-free gap is where Doze suspended the
+                 CPU/network and the next song never started until wake.
+                 These locks are acquired at every track start / play
+                 command, held across track boundaries, and released on
+                 user pause, stop, and destroy. The wake lock carries a
+                 30-minute safety timeout, refreshed at every track start,
+                 so a long session never outlives it mid-song and a
+                 forgotten lock can never drain the battery forever. */
+              private android.os.PowerManager.WakeLock playWakeLock;
+              private android.net.wifi.WifiManager.WifiLock playWifiLock;
+              private long playWakeLockAt = 0;
+              private static final long PLAY_LOCK_TIMEOUT_MS = 30 * 60 * 1000;
+              /* v2.2.100: deadline for resolves that belong to the native
+                 ended-advance (and its floor) — 60s instead of the tap
+                 path's 15s. A button tap needs the snappy cap; an automatic
+                 advance has nobody watching a spinner, and the old 15s
+                 cap converted slow-but-successful resolves into failures
+                 handed to a frozen page. */
+              private static final long ADVANCE_RESOLVE_DEADLINE_MS = 60000;
+              /* v2.2.100: native failure floor state (see scheduleNativeFloor).
+                 failureSeq numbers every failure hand-off to the page;
+                 nativeFloorEngagedSeq remembers which one already got its
+                 single native engagement; currentPlayGen is the playGen of
+                 the most recent playAtInternal, captured by onPlayerError
+                 so its floor is keyed to the play that actually errored. */
+              private final java.util.concurrent.atomic.AtomicLong failureSeq =
+                      new java.util.concurrent.atomic.AtomicLong(0);
+              private volatile long nativeFloorEngagedSeq = -1;
+              private volatile long currentPlayGen = 0;
+              private static final long NATIVE_FLOOR_GRACE_MS = 4000;
               private final Handler main = new Handler(Looper.getMainLooper());
               /* v2.2.42: Multi-threaded for parallel prefetch - much faster skipping. */
               private final ExecutorService bg = Executors.newFixedThreadPool(3);
@@ -1522,8 +1559,22 @@ jobs:
                  same Future, capped at RESOLVE_DEADLINE_MS. The resolve task
                  itself writes the URL cache, so a waiter that times out
                  doesn't lose the result — the orphan still populates the
-                 cache when it lands. Timeouts classify TRANSIENT. */
+                 cache when it lands. Timeouts classify TRANSIENT.
+                 v2.2.100: two semantic fixes. (1) The in-flight entry is now
+                 removed ONLY by the owning resolve task itself when it
+                 completes. A waiter whose deadline expired used to evict it
+                 in its finally block while the resolve was still running,
+                 so the next caller started a DUPLICATE resolve (serialized
+                 on the Python GIL) and the orphan's late success was never
+                 re-consumed. Now a later caller joins the existing future.
+                 (2) The deadline is a parameter: the tap path keeps 15s;
+                 the native ended-advance (and its floor) passes 60s and, if
+                 even that expires, re-checks the URL cache once before
+                 declaring failure — the resolve may have just landed. */
               private ResolveResult resolveShared(final String videoId, final String title, final String artist) {
+                  return resolveShared(videoId, title, artist, RESOLVE_DEADLINE_MS);
+              }
+              private ResolveResult resolveShared(final String videoId, final String title, final String artist, final long deadlineMs) {
                   ResolveResult out = new ResolveResult();
                   if (videoId == null || videoId.isEmpty()) { out.message = "No video id"; return out; }
                   String cached = getCachedUrl(videoId);
@@ -1535,44 +1586,65 @@ jobs:
                       out.kind = KIND_DEAD; out.message = "Upload known to be gone";
                       return out;
                   }
+                  final java.util.concurrent.atomic.AtomicReference<java.util.concurrent.FutureTask<ResolveResult>> selfRef =
+                          new java.util.concurrent.atomic.AtomicReference<java.util.concurrent.FutureTask<ResolveResult>>();
                   java.util.concurrent.Callable<ResolveResult> task = new java.util.concurrent.Callable<ResolveResult>() {
                       @Override public ResolveResult call() {
-                          ResolveResult r = resolveAudioUrl(videoId, title, artist);
                           try {
-                              if (r != null && r.kind == KIND_OK && r.url != null && !r.url.isEmpty()) {
-                                  /* Cache under the WINNING id — an alternative
-                                     upload's URL must not be filed under the
-                                     dead id that was originally asked for. */
-                                  String wid = (r.resolvedVideoId != null && !r.resolvedVideoId.isEmpty()) ? r.resolvedVideoId : videoId;
-                                  putCachedUrl(wid, r.url);
-                              }
-                          } catch (Exception ignored) {}
-                          return r;
+                              ResolveResult r = resolveAudioUrl(videoId, title, artist);
+                              try {
+                                  if (r != null && r.kind == KIND_OK && r.url != null && !r.url.isEmpty()) {
+                                      /* Cache under the WINNING id — an alternative
+                                         upload's URL must not be filed under the
+                                         dead id that was originally asked for. */
+                                      String wid = (r.resolvedVideoId != null && !r.resolvedVideoId.isEmpty()) ? r.resolvedVideoId : videoId;
+                                      putCachedUrl(wid, r.url);
+                                  }
+                              } catch (Exception ignored) {}
+                              return r;
+                          } finally {
+                              /* v2.2.100: owner-only removal — the task
+                                 itself unregisters when it completes, never
+                                 a timed-out waiter (see method comment). */
+                              try { inFlight.remove(videoId, selfRef.get()); } catch (Exception ignored) {}
+                          }
                       }
                   };
                   java.util.concurrent.FutureTask<ResolveResult> ft =
                           new java.util.concurrent.FutureTask<ResolveResult>(task);
+                  selfRef.set(ft);
                   java.util.concurrent.Future<ResolveResult> existing = inFlight.putIfAbsent(videoId, ft);
                   boolean owner = (existing == null);
                   java.util.concurrent.Future<ResolveResult> f = owner ? ft : existing;
                   if (owner) {
                       try { resolveExec.execute(ft); }
                       catch (Exception e) {
+                          /* The task will never run, so it can never remove
+                             its own entry — the submitter cleans up instead. */
                           inFlight.remove(videoId, ft);
                           out.message = String.valueOf(e);
                           return out;
                       }
                   }
                   try {
-                      ResolveResult r = f.get(RESOLVE_DEADLINE_MS, java.util.concurrent.TimeUnit.MILLISECONDS);
+                      ResolveResult r = f.get(deadlineMs, java.util.concurrent.TimeUnit.MILLISECONDS);
                       if (r != null) out = r;
                   } catch (java.util.concurrent.TimeoutException te) {
-                      out.kind = KIND_TRANSIENT; out.message = "Resolve timed out";
-                      /* Not cancelled: the orphan may still fill the cache. */
+                      /* Not cancelled: the task is still running and will
+                         fill the cache when it lands. The long-deadline
+                         (advance) caller gets one cache re-check before
+                         giving up — the resolve may have JUST landed. */
+                      String late = null;
+                      if (deadlineMs > RESOLVE_DEADLINE_MS) {
+                          try { late = getCachedUrl(videoId); } catch (Exception ignored) {}
+                      }
+                      if (late != null && !late.isEmpty()) {
+                          out.url = late; out.resolvedVideoId = videoId; out.kind = KIND_OK;
+                      } else {
+                          out.kind = KIND_TRANSIENT; out.message = "Resolve timed out";
+                      }
                   } catch (Exception e) {
                       out.kind = KIND_TRANSIENT; out.message = String.valueOf(e);
-                  } finally {
-                      if (owner) inFlight.remove(videoId, ft);
                   }
                   if (out.kind == KIND_DEAD) markDeadId(videoId);
                   return out;
@@ -1800,6 +1872,10 @@ jobs:
                       @Override public void onPlayerError(PlaybackException error) {
                           String msg = "";
                           try { msg = String.valueOf(error.getMessage()); } catch (Exception ignored) {}
+                          /* v2.2.100: the generation of the play that is
+                             erroring — a native floor scheduled below is
+                             keyed to it, so any newer play stands it down. */
+                          final long errGen = currentPlayGen;
                           /* v2.2.79: Retry with fresh URL before skipping.
                              Cached URLs expire; a fresh resolve often fixes it. */
                           try {
@@ -1837,7 +1913,17 @@ jobs:
                                                       if (fr != null && fr.url != null && !fr.url.isEmpty() && fr.url.equals(failedUrl)) {
                                                           android.util.Log.w("LynxosMusic", "Fresh resolve returned the failed URL — not retrying it");
                                                           UiListener l = ui;
-                                                          if (l != null) { try { l.onTrackError("Playback failed."); } catch (Exception ignored) {} }
+                                                          if (l != null) {
+                                                              try { l.onTrackError("Playback failed."); } catch (Exception ignored) {}
+                                                              /* v2.2.100: native retries are
+                                                                 spent and the page got the
+                                                                 error — if the page is frozen
+                                                                 (screen off), nothing else
+                                                                 would progress playback, so
+                                                                 arm the native floor: a fresh
+                                                                 resolve, then advance. */
+                                                              scheduleNativeFloor(retryIdx, errGen, true, failedUrl);
+                                                          }
                                                           else playAtInternal(currentIndex + 1);
                                                           return;
                                                       }
@@ -1862,7 +1948,18 @@ jobs:
                               android.util.Log.w("LynxosMusic", "Retry logic failed", e);
                           }
                           UiListener l = ui;
-                          if (l != null) { try { l.onTrackError(msg); } catch (Exception ignored) {} }
+                          if (l != null) {
+                              try { l.onTrackError(msg); } catch (Exception ignored) {}
+                              /* v2.2.100: same consumed trap as the resolve
+                                 path — with the screen off, the page that
+                                 just "handled" this error is frozen and
+                                 playback stalls here. Arm the native floor
+                                 (keyed to the errored play's generation): it
+                                 retries once with a fresh resolve, then
+                                 advances on its own, and stands down the
+                                 moment the page or the user starts anything. */
+                              scheduleNativeFloor(currentIndex, errGen, true, currentMediaUrl());
+                          }
                           else { playAtInternal(currentIndex + 1); }
                       }
                   });
@@ -1899,6 +1996,8 @@ jobs:
                   /* v2.2.98: shut down the play + resolve executors too. */
                   try { playExec.shutdownNow(); } catch (Exception ignored) {}
                   try { resolveExec.shutdownNow(); } catch (Exception ignored) {}
+                  /* v2.2.100: drop the play locks with the service. */
+                  releasePlayLocks();
                   /* v2.2.99: give audio focus back. */
                   abandonAudioFocus();
                   /* v2.2.7: release the media session. */
@@ -1912,12 +2011,16 @@ jobs:
               public void setUiListener(UiListener l) { ui = l; }
               /* v2.2.5: the web page sets this when the user changes repeat mode. */
               public void setRepeatMode(int mode) { repeatMode = mode; }
-              /* v2.2.5: advance the queue natively (screen-off safe). */
+              /* v2.2.5: advance the queue natively (screen-off safe).
+                 v2.2.100: these plays are marked fromAdvance — they get the
+                 long resolve deadline and the native failure floor, because
+                 at a track boundary there may be nobody awake to recover a
+                 failure (see playAtInternal / scheduleNativeFloor). */
               private void advanceAfterEnded(int endedIndex, int repeat) {
                   if (player == null) return;
-                  if (repeat == 2) { playAtInternal(endedIndex); return; }
-                  if (endedIndex + 1 < queue.size()) { playAtInternal(endedIndex + 1); return; }
-                  if (repeat == 1 && !queue.isEmpty()) { playAtInternal(0); }
+                  if (repeat == 2) { playAtInternal(endedIndex, true); return; }
+                  if (endedIndex + 1 < queue.size()) { playAtInternal(endedIndex + 1, true); return; }
+                  if (repeat == 1 && !queue.isEmpty()) { playAtInternal(0, true); }
               }
 
               // ---- public API: call on the main thread ----
@@ -1962,6 +2065,9 @@ jobs:
                  undo a pause the user made. */
               private void pauseOnlyInternal() {
                   focusPaused = false;
+                  /* v2.2.100: a user pause ends the listening session's
+                     claim on the CPU/Wi-Fi — drop the play locks. */
+                  releasePlayLocks();
                   try { if (player != null && player.getPlayWhenReady()) player.pause(); } catch (Exception ignored) {}
                   pushProgress();
                   updateNotification();
@@ -1975,6 +2081,7 @@ jobs:
                       if (player == null) return;
                       if (!player.getPlayWhenReady() && currentIndex >= 0 && currentIndex < queue.size()) {
                           requestAudioFocus();
+                          acquirePlayLocks();
                           player.play();
                       }
                   } catch (Exception ignored) {}
@@ -2023,6 +2130,50 @@ jobs:
                           audioManager.abandonAudioFocus(focusListener);
                       }
                   } catch (Exception ignored) {}
+              }
+
+              /* v2.2.100: acquire/refresh the service's own wake + Wi-Fi
+                 locks (see the field comment for WHY: they cover the
+                 track-boundary gap ExoPlayer's own locks don't). Called at
+                 every track start and every play command. Guarded so a
+                 double-acquire is impossible; a wake lock nearing its
+                 30-minute safety timeout is released and re-acquired so a
+                 long session never outlives it mid-song. */
+              private void acquirePlayLocks() {
+                  try {
+                      if (playWakeLock == null) {
+                          android.os.PowerManager pm = (android.os.PowerManager) getSystemService(Context.POWER_SERVICE);
+                          if (pm != null) playWakeLock = pm.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "LynxosMusic:playback");
+                      }
+                      if (playWakeLock != null) {
+                          long now = System.currentTimeMillis();
+                          if (playWakeLock.isHeld() && now - playWakeLockAt > PLAY_LOCK_TIMEOUT_MS - 5 * 60 * 1000) {
+                              try { playWakeLock.release(); } catch (Exception ignored) {}
+                          }
+                          if (!playWakeLock.isHeld()) {
+                              playWakeLock.acquire(PLAY_LOCK_TIMEOUT_MS);
+                              playWakeLockAt = now;
+                          }
+                      }
+                  } catch (Exception ignored) {}
+                  try {
+                      if (playWifiLock == null) {
+                          android.net.wifi.WifiManager wm = (android.net.wifi.WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+                          if (wm != null) playWifiLock = wm.createWifiLock(android.net.wifi.WifiManager.WIFI_MODE_FULL, "LynxosMusic:playback");
+                      }
+                      if (playWifiLock != null && !playWifiLock.isHeld()) playWifiLock.acquire();
+                  } catch (Exception ignored) {}
+              }
+
+              /* v2.2.100: release the play locks — user pause, stop, and
+                 service destroy only. A focus-caused pause deliberately
+                 does NOT release: playback is expected to resume, and the
+                 30-minute wake-lock timeout bounds that case anyway.
+                 Guarded so releasing an unheld lock is impossible. */
+              private void releasePlayLocks() {
+                  try { if (playWakeLock != null && playWakeLock.isHeld()) playWakeLock.release(); } catch (Exception ignored) {}
+                  try { if (playWifiLock != null && playWifiLock.isHeld()) playWifiLock.release(); } catch (Exception ignored) {}
+                  playWakeLockAt = 0;
               }
 
               /* v2.2.99: the app's own audio-focus reactions (the player no
@@ -2097,10 +2248,12 @@ jobs:
                          flag: focus regain must never undo the user's choice. */
                       if (player.getPlayWhenReady()) {
                           focusPaused = false;
+                          releasePlayLocks();
                           player.pause();
                       } else if (currentIndex >= 0 && currentIndex < queue.size()) {
                           focusPaused = false;
                           requestAudioFocus();
+                          acquirePlayLocks();
                           player.play();
                       }
                   } catch (Exception ignored) {}
@@ -2108,15 +2261,43 @@ jobs:
                   updateNotification();
               }
 
-              private void playAtInternal(int i) {
+              private void playAtInternal(int i) { playAtInternal(i, false); }
+
+              /* v2.2.100: fromAdvance marks plays that came from the native
+                 ended-advance (advanceAfterEnded, and the native floor that
+                 backs it up). Only those get the long resolve deadline and
+                 the native failure floor: a button tap keeps the snappy 15s
+                 deadline, and for tap plays the page's own recovery stays
+                 the only recovery — nobody is stranded if a tap's resolve
+                 fails, the user is right there. At a track boundary with
+                 the screen off, there may be nobody awake at all. */
+              private void playAtInternal(int i, boolean fromAdvance) {
                   if (player == null || i < 0 || i >= queue.size()) return;
+                  /* v2.2.100: focus hygiene — a track change is a fresh
+                     start. v2.2.99's focus listener could set focusPaused
+                     at STATE_ENDED (playWhenReady is still true there),
+                     and the flag then leaked into the NEXT track because
+                     nothing cleared it here: a wake-time GAIN could play()
+                     the ended player (restart, then cut off by the advance)
+                     or pause/resume the new track through the stale flag.
+                     A duck left over from the previous track goes with it. */
+                  focusPaused = false;
+                  if (focusDucked) {
+                      focusDucked = false;
+                      try { player.setVolume(1.0f); } catch (Exception ignored) {}
+                  }
                   /* v2.2.99: a pending retry-seek belongs to one index only;
                      any other play supersedes and discards it. */
                   if (pendingSeekIndex >= 0 && pendingSeekIndex != i) { pendingSeekIndex = -1; pendingSeekMs = 0; }
                   currentIndex = i;
-                  playGen.incrementAndGet();
+                  final long myGen = playGen.incrementAndGet();
+                  currentPlayGen = myGen;
+                  /* v2.2.100: (re)arm the play locks for this track — they
+                     are what carry the advance across the boundary gap. */
+                  acquirePlayLocks();
                   final Track t = queue.get(i);
                   final int wantIndex = i;
+                  final boolean adv = fromAdvance;
                   goForeground(t, true);
                   /* v2.2.98: resolve on the dedicated play thread (never stuck
                      behind prefetches), through the single-flight resolver. */
@@ -2125,7 +2306,8 @@ jobs:
                           /* Stale queued play (user already tapped on): drop it
                              before it burns a resolve — currentIndex moved. */
                           if (wantIndex != currentIndex) return;
-                          final ResolveResult rr = resolveShared(t.videoId, t.title, t.channel);
+                          final ResolveResult rr = resolveShared(t.videoId, t.title, t.channel,
+                                  adv ? ADVANCE_RESOLVE_DEADLINE_MS : RESOLVE_DEADLINE_MS);
                           main.post(new Runnable() {
                               @Override public void run() {
                                   if (player == null || wantIndex != currentIndex) {
@@ -2145,6 +2327,21 @@ jobs:
                                           if (l != null) { try { l.onTrackError(rr.message); } catch (Exception ignored) {} }
                                           else playAtInternal(currentIndex + 1);
                                       }
+                                      /* v2.2.100: native floor. "Consumed" only
+                                         means the page was TOLD — pageAlive is
+                                         still true with the screen off, but the
+                                         page is frozen and its recovery never
+                                         runs, so a boundary failure used to be
+                                         a guaranteed stall until wake. If this
+                                         play came from the native advance, arm
+                                         the floor: after a grace period (awake
+                                         JS acts first and stands the floor
+                                         down via playGen the moment it starts
+                                         anything), the service retries the
+                                         resolve once itself, then advances on
+                                         its own. JS candidates stay primary
+                                         while the page is awake. */
+                                      if (adv) scheduleNativeFloor(wantIndex, myGen, false, "");
                                       return;
                                   }
                                   /* v2.2.98: an alternative upload won — adopt
@@ -2194,6 +2391,105 @@ jobs:
                           });
                       }
                   });
+              }
+
+              /* v2.2.100: the native failure floor. scheduleNativeFloor is
+                 called when an advance-originated play fails (resolve
+                 failure in playAtInternal, or playback-error exhaustion in
+                 onPlayerError) AFTER the failure has been handed to the
+                 page as usual. After a grace delay (NATIVE_FLOOR_GRACE_MS —
+                 long enough for awake JS to act first), the floor checks
+                 whether playback progression for that index is still
+                 unresolved and, if so, retries the resolve ONCE itself and
+                 either plays the track or advances natively to the next
+                 index. It stands down the moment anything newer owns
+                 progression:
+                   - playGen moved on (any newer play started — the page's
+                     candidates/retries, a user tap, another advance);
+                   - a newer failure superseded this one (failureSeq);
+                   - this failure already got its single engagement
+                     (nativeFloorEngagedSeq);
+                   - something is audibly playing (no dead air to fix).
+                 Each floor advance goes through playAtInternal(next, true),
+                 so a queue of failures walks forward one index per failure
+                 — always progress, terminating at the end of the queue. */
+              private void scheduleNativeFloor(final int index, final long gen, final boolean freshResolve, final String failedUrl) {
+                  final long fseq = failureSeq.incrementAndGet();
+                  final String fUrl = (failedUrl != null) ? failedUrl : "";
+                  main.postDelayed(new Runnable() {
+                      @Override public void run() {
+                          runNativeFloor(index, gen, fseq, freshResolve, fUrl);
+                      }
+                  }, NATIVE_FLOOR_GRACE_MS);
+              }
+
+              private void runNativeFloor(final int index, final long gen, final long fseq, final boolean freshResolve, final String failedUrl) {
+                  try {
+                      if (player == null) return;
+                      if (playGen.get() != gen) return;
+                      if (failureSeq.get() != fseq) return;
+                      if (nativeFloorEngagedSeq == fseq) return;
+                      if (player.isPlaying()) return;
+                      if (index < 0 || index >= queue.size()) return;
+                      final Track ft = queue.get(index);
+                      if (ft == null) return;
+                      nativeFloorEngagedSeq = fseq;
+                      if (ft.videoId == null || ft.videoId.isEmpty()) { advanceNativeFloor(index); return; }
+                      final Track retryTrack = ft;
+                      playExec.execute(new Runnable() {
+                          @Override public void run() {
+                              if (playGen.get() != gen) return;
+                              ResolveResult rr2 = null;
+                              try {
+                                  /* Error-origin floors force a TRULY fresh
+                                     resolve — the cached URL is the one that
+                                     just failed on the player. */
+                                  if (freshResolve) clearCachedUrl(retryTrack.videoId);
+                                  rr2 = resolveShared(retryTrack.videoId, retryTrack.title, retryTrack.channel, ADVANCE_RESOLVE_DEADLINE_MS);
+                              } catch (Throwable ignored) {}
+                              final ResolveResult fr2 = rr2;
+                              main.post(new Runnable() {
+                                  @Override public void run() {
+                                      if (player == null) return;
+                                      if (playGen.get() != gen) return;
+                                      if (player.isPlaying()) return;
+                                      /* For error-origin floors, a "fresh"
+                                         resolve that hands back the very URL
+                                         that failed counts as a failure —
+                                         playing it would just error again. */
+                                      boolean usable = fr2 != null && fr2.url != null && !fr2.url.isEmpty()
+                                              && (failedUrl.isEmpty() || !fr2.url.equals(failedUrl));
+                                      if (usable) {
+                                          /* Adopt a winning alternative id the
+                                             same way the normal play path does,
+                                             so the replay below hits its cache
+                                             entry instead of re-resolving. */
+                                          String winId = fr2.resolvedVideoId;
+                                          if (winId != null && !winId.isEmpty() && !winId.equals(retryTrack.videoId)) {
+                                              try { queue.get(index).videoId = winId; } catch (Exception ignored) {}
+                                              UiListener lr = ui;
+                                              if (lr != null) { try { lr.onTrackResolved(index, winId); } catch (Exception ignored) {} }
+                                          }
+                                          playAtInternal(index, true);
+                                      } else {
+                                          advanceNativeFloor(index);
+                                      }
+                                  }
+                              });
+                          }
+                      });
+                  } catch (Exception ignored) {}
+              }
+
+              /* The floor's own advance: the next index the way
+                 advanceAfterEnded computes it, WITHOUT the repeat-all wrap
+                 (and without repeat-one's replay — the track just failed).
+                 A floor chain must always make progress and terminate at
+                 the end of the queue rather than loop a dead queue forever;
+                 when the page wakes, its own repeat/shuffle policy resumes
+                 control from wherever playback stopped. */
+              private void advanceNativeFloor(int failedIndex) {
+                  if (failedIndex + 1 < queue.size()) playAtInternal(failedIndex + 1, true);
               }
 
               /* v2.1.7: resolve the next track's audio URL ahead of time.
