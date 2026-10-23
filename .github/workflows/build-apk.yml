@@ -1610,6 +1610,60 @@ jobs:
               private void markDeadId(String videoId) {
                   try { if (videoId != null && !videoId.isEmpty()) deadIds.put(videoId, System.currentTimeMillis()); } catch (Exception ignored) {}
               }
+              /* v2.2.104: is this keycode a media key the session layer
+                 would otherwise apply its own default handling to?
+                 On API 29+ the framework's own test (KeyEvent
+                 .isMediaSessionKey — "will be sent to the MediaSession
+                 .Callback if not handled") decides; below that, and as an
+                 extension on every level, the explicit transport list
+                 applies (the constants are compile-time inlined ints, so
+                 naming newer ones is safe on old devices). Used by
+                 onMediaButtonEvent's consume-everything default branch. */
+              private static boolean isMediaKeyCode(int kc) {
+                  switch (kc) {
+                      case KeyEvent.KEYCODE_MEDIA_PLAY:
+                      case KeyEvent.KEYCODE_MEDIA_PAUSE:
+                      case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
+                      case KeyEvent.KEYCODE_HEADSETHOOK:
+                      case KeyEvent.KEYCODE_MEDIA_STOP:
+                      case KeyEvent.KEYCODE_MEDIA_NEXT:
+                      case KeyEvent.KEYCODE_MEDIA_PREVIOUS:
+                      case KeyEvent.KEYCODE_MEDIA_REWIND:
+                      case KeyEvent.KEYCODE_MEDIA_FAST_FORWARD:
+                      case KeyEvent.KEYCODE_MEDIA_RECORD:
+                      case KeyEvent.KEYCODE_MEDIA_CLOSE:
+                      case KeyEvent.KEYCODE_MEDIA_EJECT:
+                      case KeyEvent.KEYCODE_MEDIA_SKIP_FORWARD:
+                      case KeyEvent.KEYCODE_MEDIA_SKIP_BACKWARD:
+                      case KeyEvent.KEYCODE_MEDIA_STEP_FORWARD:
+                      case KeyEvent.KEYCODE_MEDIA_STEP_BACKWARD:
+                      case KeyEvent.KEYCODE_MEDIA_AUDIO_TRACK:
+                          return true;
+                      default:
+                          break;
+                  }
+                  try {
+                      if (Build.VERSION.SDK_INT >= 29) return KeyEvent.isMediaSessionKey(kc);
+                  } catch (Throwable ignored) {}
+                  return false;
+              }
+              /* v2.2.104: short names for the media3 1.4.1
+                 Player.PlayWhenReadyChangeReason values (verified against
+                 the 1.4.1 Player.java source: USER_REQUEST=1,
+                 AUDIO_FOCUS_LOSS=2, AUDIO_BECOMING_NOISY=3, REMOTE=4,
+                 END_OF_MEDIA_ITEM=5, SUPPRESSED_TOO_LONG=6). Anything else
+                 logs as its raw int. */
+              private static String playWhenReadyReasonName(int reason) {
+                  switch (reason) {
+                      case Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST: return "USER_REQUEST";
+                      case Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS: return "AUDIO_FOCUS_LOSS";
+                      case Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY: return "AUDIO_BECOMING_NOISY";
+                      case Player.PLAY_WHEN_READY_CHANGE_REASON_REMOTE: return "REMOTE";
+                      case Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM: return "END_OF_MEDIA_ITEM";
+                      case Player.PLAY_WHEN_READY_CHANGE_REASON_SUPPRESSED_TOO_LONG: return "SUPPRESSED_TOO_LONG";
+                      default: return String.valueOf(reason);
+                  }
+              }
               /* v2.2.101: diagnostics write — see the DIAG_PREFS field
                  comment. Static storage helpers so MainActivity can read
                  the same prefs file for the Settings bridge without needing
@@ -1848,11 +1902,25 @@ jobs:
                           if (Build.VERSION.SDK_INT >= 23) sessFlags |= PendingIntent.FLAG_IMMUTABLE;
                           sessionActivity = PendingIntent.getActivity(this, 0, launchIntent, sessFlags);
                       } catch (Exception ignored) {}
-                      /* v2.2.14: debounce rapid duplicate Bluetooth commands. */
-                      final long[] lastBtCommandTime = new long[] { 0 };
                       /* v2.2.98: separate debounce clock for next/previous so a
                          play/pause press can't swallow a skip (or vice versa). */
                       final long[] lastBtNavTime = new long[] { 0 };
+                      /* v2.2.104: direction memory for the play/pause-family
+                         keycodes (PLAY / PAUSE / PLAY_PAUSE / HEADSETHOOK),
+                         shared by their onMediaButtonEvent branches. The
+                         v2.2.14 clock (lastBtCommandTime) is GONE: both of its
+                         jobs left in this version — the command gate below no
+                         longer executes play/pause at all (it passes the
+                         request through to the library), and the keycode
+                         branches use this gate instead. lastCmdDir is the
+                         direction of the last EXECUTED gated press
+                         (+1 = play-ward, -1 = pause-ward, 0 = none yet); a
+                         press that REVERSES it within 800 ms is the
+                         stack/headset echo of the same physical press
+                         (AVRCP delivers explicit PLAY/PAUSE pairs), not a
+                         new intent, and is swallowed. */
+                      final long[] lastCmdAt = new long[] { 0 };
+                      final int[] lastCmdDir = new int[] { 0 };
                       MediaSession.Builder sessionBuilder = new MediaSession.Builder(this, player)
                           .setCallback(new MediaSession.Callback() {
                               @Override
@@ -1861,7 +1929,13 @@ jobs:
                                       Intent mediaButtonEvent) {
                                   /* v2.2.10: handle headset next/prev via media button
                                      events — avoids the ConnectionResult constructor
-                                     that varies by media3 version. */
+                                     that varies by media3 version.
+                                     v2.2.104: the tail of this method is restructured
+                                     so the ONLY way to reach the super (media3
+                                     default handling) return is the logged
+                                     fall-through at the bottom — every ACTION_DOWN
+                                     media keycode is consumed by a branch above. */
+                                  String fallReason = "extract";
                                   try {
                                       android.os.Parcelable p = mediaButtonEvent.getParcelableExtra(Intent.EXTRA_KEY_EVENT);
                                       if (p instanceof KeyEvent) {
@@ -1907,63 +1981,206 @@ jobs:
                                                   }
                                                   return true;
                                               }
-                                              /* v2.2.14: handle play/pause here too and consume it,
-                                                 with debounce — prevents double-toggle when the
-                                                 system also routes it as a player command.
-                                                 v2.2.99: PLAY and PAUSE are now EXPLICIT,
-                                                 never toggles — a dedicated Pause press
-                                                 can no longer un-pause when AVRCP
-                                                 delivers it twice, and neither press
-                                                 can flip while the track is buffering.
-                                                 Only PLAY_PAUSE toggles, and only it
-                                                 needs the debounce (play/pause are
-                                                 idempotent, so duplicates are harmless). */
-                                              if (kc == KeyEvent.KEYCODE_MEDIA_PLAY) {
-                                                  main.post(new Runnable() {
-                                                      @Override public void run() { playOnlyInternal("bt/session"); }
-                                                  });
+                                              /* v2.2.104: Bluetooth SKIP FORWARD — some
+                                                 headsets/remotes send this instead of
+                                                 MEDIA_NEXT. Same single path (page owns
+                                                 queue policy, native is the fallback),
+                                                 same nav debounce clock. */
+                                              if (kc == KeyEvent.KEYCODE_MEDIA_SKIP_FORWARD) {
+                                                  long nowF = android.os.SystemClock.uptimeMillis();
+                                                  if (nowF - lastBtNavTime[0] > 800) {
+                                                      lastBtNavTime[0] = nowF;
+                                                      main.post(new Runnable() {
+                                                          @Override public void run() {
+                                                              UiListener l = ui;
+                                                              boolean consumed = false;
+                                                              if (l != null) { try { consumed = l.onNotifNext(); } catch (Exception ignored) {} }
+                                                              if (!consumed) playAtInternal(currentIndex + 1);
+                                                          }
+                                                      });
+                                                  }
                                                   return true;
                                               }
-                                              if (kc == KeyEvent.KEYCODE_MEDIA_PAUSE) {
+                                              /* v2.2.104: Bluetooth SKIP BACKWARD — the
+                                                 MEDIA_PREVIOUS twin of the above. */
+                                              if (kc == KeyEvent.KEYCODE_MEDIA_SKIP_BACKWARD) {
+                                                  long nowB = android.os.SystemClock.uptimeMillis();
+                                                  if (nowB - lastBtNavTime[0] > 800) {
+                                                      lastBtNavTime[0] = nowB;
+                                                      main.post(new Runnable() {
+                                                          @Override public void run() {
+                                                              UiListener l = ui;
+                                                              boolean consumed = false;
+                                                              if (l != null) { try { consumed = l.onNotifPrev(); } catch (Exception ignored) {} }
+                                                              if (!consumed) playAtInternal(currentIndex - 1);
+                                                          }
+                                                      });
+                                                  }
+                                                  return true;
+                                              }
+                                              /* v2.2.104: the play/pause family — PLAY,
+                                                 PAUSE, PLAY_PAUSE and HEADSETHOOK — now
+                                                 shares ONE direction gate (the audit's
+                                                 second conviction: through v2.2.103 the
+                                                 explicit PLAY/PAUSE branches touched NO
+                                                 debounce clock, so an AVRCP PAUSE->PLAY
+                                                 pair executed in full at ANY spacing —
+                                                 same-direction duplicates are indeed
+                                                 harmless, direction pairs are not).
+                                                 PLAY is play-ward, PAUSE is pause-ward;
+                                                 the two toggles take the direction they
+                                                 would move playback from the state at
+                                                 press time. A press REVERSING the last
+                                                 executed direction within 800 ms is the
+                                                 echo of the same physical press:
+                                                 consumed, logged, NOT executed, and the
+                                                 gate is NOT restamped (the window stays
+                                                 anchored to the real press). Same-
+                                                 direction repeats EXECUTE (documented
+                                                 choice: play/pause are idempotent, and
+                                                 a repeated toggle is indistinguishable
+                                                 from a deliberate fast double-press).
+                                                 Every execution restamps the gate.
+                                                 HEADSETHOOK — the standard single-button
+                                                 headset gesture — is handled here for
+                                                 the first time; through v2.2.103 it fell
+                                                 through to media3 default handling,
+                                                 which toggled the player unlogged.
+                                                 (v2.2.99's explicit PLAY/PAUSE semantics
+                                                 are kept: PLAY and PAUSE themselves
+                                                 still never toggle.) */
+                                              if (kc == KeyEvent.KEYCODE_MEDIA_PLAY
+                                                      || kc == KeyEvent.KEYCODE_MEDIA_PAUSE
+                                                      || kc == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE
+                                                      || kc == KeyEvent.KEYCODE_HEADSETHOOK) {
+                                                  final int dir;
+                                                  final Runnable action;
+                                                  if (kc == KeyEvent.KEYCODE_MEDIA_PLAY) {
+                                                      dir = 1;
+                                                      action = new Runnable() {
+                                                          @Override public void run() { playOnlyInternal("bt/session"); }
+                                                      };
+                                                  } else if (kc == KeyEvent.KEYCODE_MEDIA_PAUSE) {
+                                                      dir = -1;
+                                                      action = new Runnable() {
+                                                          @Override public void run() { pauseOnlyInternal("bt/session"); }
+                                                      };
+                                                  } else {
+                                                      boolean playingNow = false;
+                                                      try { playingNow = player != null && player.getPlayWhenReady(); } catch (Exception ignored) {}
+                                                      dir = playingNow ? -1 : 1;
+                                                      action = new Runnable() {
+                                                          @Override public void run() { toggleInternal("bt/session"); }
+                                                      };
+                                                  }
+                                                  long now = android.os.SystemClock.uptimeMillis();
+                                                  if (lastCmdDir[0] != 0 && dir == -lastCmdDir[0]
+                                                          && now - lastCmdAt[0] < 800) {
+                                                      diag("cmd suppressed src=bt/session (echo)");
+                                                      return true;
+                                                  }
+                                                  lastCmdAt[0] = now;
+                                                  lastCmdDir[0] = dir;
+                                                  main.post(action);
+                                                  return true;
+                                              }
+                                              /* v2.2.104: MEDIA_STOP — handled for the
+                                                 first time (it used to fall through to
+                                                 media3, which stops the player outright,
+                                                 unlogged). The app-appropriate stop is
+                                                 a pause: the queue and the loaded track
+                                                 stay in place, so a later play resumes
+                                                 this song instead of facing an unloaded
+                                                 player. Not direction-gated — stop is
+                                                 neither play-ward nor a toggle. */
+                                              if (kc == KeyEvent.KEYCODE_MEDIA_STOP) {
                                                   main.post(new Runnable() {
                                                       @Override public void run() { pauseOnlyInternal("bt/session"); }
                                                   });
                                                   return true;
                                               }
-                                              if (kc == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) {
-                                                  long now = android.os.SystemClock.uptimeMillis();
-                                                  if (now - lastBtCommandTime[0] > 800) {
-                                                      lastBtCommandTime[0] = now;
-                                                      main.post(new Runnable() {
-                                                          @Override public void run() { toggleInternal("bt/session"); }
-                                                      });
-                                                  }
+                                              /* v2.2.104: ANY other media-session keycode
+                                                 (rewind, fast-forward, record, close,
+                                                 eject, step, navigate...) — consume and
+                                                 log it, so media3's default handling can
+                                                 never apply it to the player behind the
+                                                 app's back. Through v2.2.103 every one
+                                                 of these fell through, unlogged and
+                                                 undebounced. */
+                                              if (isMediaKeyCode(kc)) {
+                                                  diag("bt key ignored keycode=" + kc);
                                                   return true;
                                               }
+                                              /* Not a media keycode at all — not ours. */
+                                              fallReason = "nonmedia";
+                                          } else {
+                                              /* Not ACTION_DOWN (an ACTION_UP in
+                                                 practice): behavior unchanged from
+                                                 every prior version — the session
+                                                 realistically only delivers ACTION_DOWN
+                                                 here — but it now leaves a log line on
+                                                 its way to the tail. */
+                                              fallReason = "action";
                                           }
                                       }
-                                  } catch (Exception ignored) {}
+                                  } catch (Exception e) { fallReason = "exception"; }
+                                  /* v2.2.104: the ONLY remaining road to media3
+                                     default handling, and it is never silent: the
+                                     parcelable held no KeyEvent ("extract"), an
+                                     exception fired mid-handling ("exception"), the
+                                     event was not ACTION_DOWN ("action"), or the
+                                     keycode is not a media key ("nonmedia"). */
+                                  diag("bt fallthrough reason=" + fallReason);
                                   return MediaSession.Callback.super.onMediaButtonEvent(session, controllerInfo, mediaButtonEvent);
                               }
                               @Override
                               public int onPlayerCommandRequest(MediaSession session, MediaSession.ControllerInfo controller, int playerCommand) {
                                   try {
-                                      /* v2.2.9: route play/pause explicitly through the
-                                         service so they work even with no UI bound. */
+                                      /* v2.2.104: THIS CALLBACK IS A VETO GATE, NOT AN
+                                         EXECUTOR — the audit's conviction, verified
+                                         against the media3 1.4.1 sources. Returning
+                                         RESULT_SUCCESS makes the LIBRARY apply the
+                                         command to the player itself; any other result
+                                         code skips the application (MediaSessionStub:
+                                         "Don't run rejected command"). Through
+                                         v2.2.103 the PLAY_PAUSE branch ALSO posted
+                                         the app's own state-based toggle, so every
+                                         controller play/pause executed TWICE under
+                                         two semantics — and on the legacy (Bluetooth/
+                                         framework) path the library's directional
+                                         apply ran synchronously INSIDE this call, so
+                                         the posted toggle read the already-flipped
+                                         state and REVERSED the command: a controller
+                                         pause ended resumed, a play ended paused,
+                                         unless the toggle happened to be debounce-
+                                         suppressed. Oct 12's "tap to pause stops for
+                                         about a second then keeps playing" and
+                                         "controls work sometimes when they want to,"
+                                         mechanistically. From here on: exactly ONE
+                                         executor per command. */
                                       if (playerCommand == Player.COMMAND_PLAY_PAUSE) {
-                                          /* v2.2.14: debounce — the same press may arrive
-                                             via onMediaButtonEvent too. */
-                                          long now = android.os.SystemClock.uptimeMillis();
-                                          if (now - lastBtCommandTime[0] > 800) {
-                                              lastBtCommandTime[0] = now;
-                                              main.post(new Runnable() {
-                                                  @Override public void run() { toggleInternal("bt/session"); }
-                                              });
-                                          }
+                                          /* Pass-through: NO app execution and NO
+                                             debounce clock — the library applies the
+                                             controller's play() or pause()
+                                             directionally, exactly once. The page and
+                                             notification stay in sync through the
+                                             player listener (onIsPlayingChanged ->
+                                             pushProgress/updateNotification fires for
+                                             ANY state change, whatever its source),
+                                             never through this gate. */
+                                          diag("gate play_pause (pass-through)");
                                           return SessionResult.RESULT_SUCCESS;
                                       }
-
                                       if (playerCommand == Player.COMMAND_SEEK_TO_NEXT) {
+                                          /* Veto-and-execute — correct ONLY here: the
+                                             page owns queue policy (shuffle/repeat/
+                                             radio), so the app runs its single
+                                             page-or-fallback path itself and vetoes
+                                             with NOT_SUPPORTED so the library does
+                                             not also apply its seek (a no-op on this
+                                             single-item player today, but SUCCESS
+                                             would still mean "also applied"). */
+                                          diag("gate seek_next (veto+app)");
                                           main.post(new Runnable() {
                                               @Override public void run() {
                                                   UiListener l = ui;
@@ -1972,9 +2189,10 @@ jobs:
                                                   if (!consumed) playAtInternal(currentIndex + 1);
                                               }
                                           });
-                                          return SessionResult.RESULT_SUCCESS;
+                                          return SessionResult.RESULT_ERROR_NOT_SUPPORTED;
                                       }
                                       if (playerCommand == Player.COMMAND_SEEK_TO_PREVIOUS) {
+                                          diag("gate seek_prev (veto+app)");
                                           main.post(new Runnable() {
                                               @Override public void run() {
                                                   UiListener l = ui;
@@ -1983,8 +2201,12 @@ jobs:
                                                   if (!consumed) playAtInternal(currentIndex - 1);
                                               }
                                           });
-                                          return SessionResult.RESULT_SUCCESS;
+                                          return SessionResult.RESULT_ERROR_NOT_SUPPORTED;
                                       }
+                                      /* Every other command keeps the library
+                                         default (the super return below) — but it
+                                         is now visible in the Playback log first. */
+                                      diag("gate cmd=" + playerCommand + " (default)");
                                   } catch (Exception ignored) {}
                                   return MediaSession.Callback.super.onPlayerCommandRequest(session, controller, playerCommand);
                               }
@@ -2054,6 +2276,25 @@ jobs:
                           diag("isPlaying=" + isPlaying);
                           updateNotification();
                           pushProgress();
+                      }
+                      @Override public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
+                          /* v2.2.104: EVERY playWhenReady flip now leaves a
+                             line, with its media3 reason. Before this, a flip
+                             applied by the media library itself (a controller
+                             command the gate passed through, or a fall-through
+                             default) changed nothing the Playback log watched
+                             — isPlaying was often already false (mid-buffer)
+                             and no "cmd" line exists for library actions — so
+                             the player could sit silently paused behind a
+                             completely clean log: the v2.2.103 episode that
+                             convicted the gate. Reason names are the media3
+                             1.4.1 Player.PlayWhenReadyChangeReason constants.
+                             REMOTE is the class a library/controller-applied
+                             flip carries; USER_REQUEST covers in-app
+                             setPlayWhenReady calls (the app's own play()/
+                             pause() included). diag() itself can never throw
+                             into the listener (its body is fully guarded). */
+                          diag("playWhenReady=" + playWhenReady + " reason=" + playWhenReadyReasonName(reason));
                       }
                       @Override public void onPlayerError(PlaybackException error) {
                           String msg = "";
