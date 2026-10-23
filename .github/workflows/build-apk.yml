@@ -146,9 +146,10 @@ jobs:
               implementation 'androidx.media3:media3-exoplayer:1.4.1'
               /* v2.2.7: media session for Bluetooth headset buttons. */
               implementation 'androidx.media3:media3-session:1.4.1'
-              /* v2.2.101: media-byte cache — SimpleCache / CacheDataSource /
-                 CacheWriter (datasource) and StandaloneDatabaseProvider
-                 (database), at the same media3 version as above. */
+              /* v2.2.103: media3-datasource / media3-database stay
+                 declared at the same media3 version as above —
+                 unused since the media-byte cache was removed,
+                 kept so the retreat needed no build changes. */
               implementation 'androidx.media3:media3-datasource:1.4.1'
               implementation 'androidx.media3:media3-database:1.4.1'
               implementation 'com.github.TeamNewPipe:NewPipeExtractor:v0.26.5'
@@ -1514,60 +1515,6 @@ jobs:
                       } catch (Exception ignored) {}
                   }
               };
-              /* v2.2.101: media-byte cache. Prefetch used to warm only the
-                 next track's URL — at the boundary, prepare() still had to
-                 cold-fetch the audio over the network, exactly what Doze
-                 defers with the screen off. Now a SimpleCache (128 MB LRU)
-                 sits in front of the player's data source, and the URL
-                 prefetch also downloads the next tracks' BYTES into it, so
-                 a boundary can start from local storage with no network at
-                 all. Keying is the make-or-break detail: googlevideo URLs
-                 are re-signed at every resolve, so keying spans by URL
-                 would miss every time. Instead, spans are keyed by videoId
-                 ("lmvid_<id>"): lmCacheKeyFactory (below) maps a playback
-                 request URL back to its videoId through urlVideoIds
-                 (populated on every successful resolve with the
-                 URL -> winning-id pair), and the byte-prefetch CacheWriter
-                 writes under an explicit DataSpec key with the same string.
-                 Both directions land on the same key, so prefetched bytes
-                 are actually found again at playback. */
-              private static final long MEDIA_CACHE_MAX_BYTES = 128L * 1024L * 1024L;
-              private final java.util.Map<String, String> urlVideoIds =
-                      java.util.Collections.synchronizedMap(new java.util.LinkedHashMap<String, String>(16, 0.75f, true) {
-                          @Override protected boolean removeEldestEntry(java.util.Map.Entry<String, String> eldest) {
-                              return size() > 64;
-                          }
-                      });
-              private final androidx.media3.datasource.cache.CacheKeyFactory lmCacheKeyFactory =
-                      new androidx.media3.datasource.cache.CacheKeyFactory() {
-                          @Override public String buildCacheKey(androidx.media3.datasource.DataSpec dataSpec) {
-                              try {
-                                  if (dataSpec.key != null) return dataSpec.key;
-                                  String uriStr = (dataSpec.uri != null) ? dataSpec.uri.toString() : "";
-                                  String vid = urlVideoIds.get(uriStr);
-                                  if (vid != null && !vid.isEmpty()) return "lmvid_" + vid;
-                                  return uriStr;
-                              } catch (Exception e) {
-                                  try { return (dataSpec.uri != null) ? dataSpec.uri.toString() : ""; }
-                                  catch (Exception e2) { return ""; }
-                              }
-                          }
-                      };
-              private androidx.media3.datasource.cache.SimpleCache mediaCache;
-              private boolean mediaCacheTried = false;
-              /* v2.2.101: byte downloads run on their OWN single thread —
-                 strictly sequential, and never on a thread a play resolve
-                 waits on, so a slow download can never block a song start. */
-              private final ExecutorService byteExec = Executors.newSingleThreadExecutor();
-              /* v2.2.102: the outstanding byte downloads, tracked so a
-                 track start can cancel the superseded ones (see
-                 ByteDownload / cancelByteDownloads). The add+submit pair
-                 in queueBytePrefetch and the snapshot+clear pair in
-                 cancelByteDownloads both synchronize on this set, so a
-                 download can never slip between being registered and
-                 being cancellable. */
-              private final java.util.Set<ByteDownload> byteDownloads =
-                      java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<ByteDownload, Boolean>());
               private final Handler main = new Handler(Looper.getMainLooper());
               /* v2.2.42: Multi-threaded for parallel prefetch - much faster skipping. */
               private final ExecutorService bg = Executors.newFixedThreadPool(3);
@@ -1722,233 +1669,6 @@ jobs:
                       return (s.length() > 60) ? s.substring(0, 60) : s;
                   } catch (Exception ignored) { return ""; }
               }
-              /* v2.2.101: remember which videoId a resolved URL belongs to
-                 (the WINNING id when an alternative upload won), so the
-                 media cache's key factory can file the playback bytes under
-                 the same "lmvid_<id>" key the byte prefetch wrote. */
-              private void mapResolvedUrl(String url, String videoId) {
-                  try {
-                      if (url != null && !url.isEmpty() && videoId != null && !videoId.isEmpty()) {
-                          urlVideoIds.put(url, videoId);
-                      }
-                  } catch (Exception ignored) {}
-              }
-              /* v2.2.101: the shared media SimpleCache (created lazily, once;
-                 null when anything about it fails — playback then runs
-                 exactly as it did before this cache existed). */
-              private synchronized androidx.media3.datasource.cache.SimpleCache mediaCache() {
-                  if (mediaCache != null || mediaCacheTried) return mediaCache;
-                  mediaCacheTried = true;
-                  try {
-                      java.io.File dir = new java.io.File(getCacheDir(), "lm_media_cache");
-                      mediaCache = new androidx.media3.datasource.cache.SimpleCache(dir,
-                              new androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor(MEDIA_CACHE_MAX_BYTES),
-                              new androidx.media3.database.StandaloneDatabaseProvider(this));
-                  } catch (Throwable th) {
-                      android.util.Log.w("LynxosMusic", "Media byte cache unavailable", th);
-                      mediaCache = null;
-                  }
-                  return mediaCache;
-              }
-              /* v2.2.101: read-through/write-through cache data source in
-                 front of the app's usual upstream — normal playback also
-                 populates the cache, and cached spans are served from local
-                 storage even with the network asleep.
-                 v2.2.102: the BLOCK_ON_CACHE flag is GONE. With it set, a
-                 player reading a span another data source was writing (a
-                 byte-prefetch CacheWriter on the same key) WAITED for the
-                 writer instead of streaming — one of the two ways the
-                 cache could stall live playback in v2.2.101. Readers now
-                 never wait on a writer: a locked span falls back to
-                 upstream. FLAG_IGNORE_CACHE_ON_ERROR stays, so a cache
-                 error can never fail a read either. */
-              private androidx.media3.datasource.cache.CacheDataSource.Factory cacheDataSourceFactory() {
-                  try {
-                      androidx.media3.datasource.cache.SimpleCache c = mediaCache();
-                      if (c == null) return null;
-                      return new androidx.media3.datasource.cache.CacheDataSource.Factory()
-                              .setCache(c)
-                              .setUpstreamDataSourceFactory(new androidx.media3.datasource.DefaultDataSource.Factory(this))
-                              .setCacheKeyFactory(lmCacheKeyFactory)
-                              .setFlags(androidx.media3.datasource.cache.CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR);
-                  } catch (Throwable ignored) {}
-                  return null;
-              }
-              /* v2.2.101: build the player with the byte cache in its data
-                 source chain; any failure falls back to the plain player
-                 this app has always used. */
-              private ExoPlayer buildPlayerWithCache() {
-                  try {
-                      androidx.media3.datasource.cache.CacheDataSource.Factory cdf = cacheDataSourceFactory();
-                      if (cdf != null) {
-                          return new ExoPlayer.Builder(this)
-                                  .setMediaSourceFactory(new androidx.media3.exoplayer.source.DefaultMediaSourceFactory(this)
-                                          .setDataSourceFactory(cdf))
-                                  .build();
-                      }
-                  } catch (Throwable th) {
-                      android.util.Log.w("LynxosMusic", "Cache player build failed, using plain player", th);
-                  }
-                  return new ExoPlayer.Builder(this).build();
-              }
-              /* v2.2.102: one queued byte download. It holds its Future
-                 and its live CacheWriter so a track start can cancel it
-                 both documented ways (see cancelByteDownloads):
-                 future.cancel(true) keeps a still-queued task from ever
-                 running, and CacheWriter.cancel() makes a running cache()
-                 bail out with InterruptedIOException at its next check. */
-              private class ByteDownload implements Runnable {
-                  final String reqId;
-                  final String winId;
-                  final String url;
-                  final String key;
-                  final int index;
-                  final long gen;
-                  volatile java.util.concurrent.Future<?> future;
-                  volatile androidx.media3.datasource.cache.CacheWriter writer;
-                  ByteDownload(String reqId, String winId, String url, int index, long gen) {
-                      this.reqId = reqId;
-                      this.winId = winId;
-                      this.url = url;
-                      this.key = "lmvid_" + winId;
-                      this.index = index;
-                      this.gen = gen;
-                  }
-                  @Override public void run() {
-                      try {
-                          /* Abandons if the playhead has moved on and the
-                             track is no longer the next one up. v2.2.102:
-                             the byte window is +1 only (was next-3) — see
-                             queueBytePrefetch. */
-                          if (gen != playGen.get() && (index <= currentIndex || index > currentIndex + 1)) return;
-                          if (index < 0 || index >= queue.size()) return;
-                          Track now = queue.get(index);
-                          if (now == null) return;
-                          String cur = now.videoId;
-                          /* The queue slot must still be this track —
-                             it may hold the requested id, or the
-                             winning id if a play adopted it meanwhile. */
-                          if (cur == null || (!cur.equals(reqId) && !cur.equals(winId))) return;
-                          downloadTrackBytes(this);
-                      } catch (Throwable ignored) {}
-                      finally {
-                          synchronized (byteDownloads) { byteDownloads.remove(this); }
-                      }
-                  }
-              }
-
-              /* v2.2.102: cancel every outstanding byte download — called
-                 at every track start (playAtInternal). A started track's
-                 key must never have a live writer on it: the player
-                 streams that key itself now. And a superseded download
-                 must stop competing for the tablet's flash with the track
-                 that IS playing — three simultaneous full-track writers
-                 were half of the v2.2.101 starvation. Downloads for other
-                 keys are re-queued by the new track's own prefetch pass. */
-              private void cancelByteDownloads() {
-                  try {
-                      java.util.List<ByteDownload> snapshot;
-                      synchronized (byteDownloads) {
-                          snapshot = new java.util.ArrayList<ByteDownload>(byteDownloads);
-                          byteDownloads.clear();
-                      }
-                      for (ByteDownload task : snapshot) {
-                          boolean dropped = false;
-                          try {
-                              androidx.media3.datasource.cache.CacheWriter w = task.writer;
-                              if (w != null) { w.cancel(); dropped = true; }
-                          } catch (Throwable ignored) {}
-                          try {
-                              java.util.concurrent.Future<?> f = task.future;
-                              if (f != null && f.cancel(true)) dropped = true;
-                          } catch (Throwable ignored) {}
-                          if (dropped) diag("bytes cancel key=" + task.key + " (superseded)");
-                      }
-                  } catch (Throwable ignored) {}
-              }
-
-              /* v2.2.101: queue a media-BYTE download for a track whose URL
-                 just resolved (called from the prefetch path). Runs on
-                 byteExec — sequential, behind any earlier downloads, never
-                 on a thread a play resolve waits on. The download writes
-                 under the explicit key "lmvid_<winId>", the same key
-                 lmCacheKeyFactory produces when the player later asks for
-                 this track's URL (via the urlVideoIds mapping), so the
-                 prefetched bytes are what playback finds.
-                 v2.2.102: callers queue bytes for the NEXT track only
-                 (+1). In v2.2.101 the writers for +1/+2/+3 all ran from
-                 second 0 of the playing track, and their combined writes
-                 saturated the tablet's flash until the playing track's
-                 loader starved in bursts — the play/pause-every-few-
-                 seconds regression. One writer for the one boundary that
-                 matters (the next track) keeps the screen-off benefit at
-                 a third of the flash load. */
-              private void queueBytePrefetch(final String reqId, final String winId, final String url,
-                                             final int index, final long gen) {
-                  if (reqId == null || reqId.isEmpty() || winId == null || winId.isEmpty()
-                          || url == null || url.isEmpty()) return;
-                  try {
-                      ByteDownload task = new ByteDownload(reqId, winId, url, index, gen);
-                      synchronized (byteDownloads) {
-                          byteDownloads.add(task);
-                          task.future = byteExec.submit(task);
-                      }
-                  } catch (Throwable ignored) {}
-              }
-              /* v2.2.101: pull one track's bytes into the SimpleCache with
-                 a CacheWriter over the same cache data source the player
-                 uses. The DataSpec carries the explicit videoId key: both
-                 CacheWriter (through the data source's key factory, which
-                 honors an explicit key first) and later playback (through
-                 the URL -> videoId map) resolve to "lmvid_<winId>". A fully
-                 cached track returns quickly; any failure is ignored — this
-                 is an optimization, never a gate on playback.
-                 v2.2.102: start/finish land in the Playback log with the
-                 byte count (summed from the writer's progress listener:
-                 newBytesCached per callback), and the writer is registered
-                 on the owning task while it runs so a track start can
-                 cancel it mid-flight (see cancelByteDownloads). */
-              private void downloadTrackBytes(final ByteDownload task) {
-                  final String key = task.key;
-                  try {
-                      /* v2.2.102: a task cancelled while it was queued or
-                         setting up must not start a writer after all —
-                         cancelByteDownloads may have already passed it by
-                         (its writer was still null at snapshot time). */
-                      if (task.future != null && task.future.isCancelled()) return;
-                      androidx.media3.datasource.cache.CacheDataSource.Factory cdf = cacheDataSourceFactory();
-                      if (cdf == null) return;
-                      androidx.media3.datasource.cache.CacheDataSource cds = cdf.createDataSource();
-                      androidx.media3.datasource.DataSpec spec = new androidx.media3.datasource.DataSpec.Builder()
-                              .setUri(android.net.Uri.parse(task.url))
-                              .setKey(key)
-                              .build();
-                      final long[] pulled = new long[] { 0 };
-                      androidx.media3.datasource.cache.CacheWriter writer =
-                              new androidx.media3.datasource.cache.CacheWriter(cds, spec, null,
-                                      new androidx.media3.datasource.cache.CacheWriter.ProgressListener() {
-                                          @Override public void onProgress(long requestLength, long bytesCached, long newBytesCached) {
-                                              if (newBytesCached > 0) pulled[0] += newBytesCached;
-                                          }
-                                      });
-                      task.writer = writer;
-                      /* v2.2.102: cancelled during setup — stop the writer
-                         before its first byte (cache() then throws
-                         InterruptedIOException immediately). */
-                      if (task.future != null && task.future.isCancelled()) {
-                          try { writer.cancel(); } catch (Throwable ignored) {}
-                      }
-                      diag("bytes start key=" + key);
-                      try {
-                          writer.cache();
-                          diag("bytes done key=" + key + " bytes=" + pulled[0]);
-                      } catch (Throwable th) {
-                          diag("bytes fail key=" + key + " " + shorten(String.valueOf(th)));
-                      } finally {
-                          task.writer = null;
-                      }
-                  } catch (Throwable ignored) {}
-              }
               /* v2.2.98: does this extractor error mean the upload itself is
                  gone (private / removed / unavailable) rather than a blip?
                  Class-name checks cover NewPipe's ContentNotAvailable family;
@@ -2006,9 +1726,6 @@ jobs:
                   String cached = getCachedUrl(videoId);
                   if (cached != null && !cached.isEmpty()) {
                       out.url = cached; out.resolvedVideoId = videoId; out.kind = KIND_OK;
-                      /* v2.2.101: keep the byte-cache URL -> videoId map warm
-                         on the cache-hit path too. */
-                      mapResolvedUrl(cached, videoId);
                       return out;
                   }
                   if (isDeadId(videoId)) {
@@ -2079,15 +1796,6 @@ jobs:
                   } catch (Exception e) {
                       out.kind = KIND_TRANSIENT; out.message = String.valueOf(e);
                   }
-                  /* v2.2.101: every successful resolve files its URL under
-                     the WINNING videoId, so the byte cache can find these
-                     bytes again when the (re-signed) URL comes back as a
-                     playback request. */
-                  if (out.kind == KIND_OK && out.url != null && !out.url.isEmpty()) {
-                      String wid = (out.resolvedVideoId != null && !out.resolvedVideoId.isEmpty())
-                              ? out.resolvedVideoId : videoId;
-                      mapResolvedUrl(out.url, wid);
-                  }
                   if (out.kind == KIND_DEAD) markDeadId(videoId);
                   return out;
               }
@@ -2123,10 +1831,7 @@ jobs:
                      stop this process with the screen off. */
                   diag("service start - " + android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL
                           + " - SDK " + Build.VERSION.SDK_INT + " - batteryExempt=" + batteryExemptStr(this));
-                  /* v2.2.101: player runs through the media-byte cache when
-                     it initializes (see cacheDataSourceFactory); falls back
-                     to the plain builder on any failure. */
-                  player = buildPlayerWithCache();
+                  player = new ExoPlayer.Builder(this).build();
                   /* v2.2.7: media session — routes Bluetooth headset play/pause/next/prev.
                      Next/prev go to the app queue (the player holds one item at a time).
                      v2.2.8: advertise next/prev commands — the single-item player
@@ -2479,9 +2184,7 @@ jobs:
                   /* v2.2.98: shut down the play + resolve executors too. */
                   try { playExec.shutdownNow(); } catch (Exception ignored) {}
                   try { resolveExec.shutdownNow(); } catch (Exception ignored) {}
-                  /* v2.2.101: byte-prefetch executor + session-lock watchdog
-                     die with the service too. */
-                  try { byteExec.shutdownNow(); } catch (Exception ignored) {}
+                  /* v2.2.101: the session-lock watchdog dies with the service too. */
                   try { main.removeCallbacks(lockIdleWatchdog); } catch (Exception ignored) {}
                   /* v2.2.100: drop the play locks with the service. */
                   releasePlayLocks();
@@ -2862,13 +2565,6 @@ jobs:
                      any other play supersedes and discards it. */
                   if (pendingSeekIndex >= 0 && pendingSeekIndex != i) { pendingSeekIndex = -1; pendingSeekMs = 0; }
                   currentIndex = i;
-                  /* v2.2.102: a track start supersedes EVERY outstanding
-                     byte download — including, especially, one for this
-                     very track: its key must never have a live CacheWriter
-                     on it while the player streams the track itself, and
-                     stale writers must stop fighting the playing track for
-                     flash bandwidth (see cancelByteDownloads). */
-                  cancelByteDownloads();
                   final long myGen = playGen.incrementAndGet();
                   currentPlayGen = myGen;
                   /* v2.2.100: (re)arm the play locks for this track — they
@@ -2964,27 +2660,6 @@ jobs:
                                   updateNotification();
                                   UiListener l = ui;
                                   if (l != null) { try { l.onTrackChanged(wantIndex); } catch (Exception ignored) {} }
-                                  /* v2.2.102: how much of this track was
-                                     already in the media cache when it
-                                     started, under the key playback uses —
-                                     the winning id if an alternative upload
-                                     won the resolve, since that is the key
-                                     both the byte prefetch and the player's
-                                     key factory file bytes under. Placed
-                                     here, where the winning id is known.
-                                     Cache.getCachedLength(key, 0, MAX):
-                                     a negative value is minus the length of
-                                     the uncached hole at position 0. This is
-                                     the boundary evidence: bytes present and
-                                     used vs cache missed. */
-                                  try {
-                                      androidx.media3.datasource.cache.SimpleCache cc = mediaCache();
-                                      if (cc != null) {
-                                          String effId = (winId != null && !winId.isEmpty()) ? winId : t.videoId;
-                                          diag("cached key=lmvid_" + effId + " len="
-                                                  + cc.getCachedLength("lmvid_" + effId, 0, Long.MAX_VALUE));
-                                      }
-                                  } catch (Throwable ignored) {}
                                   /* v2.2.101: a started track closes the
                                      boundary story the "track ended" entry
                                      opened. */
@@ -3129,17 +2804,7 @@ jobs:
                   final String vid = pt.videoId;
                   if (vid == null || vid.isEmpty()) return;
                   try {
-                      String cu = getCachedUrl(vid);
-                      /* v2.2.101: URL already warm — the media BYTES may
-                         still be missing (e.g. the play path resolved it),
-                         so queue the byte download for it too.
-                         v2.2.102: bytes for the NEXT track only (i is the
-                         +1 slot) — the +2/+3 slots keep their warm URL but
-                         get no byte download (see queueBytePrefetch). */
-                      if (cu != null) {
-                          if (i == currentIndex + 1) queueBytePrefetch(vid, vid, cu, i, playGen.get());
-                          return;
-                      }
+                      if (getCachedUrl(vid) != null) return;
                   } catch (Exception ignored) {}
                   if (isDeadId(vid)) return;
                   final long gen = playGen.get();
@@ -3156,22 +2821,7 @@ jobs:
                               Track now = queue.get(i);
                               if (now == null || !vid.equals(now.videoId)) return;
                               if (getCachedUrl(vid) != null) return;
-                              ResolveResult prr = resolveShared(vid, pTitle, pChannel);
-                              /* v2.2.101: URL warm — now pull the media
-                                 BYTES into the SimpleCache as well (on
-                                 byteExec, so a slow download never sits on
-                                 a resolve thread), keyed by the WINNING id
-                                 so playback finds them.
-                                 v2.2.102: bytes only if this slot is still
-                                 the NEXT track when the resolve lands — the
-                                 playhead may have moved while resolving, and
-                                 byte-warming anything but +1 was half of
-                                 the v2.2.101 flash saturation. */
-                              if (prr != null && prr.kind == KIND_OK && prr.url != null && !prr.url.isEmpty()) {
-                                  String winId = (prr.resolvedVideoId != null && !prr.resolvedVideoId.isEmpty())
-                                          ? prr.resolvedVideoId : vid;
-                                  if (i == currentIndex + 1) queueBytePrefetch(vid, winId, prr.url, i, gen);
-                              }
+                              resolveShared(vid, pTitle, pChannel);
                           } catch (Throwable ignored) {}
                       }
                   });
