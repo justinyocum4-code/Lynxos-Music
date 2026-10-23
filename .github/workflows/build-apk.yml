@@ -201,6 +201,23 @@ jobs:
                           <category android:name="android.intent.category.BROWSABLE" />
                           <data android:scheme="com.lynxosmusic.app" android:host="auth-callback" />
                       </intent-filter>
+                      <!-- v2.2.106: open YouTube / YouTube Music links in the app.
+                           Deliberately NO autoVerify: Google owns these domains,
+                           so they can never verify as ours — instead they appear
+                           under Settings > Open by default as links the user can
+                           enable, the same checkbox the modded YT Music shows. -->
+                      <intent-filter>
+                          <action android:name="android.intent.action.VIEW" />
+                          <category android:name="android.intent.category.DEFAULT" />
+                          <category android:name="android.intent.category.BROWSABLE" />
+                          <data android:scheme="http" />
+                          <data android:scheme="https" />
+                          <data android:host="music.youtube.com" />
+                          <data android:host="www.youtube.com" />
+                          <data android:host="youtube.com" />
+                          <data android:host="m.youtube.com" />
+                          <data android:host="youtu.be" />
+                      </intent-filter>
                   </activity>
                   <service
                       android:name="com.lynxosmusic.app.MusicService"
@@ -279,6 +296,12 @@ jobs:
               private boolean svcBound = false;
               private boolean pageAlive = false;
               private Runnable pendingSvcAction;
+              /* v2.2.106: a YouTube / YouTube Music link that opened the app
+                 (see the manifest VIEW filter), waiting for the page to pull
+                 it via AudioBridge.getPendingSharedLink(). In-memory only —
+                 a cold start delivers it through onCreate's intent anyway,
+                 and the pull clears it so it is handled exactly once. */
+              private volatile String pendingSharedLink = "";
 
               private final ServiceConnection svcConn = new ServiceConnection() {
                   @Override public void onServiceConnected(ComponentName name, IBinder binder) {
@@ -312,6 +335,38 @@ jobs:
                       if (Build.VERSION.SDK_INT >= 26) startForegroundService(svc);
                       else startService(svc);
                       bindService(svc, svcConn, Context.BIND_AUTO_CREATE);
+                  } catch (Exception ignored) {}
+              }
+
+              /* v2.2.106: capture a shared YouTube link from an incoming
+                 intent. The manifest filter already constrains what reaches
+                 us, but re-check defensively: only http(s) on one of the
+                 five YouTube hosts is stashed (the OAuth scheme and anything
+                 else is ignored). On a warm start the page is already loaded,
+                 so also push — the page pulls the URL back through the
+                 bridge either way, keeping one handling code path. */
+              private void captureSharedLink(Intent intent, boolean push) {
+                  try {
+                      if (intent == null) return;
+                      Uri data = intent.getData();
+                      if (data == null) return;
+                      String scheme = data.getScheme();
+                      if (!"http".equals(scheme) && !"https".equals(scheme)) return;
+                      String host = data.getHost();
+                      if (host == null) return;
+                      host = host.toLowerCase(java.util.Locale.US);
+                      if (!host.equals("music.youtube.com") && !host.equals("www.youtube.com") &&
+                          !host.equals("youtube.com") && !host.equals("m.youtube.com") &&
+                          !host.equals("youtu.be")) return;
+                      pendingSharedLink = data.toString();
+                      if (push && webView != null) {
+                          webView.post(new Runnable() {
+                              @Override public void run() {
+                                  try { webView.evaluateJavascript("window.lmHandleSharedLink && window.lmHandleSharedLink()", null); }
+                                  catch (Exception ignored) {}
+                              }
+                          });
+                      }
                   } catch (Exception ignored) {}
               }
 
@@ -919,6 +974,15 @@ jobs:
                   @JavascriptInterface public String getPlaybackLog() {
                       return MusicService.diagDump(MainActivity.this);
                   }
+                  /* v2.2.106: the page pulls a shared YouTube link exactly
+                     once — the cold-start init call, the visibility return,
+                     and the native warm-start push all funnel here. Returns
+                     "" when no link is waiting. */
+                  @JavascriptInterface public String getPendingSharedLink() {
+                      String s = pendingSharedLink;
+                      pendingSharedLink = "";
+                      return s == null ? "" : s;
+                  }
                   /* v2.2.101: battery-exemption state for the Settings row —
                      the same PowerManager check onCreate's prompt uses. */
                   @JavascriptInterface public boolean isBatteryExempt() {
@@ -1022,6 +1086,9 @@ jobs:
                           }, 2000);
                       }
                   } catch (Exception ignored) {}
+                  /* v2.2.106: cold start from a shared YouTube link — stash
+                     it now; the page pulls it on init via the bridge. */
+                  captureSharedLink(getIntent(), false);
                   /* v2.2.72: Pre-warm Python in background so home screen doesn't freeze
                      waiting for the interpreter to boot on first use. */
                   new Thread(new Runnable() {
@@ -1216,6 +1283,9 @@ jobs:
               protected void onNewIntent(Intent intent) {
                   super.onNewIntent(intent);
                   setIntent(intent);
+                  /* v2.2.106: warm start from a shared YouTube link — stash
+                     it and push the already-loaded page to pull it. */
+                  captureSharedLink(intent, true);
                   /* v2.2.69: Forward OAuth deep link to JS */
                   try {
                       android.net.Uri uri = intent.getData();
@@ -1597,6 +1667,47 @@ jobs:
                       }
                   } catch (Exception ignored) {}
               }
+              /* v2.2.106: stream-URL inspection. A googlevideo URL declares
+                 what it is in its own query string (itag + mime); HLS audio
+                 rides a manifest URL instead. describeStreamUrl builds the
+                 Playback log's per-resolve evidence line, and
+                 isVideoStreamUrl backs the video-stream gate in
+                 resolveShared — the choke point every playable URL passes
+                 (see the gate comment there). All parsing is defensive:
+                 an unparseable URL describes as "?" and is never "video",
+                 so inspection can never fail a resolve that works today. */
+              private static String streamParam(String url, String key) {
+                  try {
+                      if (url == null) return "";
+                      int q = url.indexOf(key + "=");
+                      if (q < 0) return "";
+                      int s = q + key.length() + 1;
+                      int e = url.indexOf('&', s);
+                      String v = (e < 0) ? url.substring(s) : url.substring(s, e);
+                      return java.net.URLDecoder.decode(v, "UTF-8");
+                  } catch (Exception ignored) { return ""; }
+              }
+              private static boolean isHlsStreamUrl(String url) {
+                  if (url == null) return false;
+                  return url.contains("manifest.googlevideo.com") || url.contains("/api/manifest/")
+                          || url.contains(".m3u8");
+              }
+              private static boolean isVideoStreamUrl(String url) {
+                  if (url == null || url.isEmpty()) return false;
+                  /* HLS here is YouTube's audio-only variant delivery
+                     (itags 233/234); it carries no mime parameter, and
+                     rejecting it would break a legitimate audio path. */
+                  if (isHlsStreamUrl(url)) return false;
+                  return streamParam(url, "mime").startsWith("video/");
+              }
+              private static String describeStreamUrl(String url) {
+                  if (url == null || url.isEmpty()) return "itag=? mime=?";
+                  if (isHlsStreamUrl(url)) return "hls";
+                  String itag = streamParam(url, "itag");
+                  String mime = streamParam(url, "mime");
+                  String kind = mime.startsWith("audio/") ? "audio" : (mime.startsWith("video/") ? "video" : "?");
+                  return "itag=" + (itag.isEmpty() ? "?" : itag) + " mime=" + kind;
+              }
               /* v2.2.98: negative-cache helpers (see deadIds above). */
               private boolean isDeadId(String videoId) {
                   try {
@@ -1779,8 +1890,19 @@ jobs:
                   if (videoId == null || videoId.isEmpty()) { out.message = "No video id"; return out; }
                   String cached = getCachedUrl(videoId);
                   if (cached != null && !cached.isEmpty()) {
-                      out.url = cached; out.resolvedVideoId = videoId; out.kind = KIND_OK;
-                      return out;
+                      /* v2.2.106: the video-stream gate covers cache hits
+                         too — a URL cached by an older build must never
+                         reach the player if it declares video. A rejected
+                         hit is evicted and the resolve falls through to a
+                         fresh extraction. */
+                      if (isVideoStreamUrl(cached)) {
+                          diag("resolve rejected video stream " + describeStreamUrl(cached));
+                          clearCachedUrl(videoId);
+                      } else {
+                          diag("resolve cache " + describeStreamUrl(cached));
+                          out.url = cached; out.resolvedVideoId = videoId; out.kind = KIND_OK;
+                          return out;
+                      }
                   }
                   if (isDeadId(videoId)) {
                       out.kind = KIND_DEAD; out.message = "Upload known to be gone";
@@ -1792,6 +1914,26 @@ jobs:
                       @Override public ResolveResult call() {
                           try {
                               ResolveResult r = resolveAudioUrl(videoId, title, artist);
+                              /* v2.2.106: VIDEO-STREAM GATE — the choke point.
+                                 resolveShared is the only road a stream URL
+                                 can take to the player (playAtInternal, the
+                                 native floor, and prefetch all consume its
+                                 result; nothing else sets a media item). A
+                                 URL that declares a video mime — the muxed
+                                 file a poisoned fallback can hand back, which
+                                 fits the Z-Ro album's starvation arithmetic
+                                 exactly — is converted here into an ordinary
+                                 TRANSIENT failure BEFORE the cache write
+                                 below, so it is never cached, never played,
+                                 and the caller's usual next-option machinery
+                                 (page candidates, floor advance) proceeds
+                                 exactly as for any failed resolve. */
+                              if (r != null && r.kind == KIND_OK && isVideoStreamUrl(r.url)) {
+                                  diag("resolve rejected video stream " + describeStreamUrl(r.url));
+                                  r.kind = KIND_TRANSIENT;
+                                  r.message = "Rejected a video stream";
+                                  r.url = null;
+                              }
                               try {
                                   if (r != null && r.kind == KIND_OK && r.url != null && !r.url.isEmpty()) {
                                       /* Cache under the WINNING id — an alternative
@@ -1842,7 +1984,16 @@ jobs:
                       if (deadlineMs > RESOLVE_DEADLINE_MS) {
                           try { late = getCachedUrl(videoId); } catch (Exception ignored) {}
                       }
+                      /* v2.2.106: the late cache re-check passes the same
+                         gate as every other exit (defense in depth — the
+                         owning task already gates before it caches). */
+                      if (late != null && !late.isEmpty() && isVideoStreamUrl(late)) {
+                          diag("resolve rejected video stream " + describeStreamUrl(late));
+                          try { clearCachedUrl(videoId); } catch (Exception ignored) {}
+                          late = null;
+                      }
                       if (late != null && !late.isEmpty()) {
+                          diag("resolve cache " + describeStreamUrl(late));
                           out.url = late; out.resolvedVideoId = videoId; out.kind = KIND_OK;
                       } else {
                           out.kind = KIND_TRANSIENT; out.message = "Resolve timed out";
@@ -3184,7 +3335,11 @@ jobs:
                           }
                       }
                       if (best != null) {
-                          android.util.Log.i("LynxosMusic", "NewPipe fast-path OK for " + videoId + " (abr=" + best.getAverageBitrate() + ")");
+                          /* v2.2.106: this line is a diag() now — in v2.2.105
+                             it went to Log.i (logcat) only, so the picked
+                             weight never reached the Settings Playback log
+                             Justin can actually read back. */
+                          diag("resolve newpipe abr=" + best.getAverageBitrate() + " " + describeStreamUrl(best.getUrl()));
                           out.url = best.getUrl();
                           out.kind = KIND_OK;
                           return out;
@@ -3199,6 +3354,10 @@ jobs:
                   catch (Exception e) { android.util.Log.w("LynxosMusic", "Python yt-dlp failed for " + videoId, e); }
                   if (py != null && py.url != null && !py.url.isEmpty()) {
                       android.util.Log.i("LynxosMusic", "Got stream URL via Python yt-dlp for " + videoId);
+                      /* v2.2.106: the Python producer's Playback-log line —
+                         which door a heavy stream came through is the whole
+                         point of the log. */
+                      diag("resolve python " + describeStreamUrl(py.url));
                       return py;
                   }
                   /* Both layers failed — classify, preserving the real reason. */
