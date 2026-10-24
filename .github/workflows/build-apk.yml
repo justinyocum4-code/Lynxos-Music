@@ -1102,14 +1102,27 @@ jobs:
                      it now; the page pulls it on init via the bridge. */
                   captureSharedLink(getIntent(), false);
                   /* v2.2.72: Pre-warm Python in background so home screen doesn't freeze
-                     waiting for the interpreter to boot on first use. */
-                  new Thread(new Runnable() {
-                      @Override public void run() {
-                          try {
-                              ytmBridgeInstance.warmup();
-                          } catch (Exception ignored) {}
-                      }
-                  }).start();
+                     waiting for the interpreter to boot on first use.
+                     v2.2.114: skipped on TV. Booting the interpreter is
+                     the largest single RAM/CPU spike of the first minute,
+                     and a Fire TV Stick has 1-2 GB total — stacked on the
+                     WebView's first big render it is exactly the kind of
+                     peak that gets a renderer (or the app) killed there.
+                     Python still starts lazily on first real need
+                     (ensurePython runs inside every bridge call and in
+                     the service's resolve fallback); the first
+                     Python-backed screen on TV may populate a little
+                     slower — an acceptable trade against dying in
+                     minute one. Non-TV devices keep the warmup. */
+                  if (!isTvDevice(this)) {
+                      new Thread(new Runnable() {
+                          @Override public void run() {
+                              try {
+                                  ytmBridgeInstance.warmup();
+                              } catch (Exception ignored) {}
+                          }
+                      }).start();
+                  }
                   webView.setWebViewClient(new WebViewClient() {
                       @Override
                       public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
@@ -1132,6 +1145,27 @@ jobs:
                       @Override
                       public void onPageFinished(WebView view, String url) {
                           pageAlive = true;
+                      }
+                      @Override
+                      public boolean onRenderProcessGone(WebView view, android.webkit.RenderProcessGoneDetail detail) {
+                          /* v2.2.114: without this override, a dead
+                             WebView renderer takes the whole app down
+                             with it — on a 1-2 GB Fire TV Stick the
+                             renderer is the most likely casualty of the
+                             first minute's memory peak, and the death is
+                             silent (no crash report; the app just
+                             closes). Reload the page exactly the way the
+                             initial load below does it — same base URL,
+                             same asset — and return true to report the
+                             event handled, so a renderer kill becomes a
+                             brief page reload instead of an app death.
+                             (The callback is API 26+; as a WebViewClient
+                             override it is simply never invoked on the
+                             older runtimes the app still supports.) */
+                          try {
+                              view.loadDataWithBaseURL(BASE_URL, readAsset("www/index.html"), "text/html", "UTF-8", null);
+                          } catch (Exception ignored) {}
+                          return true;
                       }
                   });
                   // v1.8.1 fix, folded into v1.9: <input type="file"> in a WebView
@@ -1200,6 +1234,26 @@ jobs:
                   }
               }
 
+              /* v2.2.114: the ONE TV detection for the whole app —
+                 MusicService delegates here so native TV decisions can
+                 never disagree. Signals: the leanback system feature
+                 (every Android TV / Fire TV declares it) OR the UI mode
+                 manager reporting a television. Both are old APIs, safe
+                 on the Fire Stick's API 28 and everywhere else the app
+                 runs. The page's own IS_TV (UA + touch heuristics) is a
+                 separate, presentation-layer decision and stays as is. */
+              static boolean isTvDevice(Context ctx) {
+                  try {
+                      if (ctx == null) return false;
+                      if (ctx.getPackageManager().hasSystemFeature("android.software.leanback")) return true;
+                      android.app.UiModeManager um = (android.app.UiModeManager)
+                              ctx.getSystemService(Context.UI_MODE_SERVICE);
+                      if (um != null && um.getCurrentModeType()
+                              == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION) return true;
+                  } catch (Throwable ignored) {}
+                  return false;
+              }
+
               // v1.9.1 crash capture: if anything in the app process dies
               // (player service included), save the stack trace. On the next
               // launch it is shown in a dialog so it can be read back.
@@ -1220,6 +1274,33 @@ jobs:
                               fw.write(sb.toString());
                               fw.close();
                           } catch (Exception ignored) {}
+                          /* v2.2.114: mirror a one-line summary into the
+                             Playback log's ring, so the crash's reason is
+                             readable in Settings on the next launch —
+                             lm_crash.log keeps the full stack but is not
+                             user-readable on a TV. This calls the service's
+                             own MusicService.diagLog, i.e. the very code
+                             that writes every other Playback log line: same
+                             "lm_diag" prefs file, same "entries" key, same
+                             "HH:mm:ss <event>" format (diagLog adds the
+                             timestamp), same 50-line cap — the format
+                             matches by construction, not by copying. The
+                             message is flattened because the ring is
+                             newline-split. The trailing empty commit()
+                             forces the ring's apply() write onto disk
+                             before the process dies with the exception.
+                             Best-effort twice over: a crash handler must
+                             never throw. */
+                          try {
+                              String msg = String.valueOf(e.getMessage());
+                              msg = msg.replace('\n', ' ').replace('\r', ' ');
+                              if (msg.length() > 120) msg = msg.substring(0, 120);
+                              MusicService.diagLog(MainActivity.this,
+                                      "crash " + e.getClass().getSimpleName() + ": " + msg);
+                              try {
+                                  getSharedPreferences("lm_diag", Context.MODE_PRIVATE).edit().commit();
+                              } catch (Throwable ignored2) {}
+                          } catch (Throwable ignored) {}
                           if (prev != null) {
                               try { prev.uncaughtException(t, e); } catch (Exception ignored) {}
                           }
@@ -1787,13 +1868,18 @@ jobs:
               }
               /* v2.2.104: is this keycode a media key the session layer
                  would otherwise apply its own default handling to?
-                 On API 29+ the framework's own test (KeyEvent
+                 On API 31+ the framework's own test (KeyEvent
                  .isMediaSessionKey — "will be sent to the MediaSession
                  .Callback if not handled") decides; below that, and as an
                  extension on every level, the explicit transport list
                  applies (the constants are compile-time inlined ints, so
                  naming newer ones is safe on old devices). Used by
-                 onMediaButtonEvent's consume-everything default branch. */
+                 onMediaButtonEvent's consume-everything default branch.
+                 v2.2.114: the guard was >= 29, but isMediaSessionKey is
+                 an API 31 method — on API 29/30 the call would have
+                 thrown NoSuchMethodError (the catch below swallowed it,
+                 degrading to the explicit list; on API 28 the guard
+                 already excluded it). Guard corrected to >= 31. */
               private static boolean isMediaKeyCode(int kc) {
                   switch (kc) {
                       case KeyEvent.KEYCODE_MEDIA_PLAY:
@@ -1818,7 +1904,7 @@ jobs:
                           break;
                   }
                   try {
-                      if (Build.VERSION.SDK_INT >= 29) return KeyEvent.isMediaSessionKey(kc);
+                      if (Build.VERSION.SDK_INT >= 31) return KeyEvent.isMediaSessionKey(kc);
                   } catch (Throwable ignored) {}
                   return false;
               }
@@ -1882,6 +1968,14 @@ jobs:
                       }
                   } catch (Throwable ignored) {}
                   return "";
+              }
+              /* v2.2.114: TV detection delegates to the ONE implementation
+                 in MainActivity (leanback feature OR television UI mode),
+                 so the activity-side and service-side TV decisions can
+                 never disagree. Used for the TV resolve patience below
+                 and reported on the service-start diag line. */
+              private boolean isTvDevice() {
+                  return MainActivity.isTvDevice(this);
               }
               private static String batteryExemptStr(Context ctx) {
                   try {
@@ -2204,6 +2298,16 @@ jobs:
               private volatile long bankBufferedAheadMs = 0;
               private volatile boolean bankPlayerWants = false;
               private volatile boolean bankYielding = false;
+              /* v2.2.114: count of play-path resolves in flight
+                 (playAtInternal's resolveShared wait, marked there).
+                 Play resolves and bank resolves share the resolveExec
+                 pool; while a play resolve runs, the bank loop yields
+                 before starting each item and bankYieldNow() reports
+                 yield, so a bank resolve queued ahead of a tap can't
+                 eat the tap's whole deadline on a slow device (the TV
+                 "Connection hiccup" mechanism — audit H2). */
+              private final java.util.concurrent.atomic.AtomicInteger playResolveInFlight =
+                      new java.util.concurrent.atomic.AtomicInteger(0);
               private volatile List<Track> browseBank;
 
               /* v2.2.111: a "head" is the first BANK_HEAD_BYTES of a
@@ -2435,6 +2539,10 @@ jobs:
               }
 
               private boolean bankYieldNow() {
+                  /* v2.2.114: a play resolve in flight yields regardless
+                     of the buffer state — the shared resolveExec pool is
+                     the contended resource there, not the pipe. */
+                  if (playResolveInFlight.get() > 0) return true;
                   /* The player gets the pipe to itself while it is trying
                      to play and holds less than 25 s of buffered-ahead.
                      Paused / idle: the writer may run freely (that is the
@@ -2498,6 +2606,20 @@ jobs:
                      the pass (see bankLoop). */
                   final java.util.Set<String> failedSet = t.head ? failedHeads : failedFills;
                   if (t.head ? isHeadBanked(t.videoId) : isBanked(t.videoId)) return;
+                  /* v2.2.114: yield BEFORE this item's resolve while a
+                     play resolve is in flight (see playResolveInFlight) —
+                     starting a bank resolve here would put it ahead of
+                     the tap's resolve in the shared pool. The wait uses
+                     the same yield-state logging as the download loop
+                     below (setBankYield), so an episode logs one 'bank
+                     yield' / 'bank resume' pair, not a line per poll.
+                     Play resolves are deadline-bounded (15/60 s) and the
+                     marker clears in a finally, so this wait always ends. */
+                  while (playResolveInFlight.get() > 0) {
+                      if (!stillWanted(t)) { bankYielding = false; return; }
+                      setBankYield(true);
+                      try { Thread.sleep(300); } catch (Exception ignored) {}
+                  }
                   /* Resolves go through the same choke point as playback:
                      single-flight, video-mime rejection, diag logging. A
                      failed resolve aborts this bank cleanly. */
@@ -2610,7 +2732,8 @@ jobs:
                      Playback log can show whether the OS layer was free to
                      stop this process with the screen off. */
                   diag("service start - " + android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL
-                          + " - SDK " + Build.VERSION.SDK_INT + " - batteryExempt=" + batteryExemptStr(this));
+                          + " - SDK " + Build.VERSION.SDK_INT + " - batteryExempt=" + batteryExemptStr(this)
+                          + " - tv=" + (isTvDevice() ? "yes" : "no"));
                   /* v2.2.105: deeper buffer — his connection delivers
                      ~35 KB/s in bursts, and the stock load control only
                      asks for ~5s of audio before resuming after a stall,
@@ -3262,6 +3385,22 @@ jobs:
                       }
                   });
                   createChannel();
+                  /* v2.2.114: satisfy the startForegroundService contract
+                     HERE, at creation — not at first play. Since v2.2.110
+                     the service can be FGS-started by BROWSING: opening an
+                     album, playlist or Liked Songs fires bankBrowse, whose
+                     bridge call starts this service, and until now the only
+                     startForeground call in the service lived in
+                     playAtInternal. A browse-first cold start (the Fire TV
+                     pattern: cold process, long sign-in detour, then a list
+                     open) therefore never went foreground, and the system
+                     killed the process ~5 s later (RemoteServiceException)
+                     — the TV "force closes by itself" report. The tablet
+                     hid it: its process stays warm and its flow plays
+                     first. buildNotification tolerates a null track (the
+                     title falls back to "Lynxos Music"), and playAtInternal
+                     re-posts with the real track when a play lands. */
+                  goForeground(null, true);
                   main.post(progressTick);
               }
 
@@ -3712,7 +3851,16 @@ jobs:
                  deadline, and for tap plays the page's own recovery stays
                  the only recovery — nobody is stranded if a tap's resolve
                  fails, the user is right there. At a track boundary with
-                 the screen off, there may be nobody awake at all. */
+                 the screen off, there may be nobody awake at all.
+                 v2.2.114: on a TV the tap gets the long deadline too —
+                 the Fire Stick's slower CPU and TV-shadowed Wi-Fi made
+                 the 15 s budget expire on every tap (a multi-request
+                 NewPipe fetch plus a cold Python leg cannot fit it),
+                 and every expiry is TRANSIENT, so the page spoke
+                 "Connection hiccup. Retrying" for every song while the
+                 tablet resolved inside the budget. The resolve below
+                 also marks playResolveInFlight so the bank loop yields
+                 the shared resolver pool to it (audit H1 + H2). */
               private void playAtInternal(int i, boolean fromAdvance) {
                   if (player == null || i < 0 || i >= queue.size()) return;
                   /* v2.2.100: focus hygiene — a track change is a fresh
@@ -3764,8 +3912,19 @@ jobs:
                               if (landingPlayGen == myGen) landingPlayGen = -1;
                               return;
                           }
-                          final ResolveResult rr = resolveShared(t.videoId, t.title, t.channel,
-                                  adv ? ADVANCE_RESOLVE_DEADLINE_MS : RESOLVE_DEADLINE_MS);
+                          /* v2.2.114: TV tap plays get the advance deadline
+                             (60 s) — see the method comment; the marker
+                             makes the bank loop yield the shared resolver
+                             pool to this wait and clears in a finally, so
+                             even a blown deadline can't wedge banking. */
+                          playResolveInFlight.incrementAndGet();
+                          final ResolveResult rr;
+                          try {
+                              rr = resolveShared(t.videoId, t.title, t.channel,
+                                      (adv || isTvDevice()) ? ADVANCE_RESOLVE_DEADLINE_MS : RESOLVE_DEADLINE_MS);
+                          } finally {
+                              playResolveInFlight.decrementAndGet();
+                          }
                           main.post(new Runnable() {
                               @Override public void run() {
                                   /* v2.2.108: landed or failed — the landing
