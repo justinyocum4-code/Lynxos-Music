@@ -2151,11 +2151,21 @@ jobs:
                    computation, both paths).
                  - The banking worker below (single thread, at most one
                    CacheWriter download at a time; total network users:
-                   the player + this writer) banks the effective next
-                   track IN FULL, then the one after it. Targets always
-                   derive from the freshest queue state; any queue-context
-                   change bumps bankEpoch and cancels the in-flight writer,
-                   and a stale target is abandoned, never finished.
+                   the player + this writer) works HEAD-FIRST
+                   (v2.2.111): phase 1 banks just the first
+                   BANK_HEAD_BYTES of each of the next four tracks after
+                   the current one, phase 2 fills those tracks to full
+                   in the same order. Whole-track-only banking (the
+                   v2.2.110 model) lost to a listener skipping faster
+                   than a full track downloads — every skip landed on an
+                   unbanked song. A head is a fifth of a track, so four
+                   heads land in the time one fill took, and a skip onto
+                   a head-banked track starts from disk instantly with
+                   the head as runway while the rest streams in. Targets
+                   always derive from the freshest queue state; any
+                   queue-context change bumps bankEpoch and cancels the
+                   in-flight writer, and a stale target is abandoned,
+                   never finished.
                  - YIELD POLICY: while the player wants to play and its
                    buffered-ahead (snapshotted by progressTick on the main
                    thread) is below 25 s, the writer must not download —
@@ -2164,17 +2174,25 @@ jobs:
                    spans persist, so resuming continues where it stopped).
                    Only state changes are logged: 'bank yield' /
                    'bank resume'.
-                 - Completion is verified before it is claimed: 'banked
-                   idx=<n>' only after CacheWriter.cache() returns (and,
-                   when the content length is known, the cached bytes
-                   cover it). Failures log 'bank failed idx=<n>' and are
-                   not retried until the next natural trigger (track start,
-                   queue push, album-open signal) starts a fresh pass.
-                 - Album-open browse banking: bankBrowse() hands the
-                   worker an opened album's first two tracks. Browse
-                   targets are attempted ONLY when the playing queue has
-                   nothing left to bank — the playing queue always wins;
-                   browse fills an idle worker and never displaces it. */
+                 - Completion is verified before it is claimed: 'bank
+                   head idx=<n>' for a head, 'banked idx=<n>' for a full
+                   track — each only after CacheWriter.cache() returns
+                   (and, when the content length is known, the cached
+                   bytes cover the claimed range). Failures log 'bank
+                   failed idx=<n>' and are not retried until the next
+                   natural trigger (track start, queue push, browse-open
+                   signal) starts a fresh pass with fresh failure sets —
+                   so a head that fails in one pass never blacklists its
+                   track's fill in a later pass.
+                 - Browse banking: bankBrowse() hands the worker an
+                   opened album's, playlist's, or Liked Songs' first
+                   four tracks as a browse context. The worker banks the
+                   heads of all four, then fills of the first two only
+                   (deeper fills are the play chain's job once playback
+                   starts). Browse work is attempted ONLY when the
+                   playing queue has nothing left to bank — the playing
+                   queue always wins; browse fills an idle worker and
+                   never displaces it. */
               private final ExecutorService bankExec = Executors.newSingleThreadExecutor();
               private final java.util.concurrent.atomic.AtomicBoolean bankRunning =
                       new java.util.concurrent.atomic.AtomicBoolean(false);
@@ -2188,6 +2206,14 @@ jobs:
               private volatile boolean bankYielding = false;
               private volatile List<Track> browseBank;
 
+              /* v2.2.111: a "head" is the first BANK_HEAD_BYTES of a
+                 track, cached under the track's usual stable key. At the
+                 capped ~70 kbps stream weight this is roughly 58 s of
+                 audio (512000 bytes x 8 / 70000 bps) — a skip landing on
+                 it starts from disk instantly and gets that much runway
+                 while the remainder streams in behind it. */
+              private static final long BANK_HEAD_BYTES = 512000L;
+
               private static class BankTarget {
                   final int idx;
                   final String videoId;
@@ -2195,9 +2221,13 @@ jobs:
                   final String artist;
                   final boolean browse;
                   final long epoch;
-                  BankTarget(int idx, String videoId, String title, String artist, boolean browse, long epoch) {
+                  /* v2.2.111: true = head item (first BANK_HEAD_BYTES
+                     only), false = fill item (the whole track). */
+                  final boolean head;
+                  BankTarget(int idx, String videoId, String title, String artist, boolean browse, long epoch, boolean head) {
                       this.idx = idx; this.videoId = videoId; this.title = title;
                       this.artist = artist; this.browse = browse; this.epoch = epoch;
+                      this.head = head;
                   }
               }
 
@@ -2239,15 +2269,19 @@ jobs:
                   }
               }
 
-              /* Album-open signal (page -> AudioBridge.bankBrowse): the
-                 first two tracks of an opened album/playlist, as a browse
-                 context — NOT a play. Stored capped at two; the worker
-                 banks them only when the playing queue leaves it idle. */
+              /* Browse-open signal (page -> AudioBridge.bankBrowse): the
+                 first four tracks of an opened album, playlist, or Liked
+                 Songs list, as a browse context — NOT a play. Stored
+                 capped at four; the worker banks them (heads of all
+                 four, then fills of the first two) only when the playing
+                 queue leaves it idle. The 4-track cap lives here in the
+                 service: the bridge in MainActivity is a pure
+                 pass-through and the page may send more. */
               public void bankBrowse(String tracksJson) {
                   try {
                       List<Track> parsed = parseTracks(tracksJson);
                       List<Track> first = new ArrayList<>();
-                      for (int i = 0; i < parsed.size() && first.size() < 2; i++) {
+                      for (int i = 0; i < parsed.size() && first.size() < 4; i++) {
                           Track tr = parsed.get(i);
                           if (tr != null && tr.videoId != null && !tr.videoId.isEmpty()) first.add(tr);
                       }
@@ -2293,39 +2327,75 @@ jobs:
               }
 
               private void bankLoop() {
-                  /* One pass. A target that fails in this pass is not
+                  /* One pass. A work item that fails in this pass is not
                      retried within it; the next natural trigger starts a
-                     fresh pass with a fresh failed set. */
-                  java.util.Set<String> failedThisPass = new java.util.HashSet<>();
+                     fresh pass with fresh failure sets. Heads and fills
+                     keep SEPARATE failure sets, and both sets die with
+                     the pass — a head that fails here cannot blacklist
+                     its track's fill in a later pass. */
+                  java.util.Set<String> failedHeads = new java.util.HashSet<>();
+                  java.util.Set<String> failedFills = new java.util.HashSet<>();
                   while (true) {
-                      BankTarget t = nextBankTarget(failedThisPass);
+                      BankTarget t = nextBankWork(failedHeads, failedFills);
                       if (t == null) return;
-                      bankOne(t, failedThisPass);
+                      bankOne(t, failedHeads, failedFills);
                   }
               }
 
-              /* The freshest target, or null when there is nothing to do.
-                 Playing queue first: the effective next after the current
-                 track, then the one after that (same repeat-aware walk
-                 the preload window uses, minus the currently playing
-                 track itself). Browse targets only when the playing
-                 queue yields nothing — it always wins. */
-              private BankTarget nextBankTarget(java.util.Set<String> failed) {
+              /* The next four indices after the current track, walking
+                 the same repeat-aware effective-next step the preload
+                 window uses (repeat-one returns -1, so the walk — and
+                 play-chain banking — is suppressed exactly like the
+                 window; repeat-all wraps and the seen-set stops the
+                 walk from revisiting the current track on short
+                 queues). */
+              private java.util.List<Integer> bankWalk() {
+                  java.util.List<Integer> walk = new ArrayList<>();
+                  try {
+                      if (currentIndex < 0 || currentIndex >= queue.size()) return walk;
+                      java.util.Set<Integer> seen = new java.util.HashSet<>();
+                      seen.add(currentIndex);
+                      int n = currentIndex;
+                      for (int i = 0; i < 4; i++) {
+                          n = effectiveNextIndex(n);
+                          if (n < 0 || seen.contains(n)) break;
+                          seen.add(n);
+                          walk.add(n);
+                      }
+                  } catch (Exception ignored) {}
+                  return walk;
+              }
+
+              /* The freshest work item, or null when there is nothing
+                 to do. Order: play-chain HEADS (+1..+4), play-chain
+                 FILLS (+1..+4), browse HEADS (tracks 1-4), browse FILLS
+                 (tracks 1-2 only). An item is skipped when its track
+                 already satisfies it or failed (in either set) earlier
+                 this pass — a track whose head failed this pass waits
+                 for the next pass for its fill too, since the failure
+                 would just repeat on the full download. Browse work
+                 only surfaces when the play chain yields nothing — it
+                 always wins. */
+              private BankTarget nextBankWork(java.util.Set<String> failedHeads,
+                                              java.util.Set<String> failedFills) {
                   long ep = bankEpoch.get();
                   try {
-                      if (currentIndex >= 0 && currentIndex < queue.size()) {
-                          int n1 = effectiveNextIndex(currentIndex);
-                          int[] chain = { n1, (n1 >= 0 ? effectiveNextIndex(n1) : -1) };
-                          for (int k = 0; k < chain.length; k++) {
-                              int idx = chain[k];
-                              if (idx < 0 || idx >= queue.size() || idx == currentIndex) continue;
-                              if (idx == chain[0] && k == 1) continue;
-                              Track tr = queue.get(idx);
-                              if (tr == null || tr.videoId == null || tr.videoId.isEmpty()) continue;
-                              if (failed.contains(tr.videoId)) continue;
-                              if (isBanked(tr.videoId)) continue;
-                              return new BankTarget(idx, tr.videoId, tr.title, tr.channel, false, ep);
-                          }
+                      java.util.List<Integer> walk = bankWalk();
+                      for (int k = 0; k < walk.size(); k++) {
+                          int idx = walk.get(k);
+                          Track tr = queue.get(idx);
+                          if (tr == null || tr.videoId == null || tr.videoId.isEmpty()) continue;
+                          if (failedHeads.contains(tr.videoId) || failedFills.contains(tr.videoId)) continue;
+                          if (isHeadBanked(tr.videoId)) continue;
+                          return new BankTarget(idx, tr.videoId, tr.title, tr.channel, false, ep, true);
+                      }
+                      for (int k = 0; k < walk.size(); k++) {
+                          int idx = walk.get(k);
+                          Track tr = queue.get(idx);
+                          if (tr == null || tr.videoId == null || tr.videoId.isEmpty()) continue;
+                          if (failedHeads.contains(tr.videoId) || failedFills.contains(tr.videoId)) continue;
+                          if (isBanked(tr.videoId)) continue;
+                          return new BankTarget(idx, tr.videoId, tr.title, tr.channel, false, ep, false);
                       }
                   } catch (Exception ignored) {}
                   try {
@@ -2334,9 +2404,16 @@ jobs:
                           for (int i = 0; i < bb.size(); i++) {
                               Track tr = bb.get(i);
                               if (tr == null || tr.videoId == null || tr.videoId.isEmpty()) continue;
-                              if (failed.contains(tr.videoId)) continue;
+                              if (failedHeads.contains(tr.videoId) || failedFills.contains(tr.videoId)) continue;
+                              if (isHeadBanked(tr.videoId)) continue;
+                              return new BankTarget(i, tr.videoId, tr.title, tr.channel, true, ep, true);
+                          }
+                          for (int i = 0; i < bb.size() && i < 2; i++) {
+                              Track tr = bb.get(i);
+                              if (tr == null || tr.videoId == null || tr.videoId.isEmpty()) continue;
+                              if (failedHeads.contains(tr.videoId) || failedFills.contains(tr.videoId)) continue;
                               if (isBanked(tr.videoId)) continue;
-                              return new BankTarget(i, tr.videoId, tr.title, tr.channel, true, ep);
+                              return new BankTarget(i, tr.videoId, tr.title, tr.channel, true, ep, false);
                           }
                       }
                   } catch (Exception ignored) {}
@@ -2394,30 +2471,69 @@ jobs:
                   return false;
               }
 
-              private void bankOne(final BankTarget t, java.util.Set<String> failedThisPass) {
-                  if (isBanked(t.videoId)) return;
+              /* v2.2.111: head satisfaction — the cached bytes cover
+                 [0, min(BANK_HEAD_BYTES, contentLength)). When the
+                 content length is not known yet, the full head size is
+                 the requirement. The content length metadata only ever
+                 records the true full length (CacheDataSource stores it
+                 only at a genuine end-of-input, never at a spec-imposed
+                 bound), so a head-only track can never masquerade as
+                 fully banked here or in isBanked. */
+              private boolean isHeadBanked(String videoId) {
+                  try {
+                      Cache c = mediaCache;
+                      if (c == null || videoId == null || videoId.isEmpty()) return false;
+                      String key = cacheKeyFor(videoId);
+                      long len = bankContentLength(key);
+                      long want = (len > 0) ? Math.min(BANK_HEAD_BYTES, len) : BANK_HEAD_BYTES;
+                      return c.getCachedBytes(key, 0, want) >= want;
+                  } catch (Exception ignored) {}
+                  return false;
+              }
+
+              private void bankOne(final BankTarget t, java.util.Set<String> failedHeads,
+                                   java.util.Set<String> failedFills) {
+                  /* Failures land in the set for this item's kind; the
+                     other kind's set is untouched, and both sets die with
+                     the pass (see bankLoop). */
+                  final java.util.Set<String> failedSet = t.head ? failedHeads : failedFills;
+                  if (t.head ? isHeadBanked(t.videoId) : isBanked(t.videoId)) return;
                   /* Resolves go through the same choke point as playback:
                      single-flight, video-mime rejection, diag logging. A
                      failed resolve aborts this bank cleanly. */
                   ResolveResult rr = resolveShared(t.videoId, t.title, t.artist);
                   if (rr == null || rr.kind != KIND_OK || rr.url == null || rr.url.isEmpty()) {
                       diag("bank failed idx=" + t.idx + " reason=resolve");
-                      failedThisPass.add(t.videoId);
+                      failedSet.add(t.videoId);
                       return;
                   }
                   final String vid = (rr.resolvedVideoId != null && !rr.resolvedVideoId.isEmpty())
                           ? rr.resolvedVideoId : t.videoId;
-                  if (isBanked(vid)) return;
+                  if (t.head ? isHeadBanked(vid) : isBanked(vid)) return;
                   if (rr.url.contains(".m3u8") || rr.url.contains("/api/manifest/")) {
                       /* A CacheWriter over an HLS manifest would "bank"
                          the playlist file, not the audio — refuse and let
                          playback stream it live as it does today. */
                       diag("bank failed idx=" + t.idx + " reason=hls");
-                      failedThisPass.add(t.videoId);
+                      failedSet.add(t.videoId);
                       return;
                   }
                   final String key = cacheKeyFor(vid);
-                  final DataSpec spec = new DataSpec.Builder().setUri(rr.url).setKey(key).build();
+                  /* v2.2.111: a head item caches a RANGED DataSpec —
+                     position 0, length BANK_HEAD_BYTES. CacheWriter
+                     (media3 1.4.1) honors the spec's own range:
+                     cache() seeds bytesCached with
+                     getCachedBytes(key, position, length) and ends at
+                     position + length, and its fill loop skips spans
+                     already cached (getCachedLength > 0) and downloads
+                     only holes — so a later fill writer on the same key
+                     picks up exactly where the head ended, and the
+                     player's own write-through spans count too. The key
+                     comes from the DataSpec explicitly, as for fills. */
+                  final DataSpec spec = t.head
+                          ? new DataSpec.Builder().setUri(rr.url).setKey(key)
+                                  .setPosition(0).setLength(BANK_HEAD_BYTES).build()
+                          : new DataSpec.Builder().setUri(rr.url).setKey(key).build();
                   while (true) {
                       if (!stillWanted(t)) { bankYielding = false; return; }
                       if (bankYieldNow()) {
@@ -2444,7 +2560,7 @@ jobs:
                           w = new CacheWriter(cacheDsFactory.createDataSource(), spec, null, pl);
                       } catch (Exception e) {
                           diag("bank failed idx=" + t.idx + " reason=writer");
-                          failedThisPass.add(t.videoId);
+                          failedSet.add(t.videoId);
                           return;
                       }
                       holder[0] = w;
@@ -2459,19 +2575,25 @@ jobs:
                       } catch (Exception e) {
                           bankWriter = null;
                           diag("bank failed idx=" + t.idx + " reason=io");
-                          failedThisPass.add(t.videoId);
+                          failedSet.add(t.videoId);
                           return;
                       }
                       bankWriter = null;
                       /* cache() returned: the requested data is cached.
                          When the content length is known, verify the
-                         bytes actually cover it before claiming banked. */
-                      if (bankContentLength(key) > 0 && !isBanked(vid)) {
+                         bytes actually cover the claimed range before
+                         claiming it — the head range for a head item,
+                         the whole track for a fill. When the length is
+                         unknown, a CacheWriter run that completed without
+                         error over the requested spec counts as satisfied
+                         (for a head, that is exactly the ranged download
+                         finishing). */
+                      if (bankContentLength(key) > 0 && !(t.head ? isHeadBanked(vid) : isBanked(vid))) {
                           diag("bank failed idx=" + t.idx + " reason=short");
-                          failedThisPass.add(t.videoId);
+                          failedSet.add(t.videoId);
                           return;
                       }
-                      diag("banked idx=" + t.idx);
+                      diag(t.head ? ("bank head idx=" + t.idx) : ("banked idx=" + t.idx));
                       return;
                   }
               }
