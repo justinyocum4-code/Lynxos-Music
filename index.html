@@ -517,22 +517,31 @@
   body.tv #tv-menu h2 { font-size: 34px; color: var(--gold); margin: 0 0 10px 0; }
   body.tv #tv-menu button { text-align: left; }
   body.tv #tv-menu .tv-menu-hint { color: #999; font-size: 20px; margin: auto 0 0 0; }
-  /* v2.2.112: code-first TV sign-in screen (built by showTvLinkScreen's
-     IS_TV branch). One viewport, no scrolling: the Account heading is
-     hidden while the link screen is up so the chrome fits; the typed
-     code is the hero on the left; the QR (secondary, for a sighted
-     helper) and the action buttons stack on the right. */
+  /* v2.2.113: code-first TV sign-in screen (built by showTvLinkScreen's
+     IS_TV branch), reworked so the QR actually scans. The branch
+     regenerates the QR at error-correction L — 33 modules for this
+     flow's fixed 72-char payload, vs 37 at M — and sizes it in JS to
+     an exact integer number of pixels per module; v2.2.112 stretched
+     the denser code to ~150px wide (a fractional pixels-per-module),
+     which blurred the module edges past what a phone camera could
+     decode. One viewport, no scrolling: the Account heading is
+     hidden while the link screen is up so the chrome fits; the
+     typed code is the hero on the left, the action buttons sit
+     under it, and the QR (integer scale, full quiet zone) stands
+     on the right. The visible URL line from v2.2.112 is gone — it
+     did not fit next to the bigger QR; the Hear-the-code button
+     speaks the address instead. */
   body.tv #accountView.tvlink-open #accountTitle { display: none; }
   body.tv .tvlink { display: flex; gap: 3vw; align-items: flex-start; }
   body.tv .tvlink-main { flex: 1 1 auto; min-width: 0; }
   body.tv .tvlink-h { color: var(--gold); font-size: 30px; margin: 0 0 8px; }
   body.tv .tvlink-inst { color: #ccc; font-size: 24px; line-height: 1.25; margin: 0 0 8px; }
-  body.tv .tvlink-url { color: #fff; font-size: 21px; word-break: break-all; margin: 0 0 8px; }
   body.tv .tvlink-code { font-size: 58px; letter-spacing: 8px; color: var(--gold); font-weight: bold; margin: 10px 0; white-space: nowrap; }
   body.tv .tvlink-status { color: #999; font-size: 22px; margin: 0; }
-  body.tv .tvlink-side { flex: 0 0 300px; max-width: 40vw; display: flex; flex-direction: column; gap: 10px; }
-  body.tv .tvlink-qr { width: min(32vh, 300px); height: min(32vh, 300px); background: #fff; padding: 10px; border-radius: 10px; margin: 0 auto; box-sizing: border-box; }
-  @media (max-height: 600px) { body.tv .tvlink-qr { width: 28vh; height: 28vh; } }
+  body.tv .tvlink-btns { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+  body.tv .tvlink-side { flex: 0 0 auto; }
+  body.tv .tvlink-qr { background: #fff; padding: 10px; border-radius: 10px; margin: 0; box-sizing: border-box; line-height: 0; }
+  body.tv .tvlink-qr svg { display: block; shape-rendering: crispEdges; }
   body.tv .tvlink .btn { min-height: 64px; padding: 10px 20px; font-size: 23px; margin: 0; }
 </style>
 <!-- Supabase JS removed v2.2.74: using manual OAuth -->
@@ -542,7 +551,7 @@
 <!-- v2.2.89: TV-visible toast (say() shows it on TV; phones never see it). -->
 <div id="tvToast" hidden></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.112</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.113</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -736,7 +745,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.112. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.113. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -1227,35 +1236,67 @@ function showTvLinkScreen(code){
     qrSvg = qr.createSvgTag({ scalable: true, cellSize: 6 });
   } catch(e){}
   if(IS_TV){
-    /* v2.2.112: code-first TV layout. The typed code is the hero (the QR
-       is secondary, for a sighted helper); everything fits one viewport
-       with no scrolling (body.tv .tvlink CSS), and the QR block is a
-       real focus stop. The .tvlink-open class hides the Account heading
-       so the chrome fits; renderAccount removes it on every exit path.
-       The phone/tablet markup below is unchanged. */
+    /* v2.2.113: code-first TV layout, with a QR that scans. The QR is
+       REGENERATED here at error-correction L — fewer, larger modules:
+       33 across for this flow's fixed 72-char payload, vs 37 at the M
+       level the shared generation above uses — and rendered at an
+       exact integer number of pixels per module (createSvgTag without
+       "scalable" emits real width/height, and the code below pins the
+       same exact size). v2.2.112 stretched the SVG to fill its
+       wrapper, landing on a fractional pixels-per-module that blurred
+       the grid past what a phone camera could decode. The typed code
+       stays the hero on the left, the buttons move under it, and the
+       visible URL line is dropped (it no longer fits beside the
+       full-size QR) — the Hear button speaks the address instead.
+       Everything fits one viewport with no scrolling (body.tv
+       .tvlink CSS), and the QR block is a real focus stop. The
+       .tvlink-open class hides the Account heading so the chrome
+       fits; renderAccount removes it on every exit path. The
+       phone/tablet markup below is unchanged. */
     try { $("accountView").classList.add("tvlink-open"); } catch(e){}
     var spelled = code.split("").join(" ");
+    var tvQrSvg = qrSvg, tvQrPx = 0;
+    try {
+      var qrL = qrcode(0, "L");
+      qrL.addData(linkUrl);
+      qrL.make();
+      /* Total grid = module count + the quiet zone createSvgTag draws
+         on each side (its margin defaults to cellSize * 4 modules). */
+      var tvGrid = qrL.getModuleCount() + 8;
+      /* Largest integer pixels-per-module whose box (grid + the
+         wrapper's 20px of padding) fits the height left under the
+         ~137px of chrome (plus slack) and 45% of the width. */
+      var tvK = Math.min(
+        Math.floor((window.innerHeight - 165) / tvGrid),
+        Math.floor((Math.floor(window.innerWidth * 0.45) - 20) / tvGrid));
+      if(tvK < 1) tvK = 1;
+      tvQrPx = tvGrid * tvK;
+      tvQrSvg = qrL.createSvgTag({ cellSize: tvK, margin: tvK * 4 });
+    } catch(e){ tvQrSvg = qrSvg; tvQrPx = 0; }
     box.innerHTML =
       "<div class='tvlink'>" +
       "<div class='tvlink-main'>" +
       "<h3 class='tvlink-h'>Sign in with your phone</h3>" +
       "<p class='tvlink-inst'>Open the link page on your phone and enter this code:</p>" +
-      "<p class='tvlink-url'>justinyocum4-code.github.io/Lynxos-Music/link.html</p>" +
       "<p class='tvlink-code'>" + code + "</p>" +
       "<p class='tvlink-status' id='tvLinkStatus'>Waiting for your phone…</p>" +
-      "</div>" +
-      "<div class='tvlink-side'>" +
-      "<div class='tvlink-qr' id='tvLinkQr' tabindex='0' role='img' aria-label='QR code for a helper to scan. The sign-in code is " + spelled + ".'>" + qrSvg + "</div>" +
+      "<div class='tvlink-btns'>" +
       "<button class='btn' id='tvLinkHear'>🔊 Hear the code again</button>" +
       "<button class='btn' id='tvLinkCancel'>Cancel</button>" +
       "</div>" +
+      "</div>" +
+      "<div class='tvlink-side'>" +
+      "<div class='tvlink-qr' id='tvLinkQr' tabindex='0' role='img' aria-label='QR code for a helper to scan. The sign-in code is " + spelled + ".'>" + tvQrSvg + "</div>" +
+      "</div>" +
       "</div>";
-    try {
-      var tsvg = box.querySelector("svg");
-      if(tsvg){ tsvg.style.width = "100%"; tsvg.style.height = "100%"; tsvg.style.display = "block"; }
-    } catch(e){}
+    if(tvQrPx){
+      try {
+        var tsvg = box.querySelector("svg");
+        if(tsvg){ tsvg.style.width = tvQrPx + "px"; tsvg.style.height = tvQrPx + "px"; tsvg.style.display = "block"; }
+      } catch(e){}
+    }
     $("tvLinkCancel").addEventListener("click", cancelTvLink);
-    $("tvLinkHear").addEventListener("click", function(){ say("Your sign-in code is " + spelled + "."); });
+    $("tvLinkHear").addEventListener("click", function(){ say("Your sign-in code is " + spelled + ". On your phone, open justinyocum4-code.github.io/Lynxos-Music/link.html and enter the code there."); });
     say("Open the link page on your phone and enter the code " + spelled + ". Or scan the QR code with your phone camera.");
     /* Initial focus on the QR/code region: the whole screen fits the
        viewport, so this frames everything with no scroll shift. */
@@ -2481,13 +2522,24 @@ document.addEventListener("keydown", function(e){
       if(dir === "right" && ae.selectionStart < String(ae.value || "").length) return;
     } catch(err){}
   }
-  /* Left at the far-left edge is the menu gesture — the v2.2.89
-     listener owns it — unless focus is inside a modal layer. */
+  /* v2.2.113: Left is move-first; the side menu is only the fallback
+     when the move finds nothing. The old code yielded to the menu
+     listener purely on the focused control's screen position
+     (rect.left < 18% of the width), and that listener reads the
+     LIVE activeElement — so a Left press that started on any
+     control inside that band, or that MOVED focus onto the
+     far-left control, opened the menu before the far-left option
+     was ever reached or announced. Now the move is attempted
+     first; only a failed move (focus already on a leftmost
+     control) marks this press as the edge gesture, via
+     _tvMenuGestureAt, for the menu listener below. The modal
+     exclusion is exactly as before. */
   if(dir === "left" && ae && ae.getBoundingClientRect){
     var inModal = ae.closest && (ae.closest("#lmDialog") || ae.closest("#albumMoreMenu") || ae.closest("#fpMenu") || ae.closest(".srchMenu") || ae.closest("#newSheet") || ae.closest("#fpUpNextBody") || ae.closest("#lyricsPanel"));
     if(!inModal){
-      var r0 = ae.getBoundingClientRect();
-      if(r0.width > 0 && r0.left < window.innerWidth * 0.18) return;
+      e.preventDefault();
+      window._tvMenuGestureAt = tvNavMove("left") ? 0 : Date.now();
+      return;
     }
   }
   e.preventDefault();
@@ -2542,8 +2594,15 @@ document.addEventListener("keydown", function(e){
   var tag = (ae.tagName || "").toLowerCase();
   if(tag === "input" || tag === "textarea" || tag === "select") return;
   if(tvMenu && tvMenu.contains(ae)) return;
-  var r = ae.getBoundingClientRect();
-  if(r.width > 0 && r.left < window.innerWidth * 0.18){
+  /* v2.2.113: open only when the navigation controller (registered
+     above, so it runs first on this same press) attempted the Left
+     move and found no leftward candidate, marking the press via
+     _tvMenuGestureAt. The old position test (rect.left < 18% of
+     the width) fired on whatever element held focus when this
+     listener ran — including the far-left control a move had just
+     landed on. Every context gate above is unchanged. */
+  if(window._tvMenuGestureAt && (Date.now() - window._tvMenuGestureAt) < 80){
+    window._tvMenuGestureAt = 0;
     e.preventDefault();
     openTvMenu();
   }
