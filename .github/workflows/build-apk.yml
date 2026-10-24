@@ -2071,10 +2071,16 @@ jobs:
                      so a thin pipe stop-started every few seconds. Now a
                      stall refills ~15s before playback resumes and the
                      player targets 50-90s of buffered audio (about 1 MB
-                     at the capped stream rate). Standard knobs only. */
+                     at the capped stream rate). Standard knobs only.
+                     v2.2.109: the startup cushion joins it — a track banks
+                     ~12s before it may start (was ~2.5s) and a stall refills
+                     ~30s before playback resumes (was ~15s), so the
+                     connection's slow first stretch is spent in the starting
+                     wait instead of a few seconds into the song (the
+                     album-opener stall the next-track preload can't cover). */
                   player = new ExoPlayer.Builder(this)
                           .setLoadControl(new androidx.media3.exoplayer.DefaultLoadControl.Builder()
-                                  .setBufferDurationsMs(50000, 90000, 2500, 15000)
+                                  .setBufferDurationsMs(50000, 90000, 12000, 30000)
                                   .build())
                           .build();
                   /* v2.2.7: media session — routes Bluetooth headset play/pause/next/prev.
@@ -3228,7 +3234,86 @@ jobs:
                                       if (lr != null) { try { lr.onTrackResolved(wantIndex, winId); } catch (Exception ignored) {} }
                                   }
                                   boolean adoptedStart = false;
+                                  boolean skipAdopted = false;
                                   try {
+                                      /* v2.2.109: skip adopts preload. If THIS
+                                         play's target is the very track sitting
+                                         appended in the window — same index,
+                                         same videoId (the transition handler's
+                                         identity rule), and this play's resolve
+                                         returned the appended item's own URL —
+                                         and the play is fresh (no retry-seek is
+                                         pending for the target: a retry resumes
+                                         a broken track from a fresh item, so it
+                                         must keep today's path), then
+                                         setMediaItem would throw away the
+                                         banked audio and cold-start the same
+                                         song — the 29s stall a Next press hit
+                                         in the v2.2.108 device test. Instead,
+                                         seek to the window item in place:
+                                         seekTo updates the player's current
+                                         item synchronously on this thread, so
+                                         the crossing is proven right here (the
+                                         index flips to 1) and THIS path adopts
+                                         the bookkeeping — the AUTO handler
+                                         stays AUTO-only (a seek crossing
+                                         reports reason SEEK, which it ignores),
+                                         so the boundary still has exactly one
+                                         driver. The crossing is recorded with
+                                         this play's generation, so an older
+                                         in-flight play landing later adopts
+                                         instead of restarting, exactly as after
+                                         an AUTO crossing. Any check failing
+                                         falls through to the untouched paths
+                                         below. */
+                                      try {
+                                          skipAdopted = pendingSeekIndex != wantIndex
+                                                  && preloadedIndex == wantIndex
+                                                  && preloadedVideoId != null && t.videoId != null
+                                                  && preloadedVideoId.equals(t.videoId)
+                                                  && preloadedUrl != null && !preloadedUrl.isEmpty()
+                                                  && preloadedUrl.equals(rr.url)
+                                                  && player.getMediaItemCount() == 2
+                                                  && player.getCurrentMediaItemIndex() == 0
+                                                  && player.getPlaybackState() != Player.STATE_ENDED
+                                                  && player.getPlaybackState() != Player.STATE_IDLE;
+                                      } catch (Exception ignored) {}
+                                      if (skipAdopted) {
+                                          player.seekTo(1, 0);
+                                          boolean crossed = false;
+                                          try { crossed = player.getCurrentMediaItemIndex() == 1; } catch (Exception ignored) {}
+                                          if (crossed) {
+                                              /* The appended item is current
+                                                 now. Leave the state exactly
+                                                 what the AUTO handler leaves
+                                                 behind a crossing, BEFORE any
+                                                 further player call: preload
+                                                 bookkeeping cleared (the item
+                                                 is no longer "next"), the
+                                                 skipped-from item dropped, the
+                                                 crossing recorded against this
+                                                 play. (currentIndex and
+                                                 currentPlayGen already name
+                                                 this play — they were set at
+                                                 playAtInternal entry.) */
+                                              preloadedIndex = -1; preloadedVideoId = ""; preloadedUrl = "";
+                                              autoAdvancedIndex = wantIndex;
+                                              autoAdvancedGen = myGen;
+                                              try { if (player.getMediaItemCount() > 1) player.removeMediaItem(0); } catch (Exception ignored) {}
+                                              diag("skip adopts preload idx=" + wantIndex);
+                                              /* v2.2.99: every track start
+                                                 (re)requests audio focus under
+                                                 the app's own focus management. */
+                                              requestAudioFocus();
+                                              try { player.play(); } catch (Exception ignored) {}
+                                          } else {
+                                              /* The seek did not cross (the
+                                                 player's state raced us) —
+                                                 today's paths below own this
+                                                 play after all. */
+                                              skipAdopted = false;
+                                          }
+                                      }
                                       /* v2.2.108: adopt, don't restart. If a
                                          preload auto-transition already started
                                          THIS track — it became current after
@@ -3245,31 +3330,33 @@ jobs:
                                          of the playing song) has a NEWER
                                          generation and takes the normal restart
                                          path below, exactly as before. */
-                                      try {
-                                          adoptedStart = wantIndex == autoAdvancedIndex
-                                                  && autoAdvancedGen > myGen
-                                                  && player.getPlaybackState() != Player.STATE_ENDED
-                                                  && player.getPlaybackState() != Player.STATE_IDLE
-                                                  && rr.url.equals(currentMediaUrl());
-                                      } catch (Exception ignored) {}
-                                      if (adoptedStart) {
-                                          /* v2.2.99: every track start
-                                             (re)requests audio focus under the
-                                             app's own focus management. */
-                                          requestAudioFocus();
-                                          try { player.play(); } catch (Exception ignored) {}
-                                      } else {
-                                          player.setMediaItem(MediaItem.fromUri(rr.url));
-                                          player.prepare();
-                                          /* v2.2.99: every track start (re)requests
-                                             audio focus under the app's own focus
-                                             management. */
-                                          requestAudioFocus();
-                                          player.play();
-                                          /* v2.2.108: setMediaItem replaced the
-                                             whole window — any appended preload
-                                             is physically gone with it. */
-                                          preloadedIndex = -1; preloadedVideoId = ""; preloadedUrl = "";
+                                      if (!skipAdopted) {
+                                          try {
+                                              adoptedStart = wantIndex == autoAdvancedIndex
+                                                      && autoAdvancedGen > myGen
+                                                      && player.getPlaybackState() != Player.STATE_ENDED
+                                                      && player.getPlaybackState() != Player.STATE_IDLE
+                                                      && rr.url.equals(currentMediaUrl());
+                                          } catch (Exception ignored) {}
+                                          if (adoptedStart) {
+                                              /* v2.2.99: every track start
+                                                 (re)requests audio focus under the
+                                                 app's own focus management. */
+                                              requestAudioFocus();
+                                              try { player.play(); } catch (Exception ignored) {}
+                                          } else {
+                                              player.setMediaItem(MediaItem.fromUri(rr.url));
+                                              player.prepare();
+                                              /* v2.2.99: every track start (re)requests
+                                                 audio focus under the app's own focus
+                                                 management. */
+                                              requestAudioFocus();
+                                              player.play();
+                                              /* v2.2.108: setMediaItem replaced the
+                                                 whole window — any appended preload
+                                                 is physically gone with it. */
+                                              preloadedIndex = -1; preloadedVideoId = ""; preloadedUrl = "";
+                                          }
                                       }
                                       /* v2.2.99: an error retry resumes where
                                          the track broke instead of restarting
@@ -3293,7 +3380,7 @@ jobs:
                                   /* v2.2.101: a started track closes the
                                      boundary story the "track ended" entry
                                      opened. */
-                                  diag("started idx=" + wantIndex + (adoptedStart ? " (auto-adopted)" : (adv ? " (advance)" : "")));
+                                  diag("started idx=" + wantIndex + (skipAdopted ? " (skip-adopted)" : (adoptedStart ? " (auto-adopted)" : (adv ? " (advance)" : ""))));
                                   /* v2.1.7: while this song plays, resolve the
                                      next one in the background so skipping is instant. */
                                   /* v2.2.38: Prefetch next 3 tracks aggressively for instant skipping. */
