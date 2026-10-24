@@ -149,7 +149,10 @@ jobs:
               /* v2.2.103: media3-datasource / media3-database stay
                  declared at the same media3 version as above —
                  unused since the media-byte cache was removed,
-                 kept so the retreat needed no build changes. */
+                 kept so the retreat needed no build changes.
+                 v2.2.110: both are USED again — datasource carries
+                 the CacheDataSource/CacheWriter banking layer and
+                 database the SimpleCache index provider. */
               implementation 'androidx.media3:media3-datasource:1.4.1'
               implementation 'androidx.media3:media3-database:1.4.1'
               implementation 'com.github.TeamNewPipe:NewPipeExtractor:v0.26.5'
@@ -942,6 +945,15 @@ jobs:
                           @Override public void run() { musicService.appendTracks(tracksJson); }
                       });
                   }
+                  /* v2.2.110: album-open browse banking — the page hands
+                     the service an opened album's first tracks so the
+                     banking worker can download them to disk before any
+                     tap. Browse context only; never starts playback. */
+                  @JavascriptInterface public void bankBrowse(final String tracksJson) {
+                      withService(new Runnable() {
+                          @Override public void run() { musicService.bankBrowse(tracksJson); }
+                      });
+                  }
                   @JavascriptInterface public void playAt(final int index) {
                       withService(new Runnable() {
                           @Override public void run() { musicService.playAt(index); }
@@ -1389,6 +1401,22 @@ jobs:
           /* v2.2.7: Bluetooth headset buttons via media session. */
           import androidx.media3.session.MediaSession;
           import androidx.media3.session.SessionResult;
+          /* v2.2.110: download-and-bank — the player reads through a
+             disk cache and a background CacheWriter banks upcoming
+             tracks into the same cache (see initMediaCache). */
+          import androidx.media3.datasource.DataSource;
+          import androidx.media3.datasource.DataSpec;
+          import androidx.media3.datasource.DefaultDataSource;
+          import androidx.media3.datasource.cache.Cache;
+          import androidx.media3.datasource.cache.CacheDataSource;
+          import androidx.media3.datasource.cache.CacheKeyFactory;
+          import androidx.media3.datasource.cache.CacheWriter;
+          import androidx.media3.datasource.cache.ContentMetadata;
+          import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor;
+          import androidx.media3.datasource.cache.SimpleCache;
+          import androidx.media3.database.StandaloneDatabaseProvider;
+          import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
+          import java.io.File;
           import java.io.BufferedReader;
           import java.io.IOException;
           import java.io.InputStream;
@@ -1475,6 +1503,14 @@ jobs:
 
               private final IBinder binder = new LocalBinder();
               private ExoPlayer player;
+              /* v2.2.110: the download-and-bank disk cache (see
+                 initMediaCache). One SimpleCache for the whole service;
+                 the player reads/writes through it via cacheDsFactory and
+                 the banking worker writes upcoming tracks into it.
+                 Null when cache init failed — playback then runs exactly
+                 as it did before v2.2.110 (plain streaming). */
+              private volatile Cache mediaCache;
+              private volatile CacheDataSource.Factory cacheDsFactory;
               /* v2.2.7: media session for Bluetooth headset buttons. */
               private MediaSession mediaSession;
               /* v2.2.99: the app manages audio focus itself (the player is set
@@ -1657,8 +1693,36 @@ jobs:
                           urlCache.put(videoId, url);
                           urlCacheTime.put(videoId, System.currentTimeMillis());
                       }
+                      /* v2.2.110: record the reverse mapping too — the
+                         player's cache key factory reads it to give every
+                         playback of this track one stable disk-cache key. */
+                      if (url != null && !url.isEmpty() && videoId != null && !videoId.isEmpty()) {
+                          synchronized (urlVideoId) { urlVideoId.put(url, videoId); }
+                      }
                   } catch (Exception ignored) {}
               }
+              /* v2.2.110: stream URL -> the videoId that won it, populated
+                 by putCachedUrl (every successful resolve in the app lands
+                 there exactly once, with the WINNING id). Access-ordered
+                 LRU like the URL cache. The CacheKeyFactory in
+                 initMediaCache reads this so a re-resolved (different,
+                 expiring) URL for the same track still addresses the same
+                 cached resource. */
+              private final java.util.Map<String, String> urlVideoId = new java.util.LinkedHashMap<String, String>(16, 0.75f, true) {
+                  @Override protected boolean removeEldestEntry(java.util.Map.Entry<String, String> eldest) {
+                      return size() > 200;
+                  }
+              };
+              private String videoIdForUrl(String url) {
+                  try { synchronized (urlVideoId) { return urlVideoId.get(url); } } catch (Exception ignored) {}
+                  return null;
+              }
+              /* v2.2.110: THE stable disk-cache key for a track. The
+                 banking writer sets it explicitly on its DataSpec; the
+                 player's CacheKeyFactory computes the identical string
+                 from the reverse map above. One computation, both paths —
+                 mismatched keys are how the v2.2.101 cache never served. */
+              private static String cacheKeyFor(String videoId) { return "lmv_" + videoId; }
               private void clearCachedUrl(String videoId) {
                   try {
                       synchronized (urlCache) {
@@ -2045,12 +2109,372 @@ jobs:
                   @Override public void run() {
                       boolean playing = false;
                       try { playing = player != null && player.isPlaying(); } catch (Exception ignored) {}
+                      /* v2.2.110: snapshot the player's buffered-ahead for
+                         the banking yield policy. Player reads stay on this
+                         (main) thread; the banking worker only reads these
+                         volatiles, so the yield check never touches the
+                         player off-thread. */
+                      try {
+                          if (player != null) {
+                              bankBufferedAheadMs = Math.max(0L,
+                                  player.getBufferedPosition() - player.getCurrentPosition());
+                              bankPlayerWants = player.getPlayWhenReady();
+                          } else {
+                              bankBufferedAheadMs = 0;
+                              bankPlayerWants = false;
+                          }
+                      } catch (Exception ignored) {}
                       /* v2.1.6: don't churn the CPU every second when paused or
                          idle — tick rarely just to keep the UI honest. */
                       if (playing) pushProgress();
                       main.postDelayed(this, playing ? 1000 : 5000);
                   }
               };
+
+              // ---- v2.2.110: download-and-bank ----
+              /* The rebuild the v2.2.109 failure pointed to. media3's
+                 playlist preload is best-effort behind the current item's
+                 needs in the shared buffer, so on this connection the
+                 preloaded next track held ~0 bytes when a skip landed on
+                 it. Instead, upcoming tracks are banked to DISK, fully,
+                 ahead of time:
+                 - initMediaCache builds ONE SimpleCache (128 MB LRU, app
+                   cache dir). The player is built with a CacheDataSource
+                   over it (read/write-through, FLAG_IGNORE_CACHE_ON_ERROR
+                   only — the player never blocks behind the banking
+                   writer; the block-on-cache flag is never set), keyed by a
+                   CacheKeyFactory that maps each stream URL back to its
+                   videoId, so every item addresses the cache as
+                   "lmv_" + videoId no matter which expiring URL a resolve
+                   handed out. The banking writer sets the same key
+                   explicitly on its DataSpec (cacheKeyFor — one
+                   computation, both paths).
+                 - The banking worker below (single thread, at most one
+                   CacheWriter download at a time; total network users:
+                   the player + this writer) banks the effective next
+                   track IN FULL, then the one after it. Targets always
+                   derive from the freshest queue state; any queue-context
+                   change bumps bankEpoch and cancels the in-flight writer,
+                   and a stale target is abandoned, never finished.
+                 - YIELD POLICY: while the player wants to play and its
+                   buffered-ahead (snapshotted by progressTick on the main
+                   thread) is below 25 s, the writer must not download —
+                   checked before each target and inside the writer's
+                   progress listener (which cancels the writer; cached
+                   spans persist, so resuming continues where it stopped).
+                   Only state changes are logged: 'bank yield' /
+                   'bank resume'.
+                 - Completion is verified before it is claimed: 'banked
+                   idx=<n>' only after CacheWriter.cache() returns (and,
+                   when the content length is known, the cached bytes
+                   cover it). Failures log 'bank failed idx=<n>' and are
+                   not retried until the next natural trigger (track start,
+                   queue push, album-open signal) starts a fresh pass.
+                 - Album-open browse banking: bankBrowse() hands the
+                   worker an opened album's first two tracks. Browse
+                   targets are attempted ONLY when the playing queue has
+                   nothing left to bank — the playing queue always wins;
+                   browse fills an idle worker and never displaces it. */
+              private final ExecutorService bankExec = Executors.newSingleThreadExecutor();
+              private final java.util.concurrent.atomic.AtomicBoolean bankRunning =
+                      new java.util.concurrent.atomic.AtomicBoolean(false);
+              private final java.util.concurrent.atomic.AtomicBoolean bankKickPending =
+                      new java.util.concurrent.atomic.AtomicBoolean(false);
+              private final java.util.concurrent.atomic.AtomicLong bankEpoch =
+                      new java.util.concurrent.atomic.AtomicLong(0);
+              private volatile CacheWriter bankWriter;
+              private volatile long bankBufferedAheadMs = 0;
+              private volatile boolean bankPlayerWants = false;
+              private volatile boolean bankYielding = false;
+              private volatile List<Track> browseBank;
+
+              private static class BankTarget {
+                  final int idx;
+                  final String videoId;
+                  final String title;
+                  final String artist;
+                  final boolean browse;
+                  final long epoch;
+                  BankTarget(int idx, String videoId, String title, String artist, boolean browse, long epoch) {
+                      this.idx = idx; this.videoId = videoId; this.title = title;
+                      this.artist = artist; this.browse = browse; this.epoch = epoch;
+                  }
+              }
+
+              /* Builds the singleton cache + the player's cache data
+                 source factory. Called once from onCreate before the
+                 player is built. Any failure leaves both fields null and
+                 playback falls back to plain streaming, exactly as
+                 before v2.2.110. */
+              private synchronized void initMediaCache() {
+                  if (mediaCache != null) return;
+                  try {
+                      File dir = new File(getCacheDir(), "lm_media_cache");
+                      SimpleCache sc = new SimpleCache(dir,
+                              new LeastRecentlyUsedCacheEvictor(128L * 1024L * 1024L),
+                              new StandaloneDatabaseProvider(this));
+                      mediaCache = sc;
+                      CacheKeyFactory keyFactory = new CacheKeyFactory() {
+                          @Override public String buildCacheKey(DataSpec dataSpec) {
+                              /* An explicit key (the banking writer's)
+                                 wins as-is. The player sets none, so its
+                                 items are keyed by the videoId the URL was
+                                 resolved for — stable across re-resolves. */
+                              if (dataSpec.key != null) return dataSpec.key;
+                              String vid = (dataSpec.uri != null) ? videoIdForUrl(String.valueOf(dataSpec.uri)) : null;
+                              if (vid != null && !vid.isEmpty()) return cacheKeyFor(vid);
+                              return CacheKeyFactory.DEFAULT.buildCacheKey(dataSpec);
+                          }
+                      };
+                      cacheDsFactory = new CacheDataSource.Factory()
+                              .setCache(sc)
+                              .setUpstreamDataSourceFactory(new DefaultDataSource.Factory(this))
+                              .setCacheKeyFactory(keyFactory)
+                              .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR);
+                      diag("media cache ready");
+                  } catch (Exception e) {
+                      mediaCache = null;
+                      cacheDsFactory = null;
+                      diag("media cache init failed " + shorten(String.valueOf(e)));
+                  }
+              }
+
+              /* Album-open signal (page -> AudioBridge.bankBrowse): the
+                 first two tracks of an opened album/playlist, as a browse
+                 context — NOT a play. Stored capped at two; the worker
+                 banks them only when the playing queue leaves it idle. */
+              public void bankBrowse(String tracksJson) {
+                  try {
+                      List<Track> parsed = parseTracks(tracksJson);
+                      List<Track> first = new ArrayList<>();
+                      for (int i = 0; i < parsed.size() && first.size() < 2; i++) {
+                          Track tr = parsed.get(i);
+                          if (tr != null && tr.videoId != null && !tr.videoId.isEmpty()) first.add(tr);
+                      }
+                      if (first.isEmpty()) return;
+                      browseBank = first;
+                      bankContextChanged();
+                  } catch (Exception ignored) {}
+              }
+
+              /* Every queue-context change funnels here: the epoch bump
+                 invalidates in-flight targets, the current writer (if any)
+                 is cancelled, and the worker re-derives targets from the
+                 freshest state. */
+              private void bankContextChanged() {
+                  bankEpoch.incrementAndGet();
+                  CacheWriter w = bankWriter;
+                  if (w != null) { try { w.cancel(); } catch (Exception ignored) {} }
+                  kickBanking();
+              }
+
+              private void kickBanking() {
+                  if (mediaCache == null || cacheDsFactory == null) return;
+                  if (!bankRunning.compareAndSet(false, true)) {
+                      /* A pass is already running (it re-derives targets
+                         from the freshest state itself). Remember that a
+                         trigger arrived, so the pass re-checks once on its
+                         way out instead of losing a trigger that lands in
+                         the exit window. */
+                      bankKickPending.set(true);
+                      return;
+                  }
+                  try {
+                      bankExec.execute(new Runnable() {
+                          @Override public void run() {
+                              try { bankLoop(); } catch (Exception ignored) {}
+                              bankRunning.set(false);
+                              if (bankKickPending.getAndSet(false)) kickBanking();
+                          }
+                      });
+                  } catch (Exception e) {
+                      bankRunning.set(false);
+                  }
+              }
+
+              private void bankLoop() {
+                  /* One pass. A target that fails in this pass is not
+                     retried within it; the next natural trigger starts a
+                     fresh pass with a fresh failed set. */
+                  java.util.Set<String> failedThisPass = new java.util.HashSet<>();
+                  while (true) {
+                      BankTarget t = nextBankTarget(failedThisPass);
+                      if (t == null) return;
+                      bankOne(t, failedThisPass);
+                  }
+              }
+
+              /* The freshest target, or null when there is nothing to do.
+                 Playing queue first: the effective next after the current
+                 track, then the one after that (same repeat-aware walk
+                 the preload window uses, minus the currently playing
+                 track itself). Browse targets only when the playing
+                 queue yields nothing — it always wins. */
+              private BankTarget nextBankTarget(java.util.Set<String> failed) {
+                  long ep = bankEpoch.get();
+                  try {
+                      if (currentIndex >= 0 && currentIndex < queue.size()) {
+                          int n1 = effectiveNextIndex(currentIndex);
+                          int[] chain = { n1, (n1 >= 0 ? effectiveNextIndex(n1) : -1) };
+                          for (int k = 0; k < chain.length; k++) {
+                              int idx = chain[k];
+                              if (idx < 0 || idx >= queue.size() || idx == currentIndex) continue;
+                              if (idx == chain[0] && k == 1) continue;
+                              Track tr = queue.get(idx);
+                              if (tr == null || tr.videoId == null || tr.videoId.isEmpty()) continue;
+                              if (failed.contains(tr.videoId)) continue;
+                              if (isBanked(tr.videoId)) continue;
+                              return new BankTarget(idx, tr.videoId, tr.title, tr.channel, false, ep);
+                          }
+                      }
+                  } catch (Exception ignored) {}
+                  try {
+                      List<Track> bb = browseBank;
+                      if (bb != null) {
+                          for (int i = 0; i < bb.size(); i++) {
+                              Track tr = bb.get(i);
+                              if (tr == null || tr.videoId == null || tr.videoId.isEmpty()) continue;
+                              if (failed.contains(tr.videoId)) continue;
+                              if (isBanked(tr.videoId)) continue;
+                              return new BankTarget(i, tr.videoId, tr.title, tr.channel, true, ep);
+                          }
+                      }
+                  } catch (Exception ignored) {}
+                  return null;
+              }
+
+              private boolean stillWanted(BankTarget t) {
+                  if (t.epoch != bankEpoch.get()) return false;
+                  try {
+                      if (t.browse) {
+                          List<Track> bb = browseBank;
+                          return bb != null && t.idx >= 0 && t.idx < bb.size()
+                                  && bb.get(t.idx) != null && t.videoId.equals(bb.get(t.idx).videoId);
+                      }
+                      return t.idx >= 0 && t.idx < queue.size()
+                              && queue.get(t.idx) != null && t.videoId.equals(queue.get(t.idx).videoId);
+                  } catch (Exception ignored) {}
+                  return false;
+              }
+
+              private boolean bankYieldNow() {
+                  /* The player gets the pipe to itself while it is trying
+                     to play and holds less than 25 s of buffered-ahead.
+                     Paused / idle: the writer may run freely (that is the
+                     album-open case). */
+                  return bankPlayerWants && bankBufferedAheadMs < 25000;
+              }
+
+              private void setBankYield(boolean y) {
+                  if (y == bankYielding) return;
+                  bankYielding = y;
+                  diag(y ? "bank yield" : "bank resume");
+              }
+
+              private long bankContentLength(String key) {
+                  try {
+                      Cache c = mediaCache;
+                      if (c == null) return -1;
+                      return ContentMetadata.getContentLength(c.getContentMetadata(key));
+                  } catch (Exception ignored) {}
+                  return -1;
+              }
+
+              /* Verified completion only: the content length is known and
+                 the cached bytes cover it end to end. */
+              private boolean isBanked(String videoId) {
+                  try {
+                      Cache c = mediaCache;
+                      if (c == null || videoId == null || videoId.isEmpty()) return false;
+                      String key = cacheKeyFor(videoId);
+                      long len = bankContentLength(key);
+                      if (len <= 0) return false;
+                      return c.getCachedBytes(key, 0, len) >= len;
+                  } catch (Exception ignored) {}
+                  return false;
+              }
+
+              private void bankOne(final BankTarget t, java.util.Set<String> failedThisPass) {
+                  if (isBanked(t.videoId)) return;
+                  /* Resolves go through the same choke point as playback:
+                     single-flight, video-mime rejection, diag logging. A
+                     failed resolve aborts this bank cleanly. */
+                  ResolveResult rr = resolveShared(t.videoId, t.title, t.artist);
+                  if (rr == null || rr.kind != KIND_OK || rr.url == null || rr.url.isEmpty()) {
+                      diag("bank failed idx=" + t.idx + " reason=resolve");
+                      failedThisPass.add(t.videoId);
+                      return;
+                  }
+                  final String vid = (rr.resolvedVideoId != null && !rr.resolvedVideoId.isEmpty())
+                          ? rr.resolvedVideoId : t.videoId;
+                  if (isBanked(vid)) return;
+                  if (rr.url.contains(".m3u8") || rr.url.contains("/api/manifest/")) {
+                      /* A CacheWriter over an HLS manifest would "bank"
+                         the playlist file, not the audio — refuse and let
+                         playback stream it live as it does today. */
+                      diag("bank failed idx=" + t.idx + " reason=hls");
+                      failedThisPass.add(t.videoId);
+                      return;
+                  }
+                  final String key = cacheKeyFor(vid);
+                  final DataSpec spec = new DataSpec.Builder().setUri(rr.url).setKey(key).build();
+                  while (true) {
+                      if (!stillWanted(t)) { bankYielding = false; return; }
+                      if (bankYieldNow()) {
+                          setBankYield(true);
+                          try { Thread.sleep(1200); } catch (Exception ignored) {}
+                          continue;
+                      }
+                      setBankYield(false);
+                      final CacheWriter[] holder = new CacheWriter[1];
+                      CacheWriter.ProgressListener pl = new CacheWriter.ProgressListener() {
+                          @Override public void onProgress(long requestLength, long bytesCached, long newBytesCached) {
+                              /* Cooperative yield + retarget: cancelling
+                                 makes cache() throw InterruptedIOException;
+                                 spans already written stay in the cache, so
+                                 a later writer for the same key resumes
+                                 where this one stopped. */
+                              if (holder[0] != null && (!stillWanted(t) || bankYieldNow())) {
+                                  try { holder[0].cancel(); } catch (Exception ignored) {}
+                              }
+                          }
+                      };
+                      CacheWriter w;
+                      try {
+                          w = new CacheWriter(cacheDsFactory.createDataSource(), spec, null, pl);
+                      } catch (Exception e) {
+                          diag("bank failed idx=" + t.idx + " reason=writer");
+                          failedThisPass.add(t.videoId);
+                          return;
+                      }
+                      holder[0] = w;
+                      bankWriter = w;
+                      try {
+                          w.cache();
+                      } catch (java.io.InterruptedIOException e) {
+                          /* Yielded or retargeted — the loop re-evaluates
+                             against the freshest state. */
+                          bankWriter = null;
+                          continue;
+                      } catch (Exception e) {
+                          bankWriter = null;
+                          diag("bank failed idx=" + t.idx + " reason=io");
+                          failedThisPass.add(t.videoId);
+                          return;
+                      }
+                      bankWriter = null;
+                      /* cache() returned: the requested data is cached.
+                         When the content length is known, verify the
+                         bytes actually cover it before claiming banked. */
+                      if (bankContentLength(key) > 0 && !isBanked(vid)) {
+                          diag("bank failed idx=" + t.idx + " reason=short");
+                          failedThisPass.add(t.videoId);
+                          return;
+                      }
+                      diag("banked idx=" + t.idx);
+                      return;
+                  }
+              }
 
               @Override
               public IBinder onBind(Intent intent) { return binder; }
@@ -2077,12 +2501,27 @@ jobs:
                      ~30s before playback resumes (was ~15s), so the
                      connection's slow first stretch is spent in the starting
                      wait instead of a few seconds into the song (the
-                     album-opener stall the next-track preload can't cover). */
-                  player = new ExoPlayer.Builder(this)
+                     album-opener stall the next-track preload can't cover).
+                     v2.2.110: the cushion is REVERTED (2500 / 5000) — it
+                     backfired on device: stall length = target / delivery
+                     rate, so the 12s start target meant a 35s silent load
+                     and the 30s refill a 65s stall. Smooth starts now come
+                     from the download-and-bank cache below (tracks banked
+                     to disk ahead of their boundary), not from deeper
+                     starting gates. The 50s/90s targets stay. */
+                  initMediaCache();
+                  ExoPlayer.Builder playerBuilder = new ExoPlayer.Builder(this)
                           .setLoadControl(new androidx.media3.exoplayer.DefaultLoadControl.Builder()
-                                  .setBufferDurationsMs(50000, 90000, 12000, 30000)
-                                  .build())
-                          .build();
+                                  .setBufferDurationsMs(50000, 90000, 2500, 5000)
+                                  .build());
+                  /* v2.2.110: play through the disk cache when it is up —
+                     a banked track starts from local spans and the player
+                     keeps banking whatever it streams for next time. */
+                  if (cacheDsFactory != null) {
+                      playerBuilder.setMediaSourceFactory(new DefaultMediaSourceFactory(this)
+                              .setDataSourceFactory(cacheDsFactory));
+                  }
+                  player = playerBuilder.build();
                   /* v2.2.7: media session — routes Bluetooth headset play/pause/next/prev.
                      Next/prev go to the app queue (the player holds one item at a time).
                      v2.2.8: advertise next/prev commands — the single-item player
@@ -2540,6 +2979,10 @@ jobs:
                               prefetchNext(newIdx + 2);
                               prefetchNext(newIdx + 3);
                               schedulePreloadNext(newIdx, playGen.get());
+                              /* v2.2.110: an adopted boundary is a banking
+                                 context change too — the window rolled, so
+                                 the banking targets roll with it. */
+                              bankContextChanged();
                           } catch (Exception ignored) {}
                       }
                       @Override public void onIsPlayingChanged(boolean isPlaying) {
@@ -2726,6 +3169,9 @@ jobs:
               public void onDestroy() {
                   try { main.removeCallbacks(progressTick); } catch (Exception ignored) {}
                   try { bg.shutdownNow(); } catch (Exception ignored) {}
+                  /* v2.2.110: stop the banking worker with the rest. */
+                  try { bankExec.shutdownNow(); } catch (Exception ignored) {}
+                  try { CacheWriter w = bankWriter; if (w != null) w.cancel(); } catch (Exception ignored) {}
                   /* v2.2.98: shut down the play + resolve executors too. */
                   try { playExec.shutdownNow(); } catch (Exception ignored) {}
                   try { resolveExec.shutdownNow(); } catch (Exception ignored) {}
@@ -2740,6 +3186,12 @@ jobs:
                   mediaSession = null;
                   try { if (player != null) player.release(); } catch (Exception ignored) {}
                   player = null;
+                  /* v2.2.110: release the disk cache after the player —
+                     the banked bytes stay on disk for the next start
+                     (stable keys make them findable again). */
+                  try { if (mediaCache != null) mediaCache.release(); } catch (Exception ignored) {}
+                  mediaCache = null;
+                  cacheDsFactory = null;
                   super.onDestroy();
               }
 
@@ -2756,6 +3208,9 @@ jobs:
                       dropPreloaded("repeat change");
                       if (currentIndex >= 0) schedulePreloadNext(currentIndex, playGen.get());
                   }
+                  /* v2.2.110: repeat mode shapes the banking chain too
+                     (repeat-one has no next to bank; repeat-all may wrap). */
+                  bankContextChanged();
               }
               /* v2.2.5: advance the queue natively (screen-off safe).
                  v2.2.100: these plays are marked fromAdvance — they get the
@@ -2778,11 +3233,20 @@ jobs:
                   List<Track> t = parseTracks(tracksJson);
                   queue.clear();
                   queue.addAll(t);
+                  /* v2.2.110: a fresh play replaces the browse context —
+                     the playing queue owns the banking worker now. (The
+                     banking kick itself fires from the play completion.) */
+                  browseBank = null;
                   playAtInternal(index);
               }
 
               public void appendTracks(String tracksJson) {
                   queue.addAll(parseTracks(tracksJson));
+                  /* v2.2.110: a longer queue can give the worker a target
+                     it didn't have (e.g. the first append after a
+                     one-track play). Kick only — appends never invalidate
+                     the target already in flight. */
+                  kickBanking();
               }
 
               public void playAt(int index) { playAtInternal(index); }
@@ -3065,6 +3529,8 @@ jobs:
                   } else if (preloadedIndex > index) {
                       preloadedIndex--;
                   }
+                  /* v2.2.110: queue edits shift banking target indices. */
+                  bankContextChanged();
               }
 
               public void truncateAfter(int index) {
@@ -3075,6 +3541,8 @@ jobs:
                       dropPreloaded("queue edit");
                       schedulePreloadNext(currentIndex, playGen.get());
                   }
+                  /* v2.2.110: queue edits shift banking target indices. */
+                  bankContextChanged();
               }
 
               // ---- internals ----
@@ -3396,6 +3864,12 @@ jobs:
                                      window and this call re-derives/no-ops
                                      against the live state. */
                                   schedulePreloadNext(wantIndex, playGen.get());
+                                  /* v2.2.110: a track start is a banking
+                                     context change — retarget the worker to
+                                     the new position's next two tracks
+                                     (covers commanded plays and the
+                                     skip-adopt branch alike). */
+                                  bankContextChanged();
                               }
                           });
                       }
