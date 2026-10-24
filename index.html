@@ -517,6 +517,23 @@
   body.tv #tv-menu h2 { font-size: 34px; color: var(--gold); margin: 0 0 10px 0; }
   body.tv #tv-menu button { text-align: left; }
   body.tv #tv-menu .tv-menu-hint { color: #999; font-size: 20px; margin: auto 0 0 0; }
+  /* v2.2.112: code-first TV sign-in screen (built by showTvLinkScreen's
+     IS_TV branch). One viewport, no scrolling: the Account heading is
+     hidden while the link screen is up so the chrome fits; the typed
+     code is the hero on the left; the QR (secondary, for a sighted
+     helper) and the action buttons stack on the right. */
+  body.tv #accountView.tvlink-open #accountTitle { display: none; }
+  body.tv .tvlink { display: flex; gap: 3vw; align-items: flex-start; }
+  body.tv .tvlink-main { flex: 1 1 auto; min-width: 0; }
+  body.tv .tvlink-h { color: var(--gold); font-size: 30px; margin: 0 0 8px; }
+  body.tv .tvlink-inst { color: #ccc; font-size: 24px; line-height: 1.25; margin: 0 0 8px; }
+  body.tv .tvlink-url { color: #fff; font-size: 21px; word-break: break-all; margin: 0 0 8px; }
+  body.tv .tvlink-code { font-size: 58px; letter-spacing: 8px; color: var(--gold); font-weight: bold; margin: 10px 0; white-space: nowrap; }
+  body.tv .tvlink-status { color: #999; font-size: 22px; margin: 0; }
+  body.tv .tvlink-side { flex: 0 0 300px; max-width: 40vw; display: flex; flex-direction: column; gap: 10px; }
+  body.tv .tvlink-qr { width: min(32vh, 300px); height: min(32vh, 300px); background: #fff; padding: 10px; border-radius: 10px; margin: 0 auto; box-sizing: border-box; }
+  @media (max-height: 600px) { body.tv .tvlink-qr { width: 28vh; height: 28vh; } }
+  body.tv .tvlink .btn { min-height: 64px; padding: 10px 20px; font-size: 23px; margin: 0; }
 </style>
 <!-- Supabase JS removed v2.2.74: using manual OAuth -->
 </head>
@@ -525,7 +542,7 @@
 <!-- v2.2.89: TV-visible toast (say() shows it on TV; phones never see it). -->
 <div id="tvToast" hidden></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.111</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.112</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -719,7 +736,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.111. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.112. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -753,6 +770,7 @@
   <button type="button" data-tv-tab="explore">🧭 Explore</button>
   <button type="button" data-tv-tab="library">📚 Library</button>
   <button type="button" data-tv-tab="settings">⚙️ Settings</button>
+  <button type="button" data-tv-account>👤 Account</button>
   <p class="tv-menu-hint">Tip: press the left arrow at the screen's edge anytime to open this menu.</p>
 </nav>
 <div id="fullPlayer" hidden role="dialog" aria-label="Now playing">
@@ -875,6 +893,15 @@ try {
   }
 } catch(e){}
 try { if(IS_TV) document.body.classList.add("tv"); } catch(e){}
+/* v2.2.112: on TV the lyrics column is read-only — the D-pad controller
+   owns the arrow keys, so the lyrics body must not sit in the focus
+   graph claiming the arrows scroll it. Phone keeps its label + tab stop. */
+try {
+  if(IS_TV){
+    var _tlb = $("tvLyricsBody");
+    if(_tlb){ _tlb.tabIndex = -1; _tlb.setAttribute("aria-label", "Song lyrics."); }
+  }
+} catch(e){}
 /* ================= helpers ================= */
 function $(id){ return document.getElementById(id); }
 function esc(s){ return String(s == null ? "" : s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
@@ -1199,6 +1226,42 @@ function showTvLinkScreen(code){
     qr.make();
     qrSvg = qr.createSvgTag({ scalable: true, cellSize: 6 });
   } catch(e){}
+  if(IS_TV){
+    /* v2.2.112: code-first TV layout. The typed code is the hero (the QR
+       is secondary, for a sighted helper); everything fits one viewport
+       with no scrolling (body.tv .tvlink CSS), and the QR block is a
+       real focus stop. The .tvlink-open class hides the Account heading
+       so the chrome fits; renderAccount removes it on every exit path.
+       The phone/tablet markup below is unchanged. */
+    try { $("accountView").classList.add("tvlink-open"); } catch(e){}
+    var spelled = code.split("").join(" ");
+    box.innerHTML =
+      "<div class='tvlink'>" +
+      "<div class='tvlink-main'>" +
+      "<h3 class='tvlink-h'>Sign in with your phone</h3>" +
+      "<p class='tvlink-inst'>Open the link page on your phone and enter this code:</p>" +
+      "<p class='tvlink-url'>justinyocum4-code.github.io/Lynxos-Music/link.html</p>" +
+      "<p class='tvlink-code'>" + code + "</p>" +
+      "<p class='tvlink-status' id='tvLinkStatus'>Waiting for your phone…</p>" +
+      "</div>" +
+      "<div class='tvlink-side'>" +
+      "<div class='tvlink-qr' id='tvLinkQr' tabindex='0' role='img' aria-label='QR code for a helper to scan. The sign-in code is " + spelled + ".'>" + qrSvg + "</div>" +
+      "<button class='btn' id='tvLinkHear'>🔊 Hear the code again</button>" +
+      "<button class='btn' id='tvLinkCancel'>Cancel</button>" +
+      "</div>" +
+      "</div>";
+    try {
+      var tsvg = box.querySelector("svg");
+      if(tsvg){ tsvg.style.width = "100%"; tsvg.style.height = "100%"; tsvg.style.display = "block"; }
+    } catch(e){}
+    $("tvLinkCancel").addEventListener("click", cancelTvLink);
+    $("tvLinkHear").addEventListener("click", function(){ say("Your sign-in code is " + spelled + "."); });
+    say("Open the link page on your phone and enter the code " + spelled + ". Or scan the QR code with your phone camera.");
+    /* Initial focus on the QR/code region: the whole screen fits the
+       viewport, so this frames everything with no scroll shift. */
+    try { $("tvLinkQr").focus(); } catch(e){}
+    return;
+  }
   box.innerHTML =
     "<div style='text-align:center;padding:20px'>" +
     "<h3 style='color:var(--gold)'>Sign in with your phone</h3>" +
@@ -1525,6 +1588,9 @@ function openSettings(){
   try { $("newFab").hidden = true; } catch(e){}
   try { closeNewSheet(); } catch(e){}
   $("settingsView").hidden = false;
+  /* v2.2.112: explicit TV starting focus on the Back button (was
+     rescue-dependent). tvFocusFirst self-gates on IS_TV. */
+  tvFocusFirst("settingsView", "settingsBackBtn");
   say("Settings tab.");
   /* v2.2.98: refresh the recent-skips list every time Settings opens. */
   try { renderSkipLog(); } catch(e){}
@@ -2077,7 +2143,8 @@ function albumTrackMenu(t, anchor){
     var b = document.createElement("button");
     b.textContent = it.label;
     b.setAttribute("role", "menuitem");
-    b.addEventListener("click", function(){ m.hidden = true; it.fn(); });
+    /* v2.2.112: return TV focus to the opener after the item runs. */
+    b.addEventListener("click", function(){ m.hidden = true; it.fn(); if(IS_TV && typeof tvNavAfterLayerClose === "function") tvNavAfterLayerClose(); });
     m.appendChild(b);
   });
   m.hidden = false;
@@ -2445,6 +2512,9 @@ if(tvMenu){
       return;
     }
     if(e.target.closest("[data-tv-search]")){ closeTvMenu(); collapsePlayer(); openSearch(); }
+    /* v2.2.112: Account joins the TV menu (was reachable only via the
+       topbar person button). Mirrors the Search branch above. */
+    if(e.target.closest("[data-tv-account]")){ closeTvMenu(); collapsePlayer(); openAccount(); }
   });
 }
 /* Left arrow at the screen's left edge opens the TV menu; left arrow while
@@ -2576,7 +2646,7 @@ window.lmHandleBack = function(){
     var ab = $("albumPanel");
     if(ab && !ab.hidden){ closeAlbumPanel(); return "handled"; }
     var pd = $("playlistDetail");
-    if(pd && pd.innerHTML.trim() !== ""){ pd.innerHTML = ""; say("Back to playlists."); return "handled"; }
+    if(pd && pd.innerHTML.trim() !== ""){ pd.innerHTML = ""; say("Back to playlists."); if(IS_TV) tvFocusRescue(); return "handled"; }
     if(state.searchOpen){ closeSearch(); return "handled"; }
     if(!$("seeAllView").hidden){ closeSeeAll(); return "handled"; }
     if(!$("artistView").hidden){ closeArtistPage(); return "handled"; }
@@ -3124,7 +3194,8 @@ function searchTrackMenu(v, anchorBtn){
     var b = document.createElement("button");
     b.textContent = it.label;
     b.setAttribute("role", "menuitem");
-    b.addEventListener("click", function(){ closeSearchMenu(); it.fn(); });
+    /* v2.2.112: return TV focus to the opener after the item runs. */
+    b.addEventListener("click", function(){ closeSearchMenu(); it.fn(); if(IS_TV && typeof tvNavAfterLayerClose === "function") tvNavAfterLayerClose(); });
     m.appendChild(b);
   });
   anchorBtn.closest(".srow").parentNode.insertBefore(m, anchorBtn.closest(".srow").nextSibling);
@@ -4942,7 +5013,10 @@ function fpMenuItems(){
   /* v2.2.82: actions that lived as button rows under the player now live here. */
   items.push({ label: "▶ YouTube Music", fn: function(){ $("fpYtMusicBtn").click(); }});
   items.push({ label: "📻 Start radio", fn: function(){ $("fpRadioBtn").click(); }});
-  items.push({ label: "📝 Lyrics", fn: function(){ $("fpLyricsBtn").click(); }});
+  /* v2.2.112: no Lyrics item on TV — the lyrics panel is display:none
+     there (the always-visible lyrics column replaces it), so the item
+     was a no-op that also broke the navigation layer. */
+  if(!IS_TV) items.push({ label: "📝 Lyrics", fn: function(){ $("fpLyricsBtn").click(); }});
   return items;
 }
 function toggleFpMenu(show){
@@ -4957,7 +5031,9 @@ function toggleFpMenu(show){
       var b = document.createElement("button");
       b.textContent = it.label;
       b.setAttribute("role", "menuitem");
-      b.addEventListener("click", function(){ m.hidden = true; it.fn(); });
+      /* v2.2.112: on TV, choosing an item returns focus to the opener
+         (the dialog pattern) instead of stranding it on this button. */
+      b.addEventListener("click", function(){ m.hidden = true; it.fn(); if(IS_TV && typeof tvNavAfterLayerClose === "function") tvNavAfterLayerClose(); });
       m.appendChild(b);
     });
     m.hidden = false;
@@ -6527,7 +6603,8 @@ function openAlbumOptionsMenu(){
       b.className = "amItem";
       b.textContent = it.label;
       b.setAttribute("role", "menuitem");
-      b.addEventListener("click", function(){ m.hidden = true; it.fn(); });
+      /* v2.2.112: return TV focus to the opener after the item runs. */
+      b.addEventListener("click", function(){ m.hidden = true; it.fn(); if(IS_TV && typeof tvNavAfterLayerClose === "function") tvNavAfterLayerClose(); });
       m.appendChild(b);
     });
     m.hidden = false;
@@ -6895,6 +6972,11 @@ function closeAccount(){
 function renderAccount(){
   var box = $("accountContent");
   if(!box) return;
+  /* v2.2.112: every exit from the TV link screen funnels through here —
+     restore the Account heading its TV layout hid. The class is only
+     ever added by showTvLinkScreen's IS_TV branch, so this is a no-op
+     on phone/tablet. */
+  try { $("accountView").classList.remove("tvlink-open"); } catch(e){}
   /* v2.2.92: remember focus before rebuilding — innerHTML wipes it. */
   var _raFocusId = null;
   try {
@@ -6935,10 +7017,13 @@ function renderAccount(){
       "<div style='font-size:60px'>👤</div>" +
       "<h3 style='color:var(--gold)'>Sign in</h3>" +
       "<p style='color:#999'>Sign in with Google to save your progress and import your YouTube Music library.</p>" +
-      "<button class='btn' id='googleSignInBtn' style='margin-top:12px'>Sign in with Google</button>" +
+      /* v2.2.112: no Google button on TV — Fire TV has no usable browser
+         for OAuth (see the tv-link header note); the code sign-in below
+         is the TV door. Phone/tablet markup is unchanged. */
+      (IS_TV ? "" : "<button class='btn' id='googleSignInBtn' style='margin-top:12px'>Sign in with Google</button>") +
       "<br><button class='btn' id='qrSignInBtn' style='margin-top:8px'>Sign in with QR code</button>" +
       "</div>";
-    $("googleSignInBtn").addEventListener("click", startGoogleLogin);
+    if(!IS_TV) $("googleSignInBtn").addEventListener("click", startGoogleLogin);
     $("qrSignInBtn").addEventListener("click", startTvLink);
   }
   /* v2.2.92: restore TV focus after the rebuild (old focused node is gone). */
