@@ -355,11 +355,11 @@
   body.tv .mixCard { min-width: 200px; }
   body.tv .mixCard .mixTile { font-size: 88px; }
   body.tv .mixCard .mixName { font-size: 22px; }
-  body.tv .mixCard .mixSub { font-size: 18px; }
+  body.tv .mixCard .mixSub { font-size: 22px; }
   body.tv .albumCard { min-width: 200px; max-width: 200px; }
   body.tv .albumCard img { width: 200px; height: 200px; }
   body.tv .albumCard .an { font-size: 22px; }
-  body.tv .albumCard .aa { font-size: 20px; }
+  body.tv .albumCard .aa { font-size: 22px; }
   body.tv .card { padding: 20px; font-size: 24px; }
   body.tv .card h3 { font-size: 28px; }
   /* TV: no bottom tab bar — the remote opens the side menu with the left arrow. */
@@ -405,7 +405,7 @@
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
   }
   body.tv .fp-tv-left #fpArtist {
-    order: 3; flex: 0 0 auto; font-size: 20px; margin: 0; text-align: center; color: var(--gold);
+    order: 3; flex: 0 0 auto; font-size: 22px; margin: 0; text-align: center; color: var(--gold);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
   }
   body.tv .fp-tv-left .fp-pills { order: 4; flex: 0 0 auto; margin: 0; justify-content: center; }
@@ -413,12 +413,14 @@
   body.tv .fp-tv-left .fp-controls {
     order: 5; flex: 0 0 auto; margin: 0; justify-content: center; gap: 2vw;
   }
+  /* v2.2.114: transport buttons at full TV size (the 44px shrink made them
+     the smallest targets in the TV app). */
   body.tv .fp-controls .iconbtn {
-    width: 44px; height: 44px; min-width: 44px; min-height: 44px; padding: 0; font-size: 20px;
+    width: 76px; height: 76px; min-width: 76px; min-height: 76px; padding: 0; font-size: 30px;
     border: 2px solid var(--gold); border-radius: 50%;
     display: flex; align-items: center; justify-content: center;
   }
-  body.tv #fpPlayBtn { font-size: 24px; background: rgba(212,175,55,.18); }
+  body.tv #fpPlayBtn { width: 96px; height: 96px; min-width: 96px; min-height: 96px; font-size: 44px; background: rgba(212,175,55,.18); }
   body.tv .fp-tv-left label.sr-only { order: 7; }
   body.tv .fp-tv-left #fpSeek { order: 8; flex: 0 0 auto; margin: 0; width: 100%; max-width: 420px; }
   body.tv .fp-tv-left .times { order: 9; flex: 0 0 auto; font-size: 22px; margin: 0; width: 100%; max-width: 420px; }
@@ -439,9 +441,9 @@
     display: block; min-height: 0; min-width: 0; overflow-y: auto;
     border-left: 2px solid var(--gold); padding-left: 2vw;
   }
-  body.tv .fp-lyrics-head { color: var(--gold); font-size: 20px; margin-bottom: 1vh; }
+  body.tv .fp-lyrics-head { color: var(--gold); font-size: 22px; margin-bottom: 1vh; }
   body.tv #tvLyricsTitle { font-size: 22px; margin: 0 0 1vh; }
-  body.tv #tvLyricsBody { font-size: 20px; line-height: 1.6; white-space: pre-wrap; max-height: 60vh; overflow-y: auto; }
+  body.tv #tvLyricsBody { font-size: 24px; line-height: 1.6; white-space: pre-wrap; max-height: 60vh; overflow-y: auto; }
   /* TV: the secondary action rows (Playlist, YouTube Music, Radio, Sleep…)
      stay on the phone — on TV they clutter the player, so they're hidden. */
   body.tv #fullPlayer > .row { display: none; }
@@ -517,6 +519,36 @@
   body.tv #tv-menu h2 { font-size: 34px; color: var(--gold); margin: 0 0 10px 0; }
   body.tv #tv-menu button { text-align: left; }
   body.tv #tv-menu .tv-menu-hint { color: #999; font-size: 20px; margin: auto 0 0 0; }
+  /* v2.2.114: 10-foot sizing for track rows and genre pills. */
+  body.tv .trank { padding: 16px 8px; gap: 16px; }
+  body.tv .trank img { width: 96px; height: 96px; }
+  body.tv .trank .rt { font-size: 26px; }
+  body.tv .trank .rs { font-size: 22px; }
+  body.tv .genrePill { min-width: 230px; font-size: 22px; padding: 24px 20px 24px 30px; }
+  /* v2.2.114: focused cards fill with a gold tint alongside the outline -
+     an outline alone is easy to miss at 10 feet. Paint only: no transform,
+     the D-pad controller measures getBoundingClientRect. */
+  body.tv .albumCard:focus, body.tv .mixCard:focus, body.tv .recentCard:focus, body.tv .catCard:focus, body.tv .trank:focus { background: rgba(212,175,55,.18); }
+  /* v2.2.114: the create sheet is a centered dialog on TV, not a bottom
+     sheet; its options meet the 22px floor; the FAB is a full 76px target
+     and its base bottom offset (150px) clears the mini player. */
+  body.tv #newSheet { left: 50%; top: 50%; right: auto; bottom: auto; transform: translate(-50%, -50%); width: min(760px, 86vw); border-radius: 16px; }
+  body.tv .newOpt { padding: 20px 8px; }
+  body.tv .newOpt .nico { font-size: 34px; width: 48px; }
+  body.tv .newOpt .nt { font-size: 26px; }
+  body.tv .newOpt .ns { font-size: 22px; }
+  body.tv #newFab { min-height: 76px; padding: 18px 30px; font-size: 22px; border-radius: 38px; }
+  /* v2.2.114: shelves as true TV rows. The strips (.hscroll / .mixRow /
+     .pillRow) are already flex rows with overflow-x auto at base; here the
+     cards become fixed-width, the scrollbar hides, and the strip gains
+     enough padding that the 6px focus outline (+4px offset) is not
+     clipped by the strip's own box. Horizontal reveal is the controller's
+     scrollIntoView({ block: "nearest", inline: "nearest" }). */
+  body.tv .hscroll, body.tv .mixRow, body.tv .pillRow { padding: 12px 10px 14px; scrollbar-width: none; }
+  body.tv .hscroll::-webkit-scrollbar, body.tv .mixRow::-webkit-scrollbar, body.tv .pillRow::-webkit-scrollbar { display: none; }
+  body.tv .mixCard { flex: 0 0 auto; width: 200px; }
+  body.tv .visualCard { flex: 0 0 auto; width: 200px; min-width: 200px; max-width: 200px; }
+  body.tv .visualCard img { width: 200px !important; height: 200px !important; }
   /* v2.2.113: code-first TV sign-in screen (built by showTvLinkScreen's
      IS_TV branch), reworked so the QR actually scans. The branch
      regenerates the QR at error-correction L — 33 modules for this
@@ -551,7 +583,7 @@
 <!-- v2.2.89: TV-visible toast (say() shows it on TV; phones never see it). -->
 <div id="tvToast" hidden></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.113</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.114</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -745,7 +777,7 @@
     </div>
     <div class="card">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.113. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.114. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
