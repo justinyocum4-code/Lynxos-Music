@@ -3941,9 +3941,17 @@ jobs:
                                   }
                                   if (rr.url == null || rr.url.isEmpty()) {
                                       /* v2.2.101: the failure lands in the
-                                         Playback log with its kind. */
+                                         Playback log with its kind.
+                                         v2.2.115: also the failure message
+                                         (diag-only; control flow untouched) —
+                                         the message was previously passed to
+                                         the page and dropped, so the log
+                                         could never name the exception. */
+                                      String failMsg = shorten(rr.message);
                                       diag("resolve failed idx=" + wantIndex + " kind="
-                                              + (rr.kind == KIND_DEAD ? "dead" : "transient") + (adv ? " advance" : ""));
+                                              + (rr.kind == KIND_DEAD ? "dead" : "transient")
+                                              + " msg=" + (failMsg.isEmpty() ? "-" : failMsg)
+                                              + (adv ? " advance" : ""));
                                       UiListener l = ui;
                                       /* v2.1.4: let the web page try another upload
                                          of the same song before skipping it.
