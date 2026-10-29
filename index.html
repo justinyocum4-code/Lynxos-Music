@@ -453,6 +453,9 @@
   .karaoke-line { padding: 1px 0; }
   .karaoke-line.karaoke-active { color: var(--gold); font-weight: 800; }
   body.tv #tvLyricsBody .karaoke-line.karaoke-active { font-size: 28px; }
+  /* v2.2.121: TV single-line karaoke — one gold line, wrapped, never
+     truncated (truncating drops words). */
+  body.tv #tvLyricsBody .karaoke-single { color: var(--gold); font-weight: 800; font-size: 32px; line-height: 1.4; white-space: normal; overflow-wrap: break-word; }
   /* TV: the secondary action rows (Playlist, YouTube Music, Radio, Sleep…)
      stay on the phone — on TV they clutter the player, so they're hidden. */
   body.tv #fullPlayer > .row { display: none; }
@@ -592,7 +595,7 @@
 <!-- v2.2.89: TV-visible toast (say() shows it on TV; phones never see it). -->
 <div id="tvToast" hidden></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.120</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.121</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -791,7 +794,7 @@
     </div>
     <div class="card" id="settingsAboutCard" tabindex="0" aria-label="About">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.120. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.121. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -2949,6 +2952,9 @@ function cleanTrackTitle(t){
   /* v2.2.19: aggressive cleanup — just song title, nothing else. */
   s = s.replace(/\s*[\(\[]\s*(official\s+)?(music\s+|lyric\s+|lyrics\s+)?(video|audio|visualizer|hd|4k)\s*[\)\]]\s*/gi, " ");
   s = s.replace(/\s*\b(official|lyrics|lyric|hd|4k|hq|explicit|remastered|remaster)\b\s*/gi, " ");
+  /* v2.2.121: drop empty-paren residue — "Song (Remastered)" must not
+     become "Song ()" after the word-strip above. */
+  s = s.replace(/\(\s*\)/g, " ").replace(/\[\s*\]/g, " ");
   s = s.replace(/\s{2,}/g, " ").trim();
   return s;
 }
@@ -6998,6 +7004,7 @@ function clearKaraoke(bodyEl){
   if(!bodyEl) return;
   if(bodyEl._lyricsTimer){ clearInterval(bodyEl._lyricsTimer); bodyEl._lyricsTimer = null; }
   bodyEl._karaokeLines = null; bodyEl._karaokeIdx = -1; bodyEl._karaokeHold = false;
+  bodyEl._karaokeSingle = null; /* v2.2.121: drop the TV single-line ref with the rest (the div itself is wiped by the next "Loading lyrics…" assignment). */
 }
 function renderKaraokeLines(bodyEl, lines){
   if(!bodyEl) return;
@@ -7005,6 +7012,16 @@ function renderKaraokeLines(bodyEl, lines){
   bodyEl._karaokeLines = lines;
   bodyEl._karaokeIdx = -1;
   bodyEl._karaokeHold = false;
+  /* v2.2.121: TV shows exactly ONE line — the currently-sung line,
+     nothing else. One persistent element; the tick swaps its text.
+     Phone keeps one div per line below. */
+  if(IS_TV){
+    var s = document.createElement("div");
+    s.className = "karaoke-single";
+    bodyEl.appendChild(s);
+    bodyEl._karaokeSingle = s;
+    return;
+  }
   for(var i = 0; i < lines.length; i++){
     var d = document.createElement("div");
     d.className = "karaoke-line";
@@ -7025,6 +7042,20 @@ function karaokeTick(bodyEl){
   if(ans === bodyEl._karaokeIdx) return;
   var prev = bodyEl._karaokeIdx;
   bodyEl._karaokeIdx = ans;
+  /* v2.2.121: TV single-line — swap the one element's text, no class
+     toggles, no scrolling, no childNodes indexing (the body holds one
+     div, not one div per line). Gaps keep the last line: ans only
+     advances on new timestamps, and ans = -1 blanks the element
+     (exactly "nothing else" before the first line). Speak-lines follows
+     the tick exactly as on phone (same text, same change). */
+  if(IS_TV){
+    if(bodyEl._karaokeSingle) bodyEl._karaokeSingle.textContent = ans >= 0 ? lines[ans].text : "";
+    bodyEl._karaokeHold = false;
+    if(ans >= 0 && speakLyricsEnabled()){
+      try { if(window.LynxosPlayer && LynxosPlayer.speak) LynxosPlayer.speak(lines[ans].text); } catch(e){}
+    }
+    return;
+  }
   var kids = bodyEl.childNodes;
   if(prev >= 0 && kids[prev]) kids[prev].classList.remove("karaoke-active");
   if(ans >= 0 && kids[ans]){
@@ -7075,10 +7106,15 @@ function startKaraoke(bodyEl, lines){
   bodyEl._lyricsTimer = setInterval(function(){ karaokeTick(bodyEl); }, 100);
   karaokeTick(bodyEl);
 }
-function fetchLrclibSynced(artist, title){
+function fetchLrclibSynced(artist, title, album){
   function timeoutMs(ms){ return new Promise(function(_, reject){ setTimeout(function(){ reject(new Error("timeout")); }, ms); }); }
   function getJson(url){
-    return Promise.race([fetch(url), timeoutMs(8000)]).then(function(r){ if(!r.ok) throw new Error("http " + r.status); return r.json(); });
+    /* v2.2.121: Lrclib-Client header (docs-sanctioned; fetch() cannot set
+       User-Agent, a forbidden header — the v2.2.118 comment stands).
+       Verified live 2026-10-29: LRCLIB returns 200 with the header and
+       its CORS preflight explicitly allows lrclib-client. The 8 s race
+       structure is unchanged. */
+    return Promise.race([fetch(url, { headers: { "Lrclib-Client": "LynxosMusic/2.2.121" } }), timeoutMs(8000)]).then(function(r){ if(!r.ok) throw new Error("http " + r.status); return r.json(); });
   }
   function pick(d){
     if(!d) return null;
@@ -7086,23 +7122,92 @@ function fetchLrclibSynced(artist, title){
     if(d.syncedLyrics){ var lines = parseLrc(d.syncedLyrics); if(lines.length) return lines; }
     return null;
   }
+  function norm(s){ return String(s == null ? "" : s).toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim(); }
+  function stripFeat(a){
+    var s = String(a == null ? "" : a).replace(/\s*\(\s*(feat\.?|featuring|ft\.?)\s+[^)]*\)\s*/gi, " ");
+    s = s.replace(/\s+(feat\.?|featuring|ft\.?)\s+.*$/i, "");
+    return s.replace(/\s+/g, " ").trim();
+  }
+  function stripParens(t){
+    var s = String(t == null ? "" : t).replace(/\([^)]*\)/g, " ").replace(/\[[^\]]*\]/g, " ");
+    s = s.replace(/\s*-\s*(radio edit|single edit|remaster(ed)?|deluxe.*)$/i, " ");
+    return s.replace(/\s+/g, " ").trim();
+  }
   var dur = 0;
   try { dur = Math.round(nativeState.dur || 0); } catch(e){}
-  var base = "https://lrclib.net/api/get?artist_name=" + encodeURIComponent(artist) + "&track_name=" + encodeURIComponent(title);
-  if(dur > 0) base += "&duration=" + dur;
-  /* Note: fetch() in a WebView cannot override the User-Agent header
-     (forbidden header) — the WebView's own UA is sent. LRCLIB reads need
-     no key. */
-  return getJson(base).then(function(d){
-    var p = pick(d);
-    if(p) return p;
-    var s = "https://lrclib.net/api/search?artist_name=" + encodeURIComponent(artist) + "&track_name=" + encodeURIComponent(title);
-    return getJson(s).then(function(arr){
+  function getUrl(a, t){
+    var u = "https://lrclib.net/api/get?artist_name=" + encodeURIComponent(a) + "&track_name=" + encodeURIComponent(t);
+    /* v2.2.121: album_name only when present — never send "undefined". */
+    if(album && String(album).trim()) u += "&album_name=" + encodeURIComponent(String(album).trim());
+    if(dur > 0) u += "&duration=" + dur;
+    return u;
+  }
+  function searchUrl(a, t){
+    return "https://lrclib.net/api/search?artist_name=" + encodeURIComponent(a) + "&track_name=" + encodeURIComponent(t);
+  }
+  function tryGet(a, t){ return getJson(getUrl(a, t)).then(pick); }
+  function trySearch(a, t){
+    return getJson(searchUrl(a, t)).then(function(arr){
       if(!Array.isArray(arr)) return null;
-      for(var i = 0; i < arr.length; i++){ var q = pick(arr[i]); if(q) return q; }
+      /* v2.2.121: score /search picks instead of taking first-with-synced
+         blindly. Score: +2 normalized artist match (exact or contains),
+         +2 normalized track match, +1 duration within ±10 s as a
+         preference ONLY — nativeState.dur at fetch time may still be the
+         PREVIOUS track's duration (stale), so duration is NEVER a hard
+         filter. Ties keep the earliest record. If no record has synced
+         lines, fall through to the first-with-synced loop, which
+         preserves today's instrumental-early-return behavior. */
+      var na = norm(a), nt = norm(t), best = null, bestScore = -1;
+      for(var i = 0; i < arr.length; i++){
+        var q = pick(arr[i]);
+        if(!q || q === "instrumental") continue;
+        var sc = 0;
+        var ra = norm(arr[i].artistName), rt = norm(arr[i].trackName);
+        if(ra && na && (ra === na || ra.indexOf(na) !== -1 || na.indexOf(ra) !== -1)) sc += 2;
+        if(rt && nt && (rt === nt || rt.indexOf(nt) !== -1 || nt.indexOf(rt) !== -1)) sc += 2;
+        if(dur > 0 && arr[i].duration && Math.abs(arr[i].duration - dur) <= 10) sc += 1;
+        if(sc > bestScore){ bestScore = sc; best = q; }
+      }
+      if(best) return best;
+      for(var j = 0; j < arr.length; j++){ var r = pick(arr[j]); if(r) return r; }
       return null;
     });
-  }).catch(function(){ return null; });
+  }
+  function orNull(p){ return p.catch(function(){ return null; }); }
+  /* v2.2.121 Fix 1: a /get failure (timeout, 404/429/500, bad JSON) must
+     still try /search — the old .catch(()=>null) swallowed the failure
+     before /search ever ran. Every stage below resolves null on failure
+     and the chain continues. An "instrumental" result is truthy, so it
+     short-circuits every stage and is NEVER retried as a miss. */
+  var chain = orNull(tryGet(artist, title)).then(function(p){
+    if(p) return p;
+    return orNull(trySearch(artist, title));
+  });
+  /* v2.2.121 Fix 3: bounded variant retries on a full miss — at most 3
+     extra /get + 1 extra /search. Variants identical to the canonical
+     strings are skipped, so songs without feat./parentheticals pay
+     nothing extra. Order: artist-minus-feat, title-minus-parens, both. */
+  var va = stripFeat(artist), vt = stripParens(title);
+  var variants = [];
+  if(va && va !== artist) variants.push([va, title]);
+  if(vt && vt !== title) variants.push([artist, vt]);
+  if(va && va !== artist && vt && vt !== title) variants.push([va, vt]);
+  variants.forEach(function(vt2){
+    chain = chain.then(function(p){
+      if(p) return p;
+      return orNull(tryGet(vt2[0], vt2[1]));
+    });
+  });
+  chain = chain.then(function(p){
+    if(p) return p;
+    /* One /search with the most-stripped pair, only if it differs from
+       the canonical pair already searched. */
+    var sa = variants.length ? variants[variants.length - 1][0] : artist;
+    var st = variants.length ? variants[variants.length - 1][1] : title;
+    if(sa === artist && st === title) return null;
+    return orNull(trySearch(sa, st));
+  });
+  return chain.catch(function(){ return null; });
 }
 function applyKaraokeResult(res, bodyEl, artist, title, announce){
   /* Stale-guard: a newer song's fetchLyrics owns the bodies now. */
@@ -7120,10 +7225,13 @@ function applyKaraokeResult(res, bodyEl, artist, title, announce){
     if(announce) say("Lyrics loaded.");
     return;
   }
-  _karaokeCache = { key: kkey, tried: true, lines: null, instrumental: false };
+  /* v2.2.121: NEVER cache a failure as final — tried stays false so the
+     next play retries LRCLIB instead of going plain for the rest of the
+     session. This play still shows plain lyrics below. */
+  _karaokeCache = { key: kkey, tried: false, lines: null, instrumental: false };
   fetchLyricsPlain(artist, title, null, bodyEl, announce, true);
 }
-function fetchLyrics(artist, title, titleEl, bodyEl, announce){
+function fetchLyrics(artist, title, titleEl, bodyEl, announce, album){
   if(titleEl) titleEl.textContent = title + " — " + artist;
   if(bodyEl){ bodyEl.textContent = "Loading lyrics…"; bodyEl.scrollTop = 0; clearKaraoke(bodyEl); }
   if(announce) say("Loading lyrics for " + title + ".");
@@ -7139,7 +7247,7 @@ function fetchLyrics(artist, title, titleEl, bodyEl, announce){
     _karaokeInflight.promise.then(function(res){ applyKaraokeResult(res, bodyEl, artist, title, announce); });
     return;
   }
-  var pr = fetchLrclibSynced(artist, title);
+  var pr = fetchLrclibSynced(artist, title, album);
   _karaokeInflight = { key: kkey, promise: pr };
   pr.then(function(res){
     if(_karaokeInflight && _karaokeInflight.key === kkey) _karaokeInflight = null;
@@ -7217,8 +7325,8 @@ function loadLyricsFor(v, announce){
   if(!v) return false;
   var p = parseTrack(v.title, v.channel);
   if(!p.artist || !p.title) return false;
-  fetchLyrics(p.artist, p.title, $("lyricsTitle"), $("lyricsBody"), announce);
-  if(IS_TV) fetchLyrics(p.artist, p.title, $("tvLyricsTitle"), $("tvLyricsBody"), announce);
+  fetchLyrics(p.artist, p.title, $("lyricsTitle"), $("lyricsBody"), announce, v.album);
+  if(IS_TV) fetchLyrics(p.artist, p.title, $("tvLyricsTitle"), $("tvLyricsBody"), announce, v.album);
   return true;
 }
 $("fpLyricsBtn").addEventListener("click", function(){
