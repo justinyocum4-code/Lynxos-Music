@@ -497,8 +497,8 @@ def get_album(browse_id, limit=50):
         return json.dumps({"error": str(e)})
 
 def _pick_capped_audio_url(info):
-    """v2.2.105: pick an audio-only format URL under the ~96 kbps cap —
-    the highest abr at or under 96, else the lowest abr available, else
+    """v2.2.105: pick an audio-only format URL under the ~160 kbps cap —
+    the highest abr at or under 160, else the lowest abr available, else
     the first audio-only format (the pre-cap behavior). The heaviest
     stream starved the player on his ~35 KB/s connection. Returns ''
     when no audio-only format carries a URL."""
@@ -511,7 +511,7 @@ def _pick_capped_audio_url(info):
         return ''
     known = [f for f in audio if f.get('abr')]
     if known:
-        under = [f for f in known if f['abr'] <= 96]
+        under = [f for f in known if f['abr'] <= 160]
         pick = max(under, key=lambda f: f['abr']) if under else min(known, key=lambda f: f['abr'])
         return pick.get('url', '')
     return audio[0].get('url', '')
@@ -529,7 +529,7 @@ def get_stream_url(video_id):
             # that fallback is a video-bearing format, and on his
             # device it is the prime suspect for the Z-Ro album's
             # stalls. Audio-only or this attempt fails cleanly.
-            'format': 'bestaudio[abr<=96]/bestaudio',
+            'format': 'bestaudio[abr<=160]/bestaudio',
             'quiet': True,
             'no_warnings': True,
             'extract_flat': False,
@@ -721,7 +721,7 @@ def get_playable_stream(title, artist, video_id, max_alternatives=2):
                 # v2.2.105: capped audio (see _pick_capped_audio_url).
                 # v2.2.106: muxed "best" cascade deleted — see
                 # get_stream_url. Audio-only or clean failure.
-                'format': 'bestaudio[abr<=96]/bestaudio',
+                'format': 'bestaudio[abr<=160]/bestaudio',
                 'quiet': True,
                 'no_warnings': True,
                 'extract_flat': False,
