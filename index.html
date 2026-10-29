@@ -604,7 +604,7 @@
 <!-- v2.2.89: TV-visible toast (say() shows it on TV; phones never see it). -->
 <div id="tvToast" hidden></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.126</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.127</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -805,7 +805,7 @@
     </div>
     <div class="card" id="settingsAboutCard" tabindex="0" aria-label="About">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.126. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.127. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -7074,12 +7074,25 @@ function clearKaraoke(bodyEl){
 /* v2.2.124: word-by-word karaoke — ESTIMATE, not true word timing.
    LRCLIB syncedLyrics is line-level LRC only; no per-word timestamps
    exist anywhere, so within each line's window words light in
-   length-weighted order (longer words, plus their following space,
-   get proportionally more time). Fast or uneven phrasing will be
+   syllable-weighted order (more syllables = proportionally more
+   time; sung words run together, so no time is charged for the gaps
+   between them). Fast or uneven phrasing will be
    visibly approximate. Line starts stay exactly as LRCLIB reports —
    this never invents timestamps, it only distributes a line's known
    window across its words. */
 var DISTRIBUTION_CAP_S = 10;
+function karaokeSyllables(token){
+  var t = String(token || "").toLowerCase().replace(/[^a-z]/g, "");
+  if(!t) return 1;
+  var m = t.match(/[aeiouy]+/g);
+  var n = m ? m.length : 0;
+  if(n === 0) return 1;
+  /* Silent trailing e ("love", "face") — but not "-le" endings
+     ("bottle", "table") where the e is its own syllable, and never
+     below 1. */
+  if(t.length > 2 && t.charAt(t.length - 1) === "e" && t.slice(-2) !== "le" && n > 1) n--;
+  return n < 1 ? 1 : n;
+}
 function karaokeWordStarts(lines, i){
   var start = lines[i].t, end;
   if(i + 1 < lines.length) end = lines[i + 1].t;
@@ -7098,7 +7111,7 @@ function karaokeWordStarts(lines, i){
      light the whole line at once at lineStart. */
   var tokens = String(lines[i].text).split(/\s+/);
   var weights = [], total = 0;
-  for(var j = 0; j < tokens.length; j++){ var w = tokens[j].length + (j < tokens.length - 1 ? 1 : 0); weights.push(w); total += w; }
+  for(var j = 0; j < tokens.length; j++){ var w = karaokeSyllables(tokens[j]); weights.push(w); total += w; }
   if(!total) return null;
   var starts = [], acc = 0;
   for(var j = 0; j < tokens.length; j++){ starts.push(start + (acc / total) * dist); acc += weights[j]; }
@@ -7156,13 +7169,21 @@ function renderKaraokeLines(bodyEl, lines){
    the lead shifts only the DISPLAY. Speak-lines rides this same
    tick in both branches below (no second lead path for speech). */
 var KARAOKE_LEAD_S = 0.25;
+var KARAOKE_WORD_LEAD_S = 0.35;
 function karaokeTick(bodyEl){
   if(!bodyEl || !bodyEl._karaokeLines || !bodyEl._karaokeLines.length) return;
   var lines = bodyEl._karaokeLines;
   var pos = karaokePos();
-  /* Computed once: the line search AND the word lighting below share
-     it — the 0.25 s lead is never added twice. */
+  /* v2.2.127: split leads — the line search uses the 0.25 s lead
+     (leadPos); the word lighting below uses a 0.35 s lead
+     (wordLeadPos) so words light slightly earlier and track the
+     singer more closely under pipeline delay. Neither lead is ever
+     added twice, and the word path still operates on the PREVIOUS
+     line's spans while pos is in [lineStart-0.35, lineStart-0.25),
+     because ans hasn't advanced yet — so the next line's first word
+     cannot light early. */
   var leadPos = pos + KARAOKE_LEAD_S;
+  var wordLeadPos = pos + KARAOKE_WORD_LEAD_S;
   var lo = 0, hi = lines.length - 1, ans = -1;
   while(lo <= hi){ var mid = (lo + hi) >> 1; if(lines[mid].t <= leadPos){ ans = mid; lo = mid + 1; } else { hi = mid - 1; } }
   if(ans !== bodyEl._karaokeIdx){
@@ -7255,7 +7276,7 @@ function karaokeTick(bodyEl){
   if(!starts){ target = spans.length; /* degenerate window: whole line at once */ }
   else {
     target = 0;
-    for(var w = 0; w < starts.length; w++){ if(starts[w] <= leadPos) target = w + 1; else break; }
+    for(var w = 0; w < starts.length; w++){ if(starts[w] <= wordLeadPos) target = w + 1; else break; }
   }
   if(target === bodyEl._karaokeLitCount) return; /* no DOM writes when unchanged */
   bodyEl._karaokeLitCount = target;
