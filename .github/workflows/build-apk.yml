@@ -1063,6 +1063,14 @@ jobs:
                   @JavascriptInterface public String getPlaybackLog() {
                       return MusicService.diagDump(MainActivity.this);
                   }
+                  /* v2.2.128: page-side lyrics outcome lines for the Playback
+                     log. The page has no diag of its own — the log lives in
+                     MusicService's lm_diag ring buffer — so the page reports
+                     through here. Same "HH:mm:ss event" format as every
+                     other line; diagLog is static and null-safe. */
+                  @JavascriptInterface public void diagEvent(final String event) {
+                      try { MusicService.diagLog(MainActivity.this, event); } catch (Throwable ignored) {}
+                  }
                   /* v2.2.106: the page pulls a shared YouTube link exactly
                      once — the cold-start init call, the visibility return,
                      and the native warm-start push all funnel here. Returns
