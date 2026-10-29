@@ -604,7 +604,7 @@
 <!-- v2.2.89: TV-visible toast (say() shows it on TV; phones never see it). -->
 <div id="tvToast" hidden></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.127</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.128</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -805,7 +805,7 @@
     </div>
     <div class="card" id="settingsAboutCard" tabindex="0" aria-label="About">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.127. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.128. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -7037,6 +7037,17 @@ var _karaokeCache = { key: "", tried: false, lines: null, instrumental: false };
 var _karaokeInflight = null; /* {key, promise} — one LRCLIB attempt per song, shared by both TV bodies */
 var _lyricsSongKey = "";
 function karaokeKey(artist, title){ return String(artist + "|" + title).toLowerCase(); }
+/* v2.2.128: one Playback-log line per song, for the VISIBLE lyrics body
+   only. loadLyricsFor fetches both bodies on TV, so logging both would
+   double every line. The page has no diag of its own — the log lives in
+   the native lm_diag ring buffer, so this reports through LynxosPlayer. */
+function lyricsDiag(bodyEl, kind, artist, title){
+  try{
+    if(!bodyEl) return;
+    if(IS_TV ? bodyEl.id !== "tvLyricsBody" : bodyEl.id !== "lyricsBody") return;
+    if(window.LynxosPlayer && LynxosPlayer.diagEvent) LynxosPlayer.diagEvent("lyrics " + kind + " " + artist + " | " + title);
+  }catch(e){}
+}
 function parseLrc(text){
   var out = [];
   if(!text) return out;
@@ -7418,12 +7429,14 @@ function applyKaraokeResult(res, bodyEl, artist, title, announce){
   if(res === "instrumental"){
     _karaokeCache = { key: kkey, tried: true, lines: null, instrumental: true };
     if(bodyEl) bodyEl.textContent = "Instrumental";
+    lyricsDiag(bodyEl, "instrumental", artist, title);
     if(announce) say("Instrumental.");
     return;
   }
   if(res && res.length){
     _karaokeCache = { key: kkey, tried: true, lines: res, instrumental: false };
     startKaraoke(bodyEl, res);
+    lyricsDiag(bodyEl, "synced", artist, title);
     if(announce) say("Lyrics loaded.");
     return;
   }
@@ -7440,8 +7453,8 @@ function fetchLyrics(artist, title, titleEl, bodyEl, announce, album){
   var kkey = karaokeKey(artist, title);
   _lyricsSongKey = kkey;
   if(_karaokeCache.key === kkey && _karaokeCache.tried){
-    if(_karaokeCache.lines){ startKaraoke(bodyEl, _karaokeCache.lines); if(announce) say("Lyrics loaded."); return; }
-    if(_karaokeCache.instrumental){ if(bodyEl) bodyEl.textContent = "Instrumental"; if(announce) say("Instrumental."); return; }
+    if(_karaokeCache.lines){ startKaraoke(bodyEl, _karaokeCache.lines); lyricsDiag(bodyEl, "synced", artist, title); if(announce) say("Lyrics loaded."); return; }
+    if(_karaokeCache.instrumental){ if(bodyEl) bodyEl.textContent = "Instrumental"; lyricsDiag(bodyEl, "instrumental", artist, title); if(announce) say("Instrumental."); return; }
     fetchLyricsPlain(artist, title, titleEl, bodyEl, announce, true);
     return;
   }
@@ -7457,6 +7470,12 @@ function fetchLyrics(artist, title, titleEl, bodyEl, announce, album){
   });
 }
 function fetchLyricsPlain(artist, title, titleEl, bodyEl, announce, alreadyAnnounced){
+  /* v2.2.128: stale-song guard. fetchLyrics sets _lyricsSongKey for the
+     current song; any async handler below bails when the key has moved
+     on, so a slow plain fetch can never clobber a newer song's karaoke
+     (the timed path already guards this way in applyKaraokeResult). */
+  var kkey = karaokeKey(artist, title);
+  function plainFresh(){ return _lyricsSongKey === kkey; }
   if(titleEl) titleEl.textContent = title + " — " + artist;
   if(bodyEl){
     bodyEl.textContent = "Loading lyrics…";
@@ -7485,11 +7504,13 @@ function fetchLyricsPlain(artist, title, titleEl, bodyEl, announce, alreadyAnnou
   Promise.race([fetch(url), timeout])
     .then(function(r){ return r.json(); })
     .then(function(d){
+      if(!plainFresh()) return;
       if(d && d.lyrics){
         if(bodyEl){
           bodyEl.textContent = d.lyrics;
           startAutoScroll(bodyEl);
         }
+        lyricsDiag(bodyEl, "plain", artist, title);
         if(announce) say("Lyrics loaded.");
       } else {
         /* Retry with simplified names (strip feat., &, etc.) */
@@ -7498,28 +7519,36 @@ function fetchLyricsPlain(artist, title, titleEl, bodyEl, announce, alreadyAnnou
         if(simpleArtist !== artist || simpleTitle !== title){
           var url2 = "https://api.lyrics.ovh/v1/" + encodeURIComponent(simpleArtist) + "/" + encodeURIComponent(simpleTitle);
           Promise.race([fetch(url2), timeout]).then(function(r2){ return r2.json(); }).then(function(d2){
+            if(!plainFresh()) return;
             if(d2 && d2.lyrics){
               if(bodyEl) bodyEl.textContent = d2.lyrics;
               /* v2.2.118: the retry branch never started the auto-scroll
                  timer — the first-success branch did. Start it here too. */
               if(bodyEl) startAutoScroll(bodyEl);
+              lyricsDiag(bodyEl, "plain", artist, title);
               if(announce) say("Lyrics loaded.");
             } else {
               if(bodyEl) bodyEl.textContent = "No lyrics found for this song.";
+              lyricsDiag(bodyEl, "none", artist, title);
               if(announce) say("No lyrics found for this song.");
             }
           }).catch(function(){
+            if(!plainFresh()) return;
             if(bodyEl) bodyEl.textContent = "No lyrics found for this song.";
+            lyricsDiag(bodyEl, "none", artist, title);
             if(announce) say("No lyrics found for this song.");
           });
         } else {
           if(bodyEl) bodyEl.textContent = "No lyrics found for this song.";
+          lyricsDiag(bodyEl, "none", artist, title);
           if(announce) say("No lyrics found for this song.");
         }
       }
     })
     .catch(function(){
+      if(!plainFresh()) return;
       if(bodyEl) bodyEl.textContent = "Couldn't load lyrics. Check your connection.";
+      lyricsDiag(bodyEl, "error", artist, title);
       if(announce) say("Couldn't load lyrics.");
     });
 }
