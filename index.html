@@ -595,7 +595,7 @@
 <!-- v2.2.89: TV-visible toast (say() shows it on TV; phones never see it). -->
 <div id="tvToast" hidden></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.122</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.123</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -692,9 +692,11 @@
   </section>
   <section id="searchView" role="tabpanel" aria-labelledby="tab-search" hidden>
     <button class="backBtn" id="searchBackBtn" aria-label="Back to home">‹ Back</button><br>
+    <form id="searchForm" style="margin:0">
     <label for="searchBox" class="sr-only">Search songs or artists</label>
-    <input type="search" id="searchBox" placeholder="Search songs, artists" autocomplete="off">
-    <button class="btn" id="searchBtn">Search</button>
+    <input type="search" id="searchBox" placeholder="Search songs, artists" autocomplete="off" enterkeyhint="search">
+    <button class="btn" type="button" id="searchBtn">Search</button>
+    </form>
     <!-- v2.2.84: Radio and Artist page buttons removed (his call) — search results are YTM-style now. -->
     <div id="recentSearches" class="row" style="margin-top:4px"></div>
     <div id="searchResults"></div>
@@ -794,7 +796,7 @@
     </div>
     <div class="card" id="settingsAboutCard" tabindex="0" aria-label="About">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.122. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.123. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -3154,6 +3156,16 @@ function trackArtist(v){
    card, and sections. Music only — no videos/podcasts. */
 var SEARCH_FILTERS = ["all", "songs", "albums", "artists"];
 function doSearch(){
+  /* v2.2.123: close the soft keyboard on every commit path (IME
+     submit, Enter, button tap, recent-search tap). Blurring an
+     unfocused element is a no-op, so the programmatic callers are
+     unaffected. Focus then moves to the Search button — a button
+     never pops the keyboard, so unlike blur-alone (which would let
+     the next D-pad press restore focus to the box through tvNavMove's
+     lost-focus branch and re-pop the keyboard) the keyboard stays
+     closed and D-pad movement resumes geometrically from the button. */
+  try { $("searchBox").blur(); } catch(e){}
+  try { $("searchBtn").focus(); } catch(e){}
   var q = $("searchBox").value.trim();
   if(!q){ say("Type something to search for first."); return; }
   state.searchFilter = "all";
@@ -3490,7 +3502,18 @@ function refreshLikeIcons(root, list){
 $("searchBtn").addEventListener("click", doSearch);
 /* v2.2.84: the search-screen Radio button is gone (his call); the underlying
    startRadio/startRadioFromVideo functions are untouched (player menu etc.). */
-$("searchBox").addEventListener("keydown", function(e){ if(e.key === "Enter") doSearch(); });
+/* v2.2.123: preventDefault cancels the form's implicit submission, so a
+   physical Enter calls doSearch exactly once (this keydown path) —
+   without it, Enter would double-fire doSearch (keydown + submit).
+   A soft-keyboard IME action produces no keydown at all, so it takes
+   the submit path below instead — also exactly once. */
+$("searchBox").addEventListener("keydown", function(e){ if(e.key === "Enter"){ e.preventDefault(); doSearch(); } });
+/* v2.2.123: TV search keyboard — a soft-keyboard IME action (Next /
+   Done / Search / Go) never produces a DOM keydown Enter, and with no
+   <form> the Next action had nowhere to go, so it silently no-op'd.
+   The form submit path gives every keyboard action a commit route:
+   submit → doSearch (which blurs, closing the keyboard). */
+$("searchForm").addEventListener("submit", function(e){ e.preventDefault(); doSearch(); });
 </script>
 <script>
 "use strict";
@@ -7029,16 +7052,19 @@ function renderKaraokeLines(bodyEl, lines){
     bodyEl.appendChild(d);
   }
 }
+/* v2.2.123: 0.25 s display lead — cancels known pipeline delay
+   (bridge delivery + tick detection + render, ~150–450 ms under
+   Stick main-thread load). This is NOT a return to the v2.2.119
+   1.5 s lead. LRC timestamps are used as-is; nothing is faked —
+   the lead shifts only the DISPLAY. Speak-lines rides this same
+   tick in both branches below (no second lead path for speech). */
+var KARAOKE_LEAD_S = 0.25;
 function karaokeTick(bodyEl){
   if(!bodyEl || !bodyEl._karaokeLines || !bodyEl._karaokeLines.length) return;
   var lines = bodyEl._karaokeLines;
   var pos = karaokePos();
-  /* v2.2.120: exact sync — the clock is millisecond-precise now (see
-     lmNativeProgress), so no lead: a line lights when its timestamp
-     passes. Any residual lateness on a specific song is that song's
-     LRCLIB timestamps, not code. */
   var lo = 0, hi = lines.length - 1, ans = -1;
-  while(lo <= hi){ var mid = (lo + hi) >> 1; if(lines[mid].t <= pos){ ans = mid; lo = mid + 1; } else { hi = mid - 1; } }
+  while(lo <= hi){ var mid = (lo + hi) >> 1; if(lines[mid].t <= pos + KARAOKE_LEAD_S){ ans = mid; lo = mid + 1; } else { hi = mid - 1; } }
   if(ans === bodyEl._karaokeIdx) return;
   var prev = bodyEl._karaokeIdx;
   bodyEl._karaokeIdx = ans;
@@ -7101,9 +7127,10 @@ function startKaraoke(bodyEl, lines){
     bodyEl.addEventListener("touchstart", function(){ bodyEl._karaokeHold = true; });
   }
   /* Reuses the _lyricsTimer slot, so only one lyrics timer ever runs. */
-  /* v2.2.120: 100 ms tick (was 250 ms) — with the ms clock, detection
-     delay drops to ~100 ms, inside the audio-visual perception band. */
-  bodyEl._lyricsTimer = setInterval(function(){ karaokeTick(bodyEl); }, 100);
+  /* v2.2.123: 50 ms tick (was 100 ms) — detection delay drops to
+     0–50 ms, so with the 0.25 s lead the line lands ~130–160 ms
+     early typically instead of ~450 ms late under load. */
+  bodyEl._lyricsTimer = setInterval(function(){ karaokeTick(bodyEl); }, 50);
   karaokeTick(bodyEl);
 }
 function fetchLrclibSynced(artist, title, album){
