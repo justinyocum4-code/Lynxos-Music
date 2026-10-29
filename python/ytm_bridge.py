@@ -496,12 +496,14 @@ def get_album(browse_id, limit=50):
     except Exception as e:
         return json.dumps({"error": str(e)})
 
-def _pick_capped_audio_url(info):
-    """v2.2.105: pick an audio-only format URL under the ~160 kbps cap —
-    the highest abr at or under 160, else the lowest abr available, else
-    the first audio-only format (the pre-cap behavior). The heaviest
-    stream starved the player on his ~35 KB/s connection. Returns ''
-    when no audio-only format carries a URL."""
+def _pick_capped_audio_url(info, cap_kbps=160):
+    """v2.2.105: pick an audio-only format URL under the cap —
+    the highest abr at or under cap_kbps (default 160), else the lowest
+    abr available, else the first audio-only format (the pre-cap
+    behavior). The heaviest stream starved the player on his ~35 KB/s
+    connection. v2.2.129: cap_kbps is the session cap (160, or 70 after
+    a stall downgrade). Returns '' when no audio-only format carries
+    a URL."""
     audio = []
     for f in info.get('formats', []) or []:
         if f.get('acodec') != 'none' and f.get('vcodec') == 'none':
@@ -511,12 +513,12 @@ def _pick_capped_audio_url(info):
         return ''
     known = [f for f in audio if f.get('abr')]
     if known:
-        under = [f for f in known if f['abr'] <= 160]
+        under = [f for f in known if f['abr'] <= cap_kbps]
         pick = max(under, key=lambda f: f['abr']) if under else min(known, key=lambda f: f['abr'])
         return pick.get('url', '')
     return audio[0].get('url', '')
 
-def get_stream_url(video_id):
+def get_stream_url(video_id, cap_kbps=160):
     """Get playable audio stream URL for a video ID using yt-dlp.
     Returns JSON with url or error. This is the fallback when NewPipe fails."""
     try:
@@ -529,7 +531,7 @@ def get_stream_url(video_id):
             # that fallback is a video-bearing format, and on his
             # device it is the prime suspect for the Z-Ro album's
             # stalls. Audio-only or this attempt fails cleanly.
-            'format': 'bestaudio[abr<=160]/bestaudio',
+            'format': f'bestaudio[abr<={cap_kbps}]/bestaudio',
             'quiet': True,
             'no_warnings': True,
             'extract_flat': False,
@@ -548,7 +550,7 @@ def get_stream_url(video_id):
                 # deleted — it could hand back ANY format in list
                 # order, including video. No audio-only URL means this
                 # attempt fails and the caller's machinery moves on.
-                stream_url = _pick_capped_audio_url(info)
+                stream_url = _pick_capped_audio_url(info, cap_kbps)
             if stream_url:
                 return json.dumps({"url": stream_url})
             else:
@@ -703,7 +705,7 @@ def _classify_stream_error(text):
             return "dead"
     return "transient"
 
-def get_playable_stream(title, artist, video_id, max_alternatives=2):
+def get_playable_stream(title, artist, video_id, cap_kbps=160, max_alternatives=2):
     """Get a playable stream URL, trying alternatives if the primary fails.
     Returns JSON with url and videoId, or error if all fail.
     This is the permanent fix for skipped tracks.
@@ -721,7 +723,7 @@ def get_playable_stream(title, artist, video_id, max_alternatives=2):
                 # v2.2.105: capped audio (see _pick_capped_audio_url).
                 # v2.2.106: muxed "best" cascade deleted — see
                 # get_stream_url. Audio-only or clean failure.
-                'format': 'bestaudio[abr<=160]/bestaudio',
+                'format': f'bestaudio[abr<={cap_kbps}]/bestaudio',
                 'quiet': True,
                 'no_warnings': True,
                 'extract_flat': False,
@@ -735,7 +737,7 @@ def get_playable_stream(title, artist, video_id, max_alternatives=2):
                     # Same ~96 kbps cap as the selector above.
                     # v2.2.106: first-format last-ditch deleted (see
                     # get_stream_url) — no audio-only URL, no stream.
-                    stream_url = _pick_capped_audio_url(info)
+                    stream_url = _pick_capped_audio_url(info, cap_kbps)
                 if stream_url:
                     return stream_url, ""
                 return None, "No stream URL found"
