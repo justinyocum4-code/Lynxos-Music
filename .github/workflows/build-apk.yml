@@ -1830,18 +1830,22 @@ jobs:
                  propagated, dead uploads never reach this path at all. */
               private static final int MAX_RETRIES = 1;
               /* v2.2.129: session audio cap (kbps) + stall-triggered
-                 rendition downgrade. v2.2.130: the default is now 70
+                 rendition downgrade. v2.2.130: the default was 70
                  (Justin's call — the downgrade target proved itself on
-                 both devices, so sessions start there instead of
-                 stalling first at 160 and switching mid-song). The
-                 downgrade mechanism stays in place but is dormant while
-                 the default equals the downgrade cap: triggerDowngrade
-                 only fires when sessionCapKbps > DOWNGRADE_CAP_KBPS, so
-                 with a 70 default it never fires unless the default is
-                 raised again. Volatile: written on the main thread by
-                 the downgrade trigger, read by the resolve threads and
-                 the bank thread. */
-              private static volatile int sessionCapKbps = 70;
+                 both devices). v2.2.131: the default ceiling is now 140
+                 so both legs land the ~128 kbps stream (itag 140) — the
+                 middle quality Justin picked after 70 kbps Opus sounded
+                 windy on loud passages. The ceiling sits slightly above
+                 128 on purpose: a track reporting its 128 stream a hair
+                 over 128 must still be caught, and nothing else sits
+                 between 129 and 159 (the next tier up is 160), so 140
+                 can only ever pick the ~128 stream, never 160. The
+                 downgrade is RE-ARMED by this change: 140 > 70, so two
+                 genuine mid-playback stalls still drop the session to
+                 70 on their own. Volatile: written on the main thread
+                 by the downgrade trigger, read by the resolve threads
+                 and the bank thread. */
+              private static volatile int sessionCapKbps = 140;
               private static final int DOWNGRADE_CAP_KBPS = 70;
               private static final int DOWNGRADE_STALLS = 2;
               private static final long STALL_DOWNGRADE_MIN_MS = 5000;
@@ -1941,10 +1945,12 @@ jobs:
                  belongs to one rendition only, so banking state would
                  corrupt too). Cap 160 keeps the historical bare key
                  (legacy only since v2.2.130: no session starts at 160
-                 anymore, so old 160 spans orphan until LRU eviction and
-                 every track re-banks once under its suffixed key); any
-                 lower cap suffixes, so 70 sessions bank and read under
-                 their own key. */
+                 anymore, so old 160 spans orphan until LRU eviction);
+                 any other cap suffixes, so v2.2.131 sessions bank and
+                 read under _140 keys (fresh keys — every track re-banks
+                 once at the new quality), while _70 spans from v2.2.130
+                 sessions stay valid for any session that downgrades
+                 back to 70. */
               private static String cacheKeyFor(String videoId) {
                   return sessionCapKbps == 160 ? ("lmv2_" + videoId) : ("lmv2_" + videoId + "_" + sessionCapKbps);
               }
