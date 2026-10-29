@@ -2912,10 +2912,12 @@ jobs:
                          branches use this gate instead. lastCmdDir is the
                          direction of the last EXECUTED gated press
                          (+1 = play-ward, -1 = pause-ward, 0 = none yet); a
-                         press that REVERSES it within 800 ms is the
+                         press that REVERSES it within 2500 ms is the
                          stack/headset echo of the same physical press
                          (AVRCP delivers explicit PLAY/PAUSE pairs), not a
-                         new intent, and is swallowed. */
+                         new intent, and is swallowed.
+                         v2.2.122: window widened 800 → 2500 ms (photo-proven 2 s
+                         pause/play pair); reversal-only, no restamp on suppress. */
                       final long[] lastCmdAt = new long[] { 0 };
                       final int[] lastCmdDir = new int[] { 0 };
                       MediaSession.Builder sessionBuilder = new MediaSession.Builder(this, player)
@@ -3075,7 +3077,7 @@ jobs:
                                                  the two toggles take the direction they
                                                  would move playback from the state at
                                                  press time. A press REVERSING the last
-                                                 executed direction within 800 ms is the
+                                                 executed direction within 2500 ms is the
                                                  echo of the same physical press:
                                                  consumed, logged, NOT executed, and the
                                                  gate is NOT restamped (the window stays
@@ -3113,14 +3115,16 @@ jobs:
                                                       boolean playingNow = false;
                                                       try { playingNow = player != null && player.getPlayWhenReady(); } catch (Exception ignored) {}
                                                       dir = playingNow ? -1 : 1;
+                                                      final int toggleKc = kc;
+                                                      final int toggleRep = event.getRepeatCount();
                                                       action = new Runnable() {
-                                                          @Override public void run() { toggleInternal("bt/session"); }
+                                                          @Override public void run() { toggleInternal("bt/session", toggleKc, toggleRep); }
                                                       };
                                                   }
                                                   long now = android.os.SystemClock.uptimeMillis();
                                                   if (lastCmdDir[0] != 0 && dir == -lastCmdDir[0]
-                                                          && now - lastCmdAt[0] < 800) {
-                                                      diag("cmd suppressed src=bt/session (echo)");
+                                                          && now - lastCmdAt[0] < 2500) {
+                                                      diag("cmd suppressed src=bt/session (echo) kc=" + kc + " rep=" + event.getRepeatCount());
                                                       return true;
                                                   }
                                                   lastCmdAt[0] = now;
@@ -3994,8 +3998,16 @@ jobs:
               private void toggleInternal() { toggleInternal("internal"); }
 
               /* v2.2.102: see pauseOnlyInternal for the src tags. */
-              private void toggleInternal(String src) {
-                  diag("cmd toggle src=" + src);
+              private void toggleInternal(String src) { toggleInternal(src, -1, -1); }
+
+              /* v2.2.122: kc/rep overload — the media-button family branch passes the
+                 keycode and repeat count so the log names the sender class (85 =
+                 MEDIA_PLAY_PAUSE remote/CEC/companion, 79 = HEADSETHOOK headset,
+                 rep > 0 = held-button repeat). kc < 0 keeps the historic line
+                 byte-identical for the page/notification/internal callers. */
+              private void toggleInternal(String src, int kc, int rep) {
+                  if (kc >= 0) diag("cmd toggle src=" + src + " kc=" + kc + " rep=" + rep);
+                  else diag("cmd toggle src=" + src);
                   try {
                       if (player == null) return;
                       /* v2.2.99: decide on INTENT (getPlayWhenReady), not
