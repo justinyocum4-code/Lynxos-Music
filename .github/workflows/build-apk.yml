@@ -1884,7 +1884,7 @@ jobs:
                  player's CacheKeyFactory computes the identical string
                  from the reverse map above. One computation, both paths —
                  mismatched keys are how the v2.2.101 cache never served. */
-              private static String cacheKeyFor(String videoId) { return "lmv_" + videoId; }
+              private static String cacheKeyFor(String videoId) { return "lmv2_" + videoId; }
               private void clearCachedUrl(String videoId) {
                   try {
                       synchronized (urlCache) {
@@ -2353,10 +2353,14 @@ jobs:
                    writer; the block-on-cache flag is never set), keyed by a
                    CacheKeyFactory that maps each stream URL back to its
                    videoId, so every item addresses the cache as
-                   "lmv_" + videoId no matter which expiring URL a resolve
+                   "lmv2_" + videoId no matter which expiring URL a resolve
                    handed out. The banking writer sets the same key
                    explicitly on its DataSpec (cacheKeyFor — one
                    computation, both paths).
+                   v2.2.124: prefix was "lmv_" — bumped to "lmv2_" with the
+                   96→160 kbps cap, so repeat plays re-bank at the higher
+                   quality instead of serving old ~70 kbps bytes. Old
+                   "lmv_" spans orphan until LRU eviction.
                  - The banking worker below (single thread, at most one
                    CacheWriter download at a time; total network users:
                    the player + this writer) works HEAD-FIRST
@@ -3263,7 +3267,7 @@ jobs:
                           try { sessionBuilder.setSessionActivity(sessionActivity); } catch (Exception ignored) {}
                       }
                       mediaSession = sessionBuilder.build();
-                  } catch (Exception ignored) {}
+                  } catch (Exception ignored) { diag("mediaSession build failed: " + ignored); }
                   try {
                       player.setAudioAttributes(
                           new AudioAttributes.Builder()
@@ -4783,7 +4787,7 @@ jobs:
                           int kbps = br > 2000 ? br / 1000 : br;
                           if (kbps > 0) {
                               if (lightest == null || kbps < lightestKbps) { lightest = s; lightestKbps = kbps; }
-                              if (kbps <= 96 && (best == null || kbps > bestKbps)) { best = s; bestKbps = kbps; }
+                              if (kbps <= 160 && (best == null || kbps > bestKbps)) { best = s; bestKbps = kbps; }
                           }
                       }
                       /* The chosen stream's normalized kbps, so the resolve
