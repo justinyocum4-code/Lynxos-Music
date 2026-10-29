@@ -592,7 +592,7 @@
 <!-- v2.2.89: TV-visible toast (say() shows it on TV; phones never see it). -->
 <div id="tvToast" hidden></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.118</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.119</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -791,7 +791,7 @@
     </div>
     <div class="card" id="settingsAboutCard" tabindex="0" aria-label="About">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.118. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.119. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -1649,6 +1649,9 @@ function showTab(name){
   $("artistView").hidden = true;
   /* v2.2.81: the Account panel must never stay visible under tab content. */
   $("accountView").hidden = true;
+  /* v2.2.119: the album overlay must not survive a tab switch — it sits
+     above tab content (z-45) and would make the new tab look dead. */
+  $("albumPanel").hidden = true;
   /* v2.2.81: the "+ New" button lives on the Library tab only. */
   try { $("newFab").hidden = (name !== "library"); } catch(e){}
   try { closeNewSheet(); } catch(e){}
@@ -1833,7 +1836,7 @@ function bindAlbumPanelActions(title, artist, art, browseId, tracks){
       if(!tracks.length){ say("No tracks."); return; }
       state.radio = null;
       state.queue = tracks.slice();
-      playQueueIndex(0, true);
+      playQueueIndex(0, true, true);
       say("Playing " + title + ".");
     };
   }
@@ -1844,7 +1847,7 @@ function bindAlbumPanelActions(title, artist, art, browseId, tracks){
       var q = tracks.slice();
       shuffleList(q);
       state.queue = q;
-      playQueueIndex(0, true);
+      playQueueIndex(0, true, true);
       say("Shuffling " + title + ".");
     };
   }
@@ -2078,7 +2081,7 @@ function renderArtistPagePython(data){
     apPlayAll.addEventListener("click", function(){
       state.radio = null;
       state.queue = songs.slice();
-      playQueueIndex(0, true);
+      playQueueIndex(0, true, true);
       say("Playing top songs by " + aName + ".");
     });
   }
@@ -2189,7 +2192,7 @@ function openITunesAlbum(collectionId){
       $("itAlbumBackBtn").addEventListener("click", function(){ $("artistView").hidden = true; showTab("home"); });
       $("itAlbumPlayAllBtn").addEventListener("click", function(){
         state.queue = albumTracks.slice();
-        playQueueIndex(0, true);
+        playQueueIndex(0, true, true);
         say("Playing album.");
       });
       bindTrackButtons($("itAlbumTracks"), albumTracks);
@@ -2210,7 +2213,7 @@ function bindAlbumTrackButtons(root, tracks){
     row.addEventListener("click", function(e){
       if(e.target.closest("[data-amenu]")) return;
       var t = tracks[parseInt(row.getAttribute("data-arow"), 10)];
-      if(t){ state.radio = null; state.queue = tracks.slice(); playQueueIndex(tracks.indexOf(t), true); }
+      if(t){ state.radio = null; state.queue = tracks.slice(); playQueueIndex(tracks.indexOf(t), true, true); }
     });
     row.addEventListener("keydown", function(e){
       if(e.key === "Enter" || e.key === " "){ e.preventDefault(); row.click(); }
@@ -2285,6 +2288,11 @@ function tvFocusRescue(){
       }
     }
     if(!lost) return;
+    /* v2.2.119: the full player is its own layer — land on it before
+       scanning the tab views, so a rescue after a menu-initiated play
+       does not pop the side menu instead. */
+    var fp = $("fullPlayer");
+    if(fp && !fp.hidden){ var pb = $("fpPlayBtn"); if(pb){ pb.focus(); return; } }
     var views = ["homeView","exploreView","libraryView","settingsView","accountView","searchView","seeAllView","artistView"];
     for(var i=0;i<views.length;i++){
       var v = $(views[i]);
@@ -3297,7 +3305,7 @@ function searchTrackMenu(v, anchorBtn){
   m.setAttribute("aria-label", "Options for " + (v.title || "song"));
   var songs = (state.typedResults && state.typedResults.songs) || [];
   var items = [
-    { label: "▶ Play", fn: function(){ playVideo(v, songs, songs.indexOf(v)); } },
+    { label: "▶ Play", fn: function(){ playVideo(v, songs, songs.indexOf(v), true); } },
     { label: "⏭ Play next", fn: function(){ queuePlayNext(v); } },
     { label: "＋ Add to queue", fn: function(){ queueAddLast(v); } },
     { label: isLiked(v.videoId) ? "❤️ Unlike" : "🤍 Like", fn: function(){ toggleLike(v); closeSearchMenu(); renderSearchResults(); } },
@@ -3337,7 +3345,7 @@ function bindSearchResults(box, R){
   function playTop(){
     var top = pickTopResult(R, state.lastQuery);
     if(!top) return;
-    if(top.kind === "song") playVideo(top.item, R.songs, R.songs.indexOf(top.item));
+    if(top.kind === "song") playVideo(top.item, R.songs, R.songs.indexOf(top.item), true);
     else if(top.kind === "artist") openArtistPage(top.item.name, top.item.browseId);
     else if(top.item.browseId) openPythonAlbum(top.item.browseId, top.item.title, top.item.artist, top.item.thumb);
   }
@@ -3350,7 +3358,7 @@ function bindSearchResults(box, R){
     b.addEventListener("click", function(e){
       e.stopPropagation();
       var top = pickTopResult(R, state.lastQuery);
-      if(top && top.kind === "song") playVideo(top.item, R.songs, R.songs.indexOf(top.item));
+      if(top && top.kind === "song") playVideo(top.item, R.songs, R.songs.indexOf(top.item), true);
       else playTop();
     });
   });
@@ -3358,7 +3366,7 @@ function bindSearchResults(box, R){
     function play(){
       closeSearchMenu();
       var v = R.songs[parseInt(row.getAttribute("data-srow"), 10)];
-      if(v) playVideo(v, R.songs, R.songs.indexOf(v));
+      if(v) playVideo(v, R.songs, R.songs.indexOf(v), true);
     }
     row.addEventListener("click", function(e){ if(e.target.closest("[data-smenu]")) return; play(); });
     row.addEventListener("keydown", function(e){ if(e.key === "Enter" || e.key === " "){ e.preventDefault(); play(); } });
@@ -3424,7 +3432,7 @@ function bindTrackButtons(root, list){
   root.querySelectorAll("[data-play]").forEach(function(b){
     b.addEventListener("click", function(){
       var v = list[parseInt(b.getAttribute("data-play"), 10)];
-      if(v) playVideo(v, list, list.indexOf(v));
+      if(v) playVideo(v, list, list.indexOf(v), true);
     });
   });
   root.querySelectorAll("[data-playnext]").forEach(function(b){
@@ -3448,13 +3456,13 @@ function bindTrackButtons(root, list){
 }
 /* insert right after the current song; start playing immediately if queue empty */
 function queuePlayNext(v){
-  if(!state.queue.length){ playVideo(v, [v], 0); return; }
+  if(!state.queue.length){ playVideo(v, [v], 0, true); return; }
   state.queue.splice(state.qi + 1, 0, v);
   say("Will play next: " + v.title);
   renderQueue();
 }
 function queueAddLast(v){
-  if(!state.queue.length){ playVideo(v, [v], 0); return; }
+  if(!state.queue.length){ playVideo(v, [v], 0, true); return; }
   state.queue.push(v);
   say("Added to the end of the queue: " + v.title);
   renderQueue();
@@ -3539,7 +3547,7 @@ function onPlayerState(e){
   updateLikeBtn();
 }
 function currentVideo(){ return state.queue[state.qi] || null; }
-function playVideo(v, list, idx){
+function playVideo(v, list, idx, user){
   state.radio = null; /* any fresh playback replaces the radio station */
   state.queue = (list || []).slice();
   state.qi = (typeof idx === "number" && idx >= 0) ? idx : state.queue.indexOf(v);
@@ -3547,7 +3555,7 @@ function playVideo(v, list, idx){
   /* v2.2.0: new queue = fresh no-repeat shuffle cycle. */
   state.shufflePlayed = state.shuffle ? {} : null;
   if(state.shuffle && state.qi >= 0) state.shufflePlayed[state.qi] = true;
-  playQueueIndex(state.qi, true);
+  playQueueIndex(state.qi, true, user);
 }
 /* Album tracks start life without a YouTube videoId (they come from the
    album's real tracklist). Resolve to an actual playable video on demand,
@@ -3706,7 +3714,7 @@ window.lmHandleSharedLink = function(){
       }
     } catch(e){}
     say("Playing shared song: " + track.title + ".");
-    playVideo(track, [track], 0);
+    playVideo(track, [track], 0, true);
     return;
   }
   var list = "";
@@ -3838,7 +3846,7 @@ window.lmNativeResolveFailed = function(i, kind, msg){
   }
   giveUp();
 };
-function playQueueIndex(i, fresh){
+function playQueueIndex(i, fresh, user){
   if(i < 0 || i >= state.queue.length) return;
   state.qi = i;
   /* v2.2.98: radio refill used to run BEFORE the resolve below — its
@@ -3863,11 +3871,10 @@ function playQueueIndex(i, fresh){
       } catch(e){ say("Player isn't ready yet."); return; }
       var freshStart = $("miniPlayer").hidden;
       $("miniPlayer").hidden = false;
-      /* v2.2.118: expand on album-open plays too, not just fresh starts —
-         but never yank focus when the player is already open (the album
-         panel sits underneath the open player, still unhidden, so an
-         album-open check alone would refocus on every Next press). */
-      if(IS_TV && (freshStart || (!$("albumPanel").hidden && $("fullPlayer").hidden))) expandPlayer();
+      /* v2.2.119: ANY user-initiated play pops the player — the hidden
+         check alone prevents focus yanks when the player is already open
+         (Next-while-open, menu plays and drawer taps stay put). */
+      if(IS_TV && user && $("fullPlayer").hidden) expandPlayer();
       say("Loading " + v.title + ".");
       refillAfterHandoff();
       return;
@@ -3875,10 +3882,8 @@ function playQueueIndex(i, fresh){
     ensurePlayer(rv);
     var freshStart2 = $("miniPlayer").hidden;
     $("miniPlayer").hidden = false;
-    /* TV: open the full player as soon as music starts — no hunting for the
-       mini player with the remote. Album-open plays expand too (same
-       already-open guard as the native branch above). */
-    if(IS_TV && (freshStart2 || (!$("albumPanel").hidden && $("fullPlayer").hidden))) expandPlayer();
+    /* v2.2.119: same user-flag rule as the native branch above. */
+    if(IS_TV && user && $("fullPlayer").hidden) expandPlayer();
     refillAfterHandoff();
   }).catch(function(){
     if(state.queue[state.qi] !== v) return;
@@ -3889,6 +3894,9 @@ function playQueueIndex(i, fresh){
 }
 function playNext(auto){
   if(!state.queue.length) return;
+  /* v2.2.119: button/remote Next (auto falsy) is a user play and pops the
+     player when collapsed; auto-advance chains pass auto=true and do not. */
+  var user = !auto;
   if(state.shuffle && state.queue.length > 1){
     /* v2.2.0: no repeats — every song plays once before any repeats. */
     if(!state.shufflePlayed) state.shufflePlayed = {};
@@ -3906,13 +3914,13 @@ function playNext(auto){
       }
     }
     var n = unplayed[Math.floor(Math.random() * unplayed.length)];
-    playQueueIndex(n);
+    playQueueIndex(n, undefined, user);
   } else {
     if(state.qi >= state.queue.length - 1){
-      if(state.repeat === 1){ playQueueIndex(0); }
+      if(state.repeat === 1){ playQueueIndex(0, undefined, user); }
       else if(state.radio && state.radio.active && !state.radio.refilling){ refillRadioNow(); }
       else { if(!auto) say("End of queue."); return; }
-    } else { playQueueIndex(state.qi + 1); }
+    } else { playQueueIndex(state.qi + 1, undefined, user); }
   }
 }
 /* Forward pressed at the end of a radio station: widen the station right now
@@ -3939,18 +3947,38 @@ function refillRadioNow(){
     /* v1.9: keep the native service queue in step. */
     if(NATIVE_AUDIO && fresh.length){ try { LynxosPlayer.appendTracks(nativeAppendJson(fresh)); } catch(e){} }
     if(fresh.length){ playQueueIndex(state.qi + 1); }
+    else if(r.genre && r.seedIds && r.seedIds.length){
+      /* v2.2.119: refill batch filtered to zero — re-seed from the
+         station's own hard seeds instead of dead-ending. */
+      r.refilling = true;
+      fetchGenreReseed(r).then(function(videos){
+        if(state.radio !== r){ r.refilling = false; return; }
+        var qCounts2 = {};
+        state.queue.forEach(function(sv){
+          var a2 = normArtist(sv.ownerChannel || sv.channel || "");
+          qCounts2[a2] = (qCounts2[a2] || 0) + 1;
+        });
+        var fresh2 = filterRefillVideos(videos, r, qCounts2);
+        fresh2.forEach(function(sv){ state.queue.push(sv); });
+        r.refilling = false;
+        renderQueue();
+        if(NATIVE_AUDIO && fresh2.length){ try { LynxosPlayer.appendTracks(nativeAppendJson(fresh2)); } catch(e){} }
+        if(fresh2.length){ playQueueIndex(state.qi + 1); }
+        else { say("End of queue."); }
+      }).catch(function(){ r.refilling = false; say("End of queue."); });
+    }
     else { say("End of queue."); }
   }).catch(function(){ r.refilling = false; say("End of queue."); });
 }
 function playPrev(){
   if(!state.queue.length) return;
   if(NATIVE_AUDIO){
-    if(nativeState.pos > 3){ try { LynxosPlayer.seekTo(0); } catch(e){} return; }
-    playQueueIndex((state.qi - 1 + state.queue.length) % state.queue.length);
+    if(nativeState.pos > 3){ try { LynxosPlayer.seekTo(0); } catch(e){} if(IS_TV && $("fullPlayer").hidden) expandPlayer(); return; }
+    playQueueIndex((state.qi - 1 + state.queue.length) % state.queue.length, undefined, true);
     return;
   }
-  try { if(state.player && state.player.getCurrentTime() > 3){ state.player.seekTo(0); return; } } catch(e){}
-  playQueueIndex((state.qi - 1 + state.queue.length) % state.queue.length);
+  try { if(state.player && state.player.getCurrentTime() > 3){ state.player.seekTo(0); if(IS_TV && $("fullPlayer").hidden) expandPlayer(); return; } } catch(e){}
+  playQueueIndex((state.qi - 1 + state.queue.length) % state.queue.length, undefined, true);
 }
 function togglePlayPause(){
   /* v1.9 native path: the service owns play state and reports back. */
@@ -4094,20 +4122,20 @@ function renderQueue(){
   box.innerHTML = h;
   box.querySelectorAll("[data-qi]").forEach(function(el){
     el.addEventListener("click", function(){
-      playQueueIndex(parseInt(el.getAttribute("data-qi"), 10));
+      playQueueIndex(parseInt(el.getAttribute("data-qi"), 10), undefined, true);
     });
   });
   box.querySelectorAll("[data-qrow]").forEach(function(row){
     row.addEventListener("click", function(e){
       /* The title span and the remove button have their own handlers. */
       if(e.target.closest("[data-rmq]") || e.target.hasAttribute("data-qi")) return;
-      playQueueIndex(parseInt(row.getAttribute("data-qrow"), 10));
+      playQueueIndex(parseInt(row.getAttribute("data-qrow"), 10), undefined, true);
     });
     row.addEventListener("keydown", function(e){
       if(e.target !== row) return;
       if(e.key === "Enter" || e.key === " "){
         e.preventDefault();
-        playQueueIndex(parseInt(row.getAttribute("data-qrow"), 10));
+        playQueueIndex(parseInt(row.getAttribute("data-qrow"), 10), undefined, true);
       }
     });
   });
@@ -4605,7 +4633,7 @@ function renderPlaylists(){
     b.addEventListener("click", function(){
       var p = getPlaylists()[b.getAttribute("data-playpl")] || [];
       if(!p.length){ say("That playlist is empty."); return; }
-      playVideo(p[0], p, 0);
+      playVideo(p[0], p, 0, true);
     });
   });
   box.querySelectorAll("[data-delpl]").forEach(function(b){
@@ -4700,7 +4728,7 @@ function renderHistory(){
   box.querySelectorAll("[data-hplay]").forEach(function(b){
     b.addEventListener("click", function(){
       var v = getJSON("lm_history", [])[parseInt(b.getAttribute("data-hplay"), 10)];
-      if(v) playVideo(v, [v], 0);
+      if(v) playVideo(v, [v], 0, true);
     });
   });
 }
@@ -4746,7 +4774,7 @@ function renderLiked(){
   box.querySelectorAll("[data-songplay]").forEach(function(b){
     b.addEventListener("click", function(){
       var v = l[parseInt(b.getAttribute("data-songplay"), 10)];
-      if(v) playVideo(v, l, l.indexOf(v));
+      if(v) playVideo(v, l, l.indexOf(v), true);
     });
   });
   /* v2.2.111: Liked Songs browse banking. Liked Songs does
@@ -5343,7 +5371,7 @@ function fixSongInfo(v){
           }
         } catch(e){}
         resolveTrack(v).then(function(){
-          if(state.queue[state.qi] === v) playQueueIndex(state.qi, true);
+          if(state.queue[state.qi] === v) playQueueIndex(state.qi, true, true);
         });
       }}
     ]);
@@ -5616,9 +5644,11 @@ function filterRefillVideos(videos, r, qCounts){
     var songKey = normArtist(sv.ownerChannel || sv.channel) + "|" + normSong(sv.title, sv.ownerChannel || sv.channel);
     /* v2.2.64: Deep fix - APPLY genre filter on refills too.
        This stops YouTube radio drift (e.g., 80s Metal drifting into 90s rock). */
+    /* v2.2.119: filter by the STORED genre, never by re-parsing seedName.
+       Artist stations carry genre null and stay unfiltered by design. */
     var genreOk = true;
-    if(r.seedName){
-      genreOk = genrePure(r.seedName, sv.ownerChannel || sv.channel);
+    if(r.genre){
+      genreOk = genrePure(r.genre, sv.ownerChannel || sv.channel);
     }
     /* Skip music-video-only versions, live versions, non-English, off-genre,
        and songs already in queue. Max 1 per artist on refills (was 2). */
@@ -5627,6 +5657,20 @@ function filterRefillVideos(videos, r, qCounts){
     }
   });
   return fresh;
+}
+/* v2.2.119: genre-station reseed — fresh radio from the station's own hard
+   seeds, used when a refill batch filters to zero instead of dead-ending. */
+function fetchGenreReseed(r){
+  var seeds = (r.seedIds && r.seedIds.length) ? r.seedIds : [];
+  if(!seeds.length) return Promise.resolve([]);
+  return Promise.all(seeds.map(function(id){ return fetchYouTubeRadio(id).catch(function(){ return []; }); }))
+    .then(function(results){
+      var seen = {}, all = [];
+      results.forEach(function(videos){
+        (videos || []).forEach(function(sv){ if(sv.videoId && !seen[sv.videoId]){ seen[sv.videoId] = true; all.push(sv); } });
+      });
+      return all;
+    });
 }
 function genrePure(genre, ownerChannel){
   /* v2.2.64: Deep fix - extract base genre from station names.
@@ -5662,7 +5706,9 @@ function genrePure(genre, ownerChannel){
   if(!c) return false;
   for(var i = 0; i < artists.length; i++){
     var a = normArtist(artists[i]);
-    if(a && (c === a || c.indexOf(a) !== -1 || a.indexOf(c) !== -1)) return true;
+    /* v2.2.119: artist-contains-channel now needs a channel of 5+ chars —
+     kills Dio-via-Radiohead / Cold-via-Coldplay false positives. */
+  if(a && (c === a || c.indexOf(a) !== -1 || (c.length >= 5 && a.indexOf(c) !== -1))) return true;
   }
   return false;
 }
@@ -5674,6 +5720,10 @@ function startRadio(artist){
     say("Finding " + seedName + ".");
     var hardSeeds = GENRE_SEEDS[seedName.toLowerCase()];
     if(hardSeeds && hardSeeds.length){
+      /* v2.2.119: the station's genre, stored once here and used by every
+         later filter — refills never re-parse seedName again. Pill names
+         are base words (Metal/Rock/...) so this IS the base genre word. */
+      var stationGenre = seedName;
       /* v2.2.29: YouTube Music genre pages pick the songs (curated by
          YouTube Music itself — accurate genres, clean metadata, audio only).
          Falls back to Deezer, then YouTube seeds. */
@@ -5708,7 +5758,7 @@ function startRadio(artist){
              authoritative, no need to filter. Only apply to YouTube fallback. */
           if(!fromDeezer){
             all = all.filter(function(sv){
-              return genrePure(seedName, sv.ownerChannel || sv.channel);
+              return genrePure(stationGenre, sv.ownerChannel || sv.channel);
             });
           }
           /* v2.2.19: English only — drop non-English tracks from stations. */
@@ -5720,7 +5770,7 @@ function startRadio(artist){
           shuffleList(all);
           /* v2.2.28: ensure no two consecutive songs from same artist. */
           all = diversifyStart(all, 10);
-          return { videos: all, seedIds: null, name: seedName };
+          return { videos: all, seedIds: hardSeeds, name: seedName, genre: stationGenre };
         });    } else {
     /* Cache the genre/artist seed video: repeat taps skip the search call
        entirely (search is the rate-limited endpoint), so the radio starts
@@ -5766,8 +5816,8 @@ function startRadio(artist){
       if(!seenIds[sv.videoId]){ seenIds[sv.videoId] = true; all.push(sv); }
     });
     if(!all.length){ say("Couldn't build a radio station. Try another artist."); return; }
-    playVideo(all[0], all, 0);
-    state.radio = { seedId: res.seed.id || null, seedIds: res.seed.seedIds || null, seedName: res.seed.name, active: true, refilling: false, seenIds: seenIds };
+    playVideo(all[0], all, 0, true);
+    state.radio = { seedId: res.seed.id || null, seedIds: res.seed.seedIds || null, seedName: res.seed.name, genre: res.seed.genre || null, active: true, refilling: false, seenIds: seenIds };
     addRecentRadioArtists([res.seed.name]);
     say("Radio started with " + all.length + " songs. It keeps widening as you listen.");
   }).catch(function(err){ say("Radio failed: " + (err && err.message ? err.message : "unknown error")); });
@@ -5784,8 +5834,8 @@ function startRadioFromVideo(v){
       if(!seenIds[sv.videoId]){ seenIds[sv.videoId] = true; all.push(sv); }
     });
     if(!all.length){ say("Couldn't build a radio station. Try another artist."); return; }
-    playVideo(all[0], all, 0);
-    state.radio = { seedId: v.videoId, seedIds: null, seedName: name, active: true, refilling: false, seenIds: seenIds };
+    playVideo(all[0], all, 0, true);
+    state.radio = { seedId: v.videoId, seedIds: null, seedName: name, genre: null, active: true, refilling: false, seenIds: seenIds };
     addRecentRadioArtists([name]);
     say("Radio started with " + all.length + " songs. It keeps widening as you listen.");
   }).catch(function(err){ say("Radio failed: " + (err && err.message ? err.message : "unknown error")); });
@@ -5818,6 +5868,25 @@ function maybeRefillRadio(){
     /* v1.9: keep the native service queue in step. */
     if(NATIVE_AUDIO && fresh.length){ try { LynxosPlayer.appendTracks(nativeAppendJson(fresh)); } catch(e){} }
     if(fresh.length) say("Radio widened with " + fresh.length + " more songs.");
+    else if(r.genre && r.seedIds && r.seedIds.length){
+      /* v2.2.119: refill batch filtered to zero — quietly re-seed from the
+         station's own hard seeds instead of letting the station stall. */
+      r.refilling = true;
+      fetchGenreReseed(r).then(function(videos){
+        if(state.radio !== r){ r.refilling = false; return; }
+        var qCounts2 = {};
+        state.queue.forEach(function(sv){
+          var a2 = normArtist(sv.ownerChannel || sv.channel || "");
+          qCounts2[a2] = (qCounts2[a2] || 0) + 1;
+        });
+        var fresh2 = filterRefillVideos(videos, r, qCounts2);
+        fresh2.forEach(function(sv){ state.queue.push(sv); });
+        r.refilling = false;
+        renderQueue();
+        if(NATIVE_AUDIO && fresh2.length){ try { LynxosPlayer.appendTracks(nativeAppendJson(fresh2)); } catch(e){} }
+        if(fresh2.length) say("Radio widened with " + fresh2.length + " more songs.");
+      }).catch(function(){ r.refilling = false; });
+    }
   }).catch(function(){ r.refilling = false; });
 }
 $("fpRadioBtn").addEventListener("click", function(){ startRadio(""); });
@@ -5919,7 +5988,7 @@ function renderSpeedDial(){
       (function(item){
         b.addEventListener("click", function(){
           if(item.kind === "artist") startRadio(item.title);
-          else if(item.track) playVideo(item.track, [item.track], 0);
+          else if(item.track) playVideo(item.track, [item.track], 0, true);
         });
       })(it);
       page.appendChild(b);
@@ -5982,7 +6051,7 @@ function renderFreshFinds(){
     b.setAttribute("aria-label", "Play " + t.title + " by " + trackArtist(t));
     b.innerHTML = (t.art || t.thumb ? "<img src='" + esc(t.art || t.thumb) + "' alt='' style='width:80px;height:80px;border-radius:8px;object-fit:cover'>" : "<div style='font-size:48px;padding:16px 0 8px'>🎵</div>") +
       "<div class='vlabel'>" + esc(t.title) + "</div>";
-    (function(tr){ b.addEventListener("click", function(){ playVideo(tr, [tr], 0); }); })(t);
+    (function(tr){ b.addEventListener("click", function(){ playVideo(tr, [tr], 0, true); }); })(t);
     box.appendChild(b);
   });
 }
@@ -6332,14 +6401,14 @@ function openAlbumsSinglesSeeAll(items){
         if(x.videoId && !x.id){
           playVideo({ videoId: x.videoId, title: x.name, channel: x.artist, thumb: x.art, art: x.art,
             resolveQuery: x.artist + " " + x.name + " official audio",
-            fallbackQuery: x.artist + " " + x.name }, [{ videoId: x.videoId }], 0);
+            fallbackQuery: x.artist + " " + x.name }, [{ videoId: x.videoId }], 0, true);
         } else if(x.id){
           openAlbumById(x.id, x.name, x.artist, x.art);
         } else if(x.resolveQuery){
           /* v2.2.82: singles from the Home shelf are playable tracks, not albums. */
           var tr = { videoId: "", title: x.name, channel: x.artist, thumb: x.art, art: x.art,
             resolveQuery: x.resolveQuery, fallbackQuery: x.fallbackQuery || (x.artist + " " + x.name) };
-          playVideo(tr, [tr], 0);
+          playVideo(tr, [tr], 0, true);
         }
       });
     });
@@ -6454,7 +6523,7 @@ function bindExploreNewCards(root, items){
       else if(x.videoId){
         playVideo({ videoId: x.videoId, title: x.name, channel: x.artist, thumb: x.art, art: x.art,
           resolveQuery: x.artist + " " + x.name + " official audio",
-          fallbackQuery: x.artist + " " + x.name }, [{ videoId: x.videoId }], 0);
+          fallbackQuery: x.artist + " " + x.name }, [{ videoId: x.videoId }], 0, true);
       } else { say("Couldn't open that one."); }
     });
   });
@@ -6498,7 +6567,7 @@ function renderExploreTrending(tracks){
   box.querySelectorAll("[data-trank]").forEach(function(b){
     b.addEventListener("click", function(){
       var t = tracks[parseInt(b.getAttribute("data-trank"), 10)];
-      if(t) playVideo(t, tracks, tracks.indexOf(t));
+      if(t) playVideo(t, tracks, tracks.indexOf(t), true);
     });
   });
 }
@@ -6599,14 +6668,14 @@ function playLikedMix(){
   if(!getLiked().length){ say("You have not liked any songs yet. Tap the heart on a song to like it."); return; }
   var q = getLiked().slice();
   shuffleList(q);
-  playVideo(q[0], q, 0);
+  playVideo(q[0], q, 0, true);
   say("Liked mix. " + q.length + " songs, shuffled.");
 }
 function playReplayMix(){
   if(!getHistory().length){ say("No listening history yet."); return; }
   var q = getHistory().slice();
   shuffleList(q);
-  playVideo(q[0], q, 0);
+  playVideo(q[0], q, 0, true);
   say("Replay mix. " + q.length + " songs, shuffled.");
 }
 /* Top artists from listening history + liked songs, most-played first. */
@@ -6647,7 +6716,7 @@ function playDiscoverMix(){
     });
     if(!mix.length){ say("Couldn't find fresh songs right now. Try again later."); return; }
     shuffleList(mix);
-    playVideo(mix[0], mix, 0);
+    playVideo(mix[0], mix, 0, true);
     say("Discover Mix. " + mix.length + " fresh songs from your favorite artists.");
   }).catch(function(){ say("Couldn't build your Discover Mix. Check your connection."); });
 }
@@ -6710,7 +6779,7 @@ function openAlbumOptionsMenu(){
     var name = $("albumName").textContent || "Album";
     var artist = $("albumArtist").textContent || "";
     var sub = (artist ? artist + " • " : "") + tracks.length + (tracks.length === 1 ? " song" : " songs");
-    function playAll(){ if(!tracks.length){ say("No tracks."); return; } state.radio = null; state.queue = tracks.slice(); playQueueIndex(0, true); say("Playing " + name + "."); }
+    function playAll(){ if(!tracks.length){ say("No tracks."); return; } state.radio = null; state.queue = tracks.slice(); playQueueIndex(0, true, true); say("Playing " + name + "."); }
     function playNext(){ if(!tracks.length){ say("No tracks."); return; } for(var i = tracks.length - 1; i >= 0; i--){ state.queue.splice(state.qi + 1, 0, tracks[i]); } say("Album will play next."); }
     var items = [
       { label: "🔀 Shuffle play", fn: function(){ var b = $("albumShuffleBtn"); if(b) b.click(); } },
@@ -6905,8 +6974,12 @@ function karaokeTick(bodyEl){
   if(!bodyEl || !bodyEl._karaokeLines || !bodyEl._karaokeLines.length) return;
   var lines = bodyEl._karaokeLines;
   var pos = karaokePos();
+  /* v2.2.119: lead-in — native progress is floored to whole seconds (up to
+     ~1 s late) plus the 250 ms tick, so light each line 1.5 s early: the
+     smallest lead that still lands before the vocal in the worst case. */
+  var KARAOKE_LEAD_S = 1.5;
   var lo = 0, hi = lines.length - 1, ans = -1;
-  while(lo <= hi){ var mid = (lo + hi) >> 1; if(lines[mid].t <= pos){ ans = mid; lo = mid + 1; } else { hi = mid - 1; } }
+  while(lo <= hi){ var mid = (lo + hi) >> 1; if(lines[mid].t <= pos + KARAOKE_LEAD_S){ ans = mid; lo = mid + 1; } else { hi = mid - 1; } }
   if(ans === bodyEl._karaokeIdx) return;
   var prev = bodyEl._karaokeIdx;
   bodyEl._karaokeIdx = ans;
