@@ -592,7 +592,7 @@
 <!-- v2.2.89: TV-visible toast (say() shows it on TV; phones never see it). -->
 <div id="tvToast" hidden></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.119</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.120</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -791,7 +791,7 @@
     </div>
     <div class="card" id="settingsAboutCard" tabindex="0" aria-label="About">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.119. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.120. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -1589,13 +1589,21 @@ window.lmNativeTrack = function(i){
   if(state.radio && state.radio.active && (state.queue.length - 1 - i) <= 3){
     try { maybeRefillRadio(); } catch(e){}
   }
+  /* v2.2.120: a native advance (screen-off-safe path) also starts tracks
+     without playQueueIndex — resolve-ahead belongs here too. */
+  resolveAheadForNext();
 };
 /* Called by Java about once a second while the native player runs. */
 window.lmNativeProgress = function(pos, dur, playing){
-  nativeState.pos = pos || 0;
-  nativeState.dur = dur || 0;
+  /* v2.2.120: millisecond clock — the service now reports raw ms; divide
+     ONCE here. Every consumer below stays in float seconds (fpSeek floors,
+     fmtTime floors, karaokePos already interpolates floats). */
+  pos = (pos || 0) / 1000;
+  dur = (dur || 0) / 1000;
+  nativeState.pos = pos;
+  nativeState.dur = dur;
   nativeState.playing = !!playing;
-  /* v2.2.118: karaoke clock — the 250 ms sync timer interpolates from here. */
+  /* v2.2.118: karaoke clock — the sync timer interpolates from here. */
   try { window._karaokeClock = { pos: pos || 0, at: performance.now(), playing: !!playing }; } catch(e){}
   if(!state.seeking){
     try {
@@ -3578,6 +3586,11 @@ function titleMatches(expected, videoTitle){
 }
 function resolveTrack(v){
   if(v.videoId) return Promise.resolve(v);
+  /* v2.2.120: dedupe — resolve-ahead and a skip to the same track can
+     overlap; share one search instead of running two. The promise is
+     cleared on settle: success sets videoId (later calls early-return),
+     failure leaves the track blank so a later call retries. */
+  if(v._resolvePromise) return v._resolvePromise;
   var artist = v.channel || "", title = v.title || "";
   /* v2.2.7: permanent resolution cache — once a song is found, it's always found.
      Kills the back-and-forth where a song works one day and skips the next. */
@@ -3649,7 +3662,10 @@ function resolveTrack(v){
       return attempt(i + 1);
     });
   }
-  return attempt(0);
+  var rp = attempt(0);
+  v._resolvePromise = rp;
+  rp.then(function(){ v._resolvePromise = null; }, function(){ v._resolvePromise = null; });
+  return rp;
 }
 /* v2.2.98: called by Java when an alternative upload produced the playable
    URL for a track whose original id failed. Adopt the winning id in the
@@ -3846,7 +3862,28 @@ window.lmNativeResolveFailed = function(i, kind, msg){
   }
   giveUp();
 };
-function playQueueIndex(i, fresh, user){
+/* v2.2.120: resolve-ahead — album/playlist queues carry blank videoIds
+   for tracks never played, and the native preload/bank loops skip blank
+   slots, so every skip to such a track was a cold start (the buffering
+   gap that feels like stop-then-play). While a track plays, resolve
+   the NEXT slot in the background and sync its id into the native
+   queue, so preload and banking can land before the skip. The slot
+   guard (same object still at that index) keeps a replaced queue
+   from receiving a stale id. */
+function resolveAheadForNext(){
+  try {
+    if(!NATIVE_AUDIO) return;
+    if(state.qi < 0 || state.qi + 1 >= state.queue.length) return;
+    var ni = state.qi + 1, nv = state.queue[ni];
+    if(!nv || nv.videoId) return;
+    resolveTrack(nv).then(function(rv){
+      try {
+        if(rv && rv.videoId && state.queue[ni] === nv && LynxosPlayer.setTrackVideoId) LynxosPlayer.setTrackVideoId(ni, rv.videoId);
+      } catch(e){}
+    }).catch(function(){});
+  } catch(e){}
+}
+function playQueueIndex(i, fresh, user, focusId){
   if(i < 0 || i >= state.queue.length) return;
   state.qi = i;
   /* v2.2.98: radio refill used to run BEFORE the resolve below — its
@@ -3874,16 +3911,17 @@ function playQueueIndex(i, fresh, user){
       /* v2.2.119: ANY user-initiated play pops the player — the hidden
          check alone prevents focus yanks when the player is already open
          (Next-while-open, menu plays and drawer taps stay put). */
-      if(IS_TV && user && $("fullPlayer").hidden) expandPlayer();
+      if(IS_TV && user && $("fullPlayer").hidden) expandPlayer(focusId);
       say("Loading " + v.title + ".");
       refillAfterHandoff();
+      resolveAheadForNext();
       return;
     }
     ensurePlayer(rv);
     var freshStart2 = $("miniPlayer").hidden;
     $("miniPlayer").hidden = false;
     /* v2.2.119: same user-flag rule as the native branch above. */
-    if(IS_TV && user && $("fullPlayer").hidden) expandPlayer();
+    if(IS_TV && user && $("fullPlayer").hidden) expandPlayer(focusId);
     refillAfterHandoff();
   }).catch(function(){
     if(state.queue[state.qi] !== v) return;
@@ -3892,7 +3930,7 @@ function playQueueIndex(i, fresh, user){
     playNext(true);
   });
 }
-function playNext(auto){
+function playNext(auto, focusId){
   if(!state.queue.length) return;
   /* v2.2.119: button/remote Next (auto falsy) is a user play and pops the
      player when collapsed; auto-advance chains pass auto=true and do not. */
@@ -3914,13 +3952,13 @@ function playNext(auto){
       }
     }
     var n = unplayed[Math.floor(Math.random() * unplayed.length)];
-    playQueueIndex(n, undefined, user);
+    playQueueIndex(n, undefined, user, focusId);
   } else {
     if(state.qi >= state.queue.length - 1){
-      if(state.repeat === 1){ playQueueIndex(0, undefined, user); }
+      if(state.repeat === 1){ playQueueIndex(0, undefined, user, focusId); }
       else if(state.radio && state.radio.active && !state.radio.refilling){ refillRadioNow(); }
       else { if(!auto) say("End of queue."); return; }
-    } else { playQueueIndex(state.qi + 1, undefined, user); }
+    } else { playQueueIndex(state.qi + 1, undefined, user, focusId); }
   }
 }
 /* Forward pressed at the end of a radio station: widen the station right now
@@ -3970,15 +4008,15 @@ function refillRadioNow(){
     else { say("End of queue."); }
   }).catch(function(){ r.refilling = false; say("End of queue."); });
 }
-function playPrev(){
+function playPrev(focusId){
   if(!state.queue.length) return;
   if(NATIVE_AUDIO){
-    if(nativeState.pos > 3){ try { LynxosPlayer.seekTo(0); } catch(e){} if(IS_TV && $("fullPlayer").hidden) expandPlayer(); return; }
-    playQueueIndex((state.qi - 1 + state.queue.length) % state.queue.length, undefined, true);
+    if(nativeState.pos > 3){ try { LynxosPlayer.seekTo(0); } catch(e){} if(IS_TV && $("fullPlayer").hidden) expandPlayer(focusId); return; }
+    playQueueIndex((state.qi - 1 + state.queue.length) % state.queue.length, undefined, true, focusId);
     return;
   }
-  try { if(state.player && state.player.getCurrentTime() > 3){ state.player.seekTo(0); if(IS_TV && $("fullPlayer").hidden) expandPlayer(); return; } } catch(e){}
-  playQueueIndex((state.qi - 1 + state.queue.length) % state.queue.length, undefined, true);
+  try { if(state.player && state.player.getCurrentTime() > 3){ state.player.seekTo(0); if(IS_TV && $("fullPlayer").hidden) expandPlayer(focusId); return; } } catch(e){}
+  playQueueIndex((state.qi - 1 + state.queue.length) % state.queue.length, undefined, true, focusId);
 }
 function togglePlayPause(){
   /* v1.9 native path: the service owns play state and reports back. */
@@ -4066,10 +4104,10 @@ $("fpSeek").addEventListener("change", function(){
 /* player buttons */
 $("mpPlayBtn").addEventListener("click", togglePlayPause);
 /* v2.2.80: mini player next button (YouTube Music pattern). */
-$("mpNextBtn").addEventListener("click", function(){ playNext(false); });
+$("mpNextBtn").addEventListener("click", function(){ playNext(false, "fpNextBtn"); });
 $("fpPlayBtn").addEventListener("click", togglePlayPause);
-$("fpNextBtn").addEventListener("click", function(){ playNext(false); });
-$("fpPrevBtn").addEventListener("click", playPrev);
+$("fpNextBtn").addEventListener("click", function(){ playNext(false, "fpNextBtn"); });
+$("fpPrevBtn").addEventListener("click", function(){ playPrev("fpPrevBtn"); });
 $("mpExpandBtn").addEventListener("click", expandPlayer);
 $("fpCollapseBtn").addEventListener("click", collapsePlayer);
 $("fpShuffleBtn").addEventListener("click", function(){
@@ -4087,12 +4125,16 @@ $("fpRepeatBtn").addEventListener("click", function(){
   say(["Repeat off.", "Repeat all.", "Repeat one."][state.repeat]);
   syncPlayIcons();
 });
-function expandPlayer(){
+function expandPlayer(focusId){
   $("fullPlayer").hidden = false;
   say("Now playing screen.");
-  /* TV: hand the remote's focus to the play button so the D-pad reaches the
-     transport buttons immediately instead of staying stuck underneath. */
-  if(IS_TV){ try { $("fpPlayBtn").focus(); } catch(e){} }
+  /* TV: hand the remote's focus to the transport so the D-pad reaches the
+     buttons immediately instead of staying stuck underneath.
+     v2.2.120: the focus target is threaded from the triggering press —
+     a transport press focuses its own button, so a held center-button
+     repeat after a collapsed-player Next re-skips instead of clicking
+     the play button and genuinely toggling pause. Default fpPlayBtn. */
+  if(IS_TV){ try { var fb = $(focusId || "fpPlayBtn") || $("fpPlayBtn"); if(fb) fb.focus(); } catch(e){} }
 }
 function collapsePlayer(){
   $("fullPlayer").hidden = true;
@@ -6974,12 +7016,12 @@ function karaokeTick(bodyEl){
   if(!bodyEl || !bodyEl._karaokeLines || !bodyEl._karaokeLines.length) return;
   var lines = bodyEl._karaokeLines;
   var pos = karaokePos();
-  /* v2.2.119: lead-in — native progress is floored to whole seconds (up to
-     ~1 s late) plus the 250 ms tick, so light each line 1.5 s early: the
-     smallest lead that still lands before the vocal in the worst case. */
-  var KARAOKE_LEAD_S = 1.5;
+  /* v2.2.120: exact sync — the clock is millisecond-precise now (see
+     lmNativeProgress), so no lead: a line lights when its timestamp
+     passes. Any residual lateness on a specific song is that song's
+     LRCLIB timestamps, not code. */
   var lo = 0, hi = lines.length - 1, ans = -1;
-  while(lo <= hi){ var mid = (lo + hi) >> 1; if(lines[mid].t <= pos + KARAOKE_LEAD_S){ ans = mid; lo = mid + 1; } else { hi = mid - 1; } }
+  while(lo <= hi){ var mid = (lo + hi) >> 1; if(lines[mid].t <= pos){ ans = mid; lo = mid + 1; } else { hi = mid - 1; } }
   if(ans === bodyEl._karaokeIdx) return;
   var prev = bodyEl._karaokeIdx;
   bodyEl._karaokeIdx = ans;
@@ -7028,7 +7070,9 @@ function startKaraoke(bodyEl, lines){
     bodyEl.addEventListener("touchstart", function(){ bodyEl._karaokeHold = true; });
   }
   /* Reuses the _lyricsTimer slot, so only one lyrics timer ever runs. */
-  bodyEl._lyricsTimer = setInterval(function(){ karaokeTick(bodyEl); }, 250);
+  /* v2.2.120: 100 ms tick (was 250 ms) — with the ms clock, detection
+     delay drops to ~100 ms, inside the audio-visual perception band. */
+  bodyEl._lyricsTimer = setInterval(function(){ karaokeTick(bodyEl); }, 100);
   karaokeTick(bodyEl);
 }
 function fetchLrclibSynced(artist, title){
