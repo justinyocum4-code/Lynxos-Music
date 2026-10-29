@@ -411,16 +411,20 @@
   body.tv .fp-tv-left .fp-pills { order: 4; flex: 0 0 auto; margin: 0; justify-content: center; }
   body.tv .fp-tv-left .fp-pills .fp-pill { font-size: 22px; padding: 12px 20px; }
   body.tv .fp-tv-left .fp-controls {
-    order: 5; flex: 0 0 auto; margin: 0; justify-content: center; gap: 2vw;
+    order: 5; flex: 0 0 auto; margin: 0; justify-content: center; gap: 10px;
   }
   /* v2.2.114: transport buttons at full TV size (the 44px shrink made them
-     the smallest targets in the TV app). */
+     the smallest targets in the TV app).
+     v2.2.118: resized down — the 76/96px row was 476.8px wide in a 348px
+     column at 960 wide, clipping shuffle off the edge. New row: 52*4 +
+     68 + 4*10 = 316px, + 10px focus rings each side = 336px, inside the
+     348px column; ample slack at 1440 wide. */
   body.tv .fp-controls .iconbtn {
-    width: 76px; height: 76px; min-width: 76px; min-height: 76px; padding: 0; font-size: 30px;
+    width: 52px; height: 52px; min-width: 52px; min-height: 52px; padding: 0; font-size: 24px;
     border: 2px solid var(--gold); border-radius: 50%;
     display: flex; align-items: center; justify-content: center;
   }
-  body.tv #fpPlayBtn { width: 96px; height: 96px; min-width: 96px; min-height: 96px; font-size: 44px; background: rgba(212,175,55,.18); }
+  body.tv #fpPlayBtn { width: 68px; height: 68px; min-width: 68px; min-height: 68px; font-size: 34px; background: rgba(212,175,55,.18); }
   body.tv .fp-tv-left label.sr-only { order: 7; }
   body.tv .fp-tv-left #fpSeek { order: 8; flex: 0 0 auto; margin: 0; width: 100%; max-width: 420px; }
   body.tv .fp-tv-left .times { order: 9; flex: 0 0 auto; font-size: 22px; margin: 0; width: 100%; max-width: 420px; }
@@ -444,6 +448,11 @@
   body.tv .fp-lyrics-head { color: var(--gold); font-size: 22px; margin-bottom: 1vh; }
   body.tv #tvLyricsTitle { font-size: 22px; margin: 0 0 1vh; }
   body.tv #tvLyricsBody { font-size: 24px; line-height: 1.6; white-space: pre-wrap; max-height: 60vh; overflow-y: auto; }
+  /* v2.2.118: karaoke lines — active line in gold and bold, slightly
+     larger on TV. No transform: the D-pad controller reads rects. */
+  .karaoke-line { padding: 1px 0; }
+  .karaoke-line.karaoke-active { color: var(--gold); font-weight: 800; }
+  body.tv #tvLyricsBody .karaoke-line.karaoke-active { font-size: 28px; }
   /* TV: the secondary action rows (Playlist, YouTube Music, Radio, Sleep…)
      stay on the phone — on TV they clutter the player, so they're hidden. */
   body.tv #fullPlayer > .row { display: none; }
@@ -583,7 +592,7 @@
 <!-- v2.2.89: TV-visible toast (say() shows it on TV; phones never see it). -->
 <div id="tvToast" hidden></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.117</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.118</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -775,9 +784,14 @@
       <p class="hint">The last 50 things the player itself did — locks, song changes, retries, pauses — kept on this device only. If playback ever stops with the screen off, this log shows what happened.</p>
       <div id="playLogList"></div>
     </div>
+    <div class="card">
+      <h3>Spoken lyrics</h3>
+      <p class="hint">When on, each karaoke lyric line is spoken aloud as it is sung. The voice talks over the music, so this is off by default.</p>
+      <button class="btn secondary" id="speakLyricsToggleBtn" aria-label="Speak lyrics lines" aria-pressed="false">🔇 Speak lyrics lines: Off</button>
+    </div>
     <div class="card" id="settingsAboutCard" tabindex="0" aria-label="About">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.117. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.118. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -911,6 +925,7 @@
     <button class="ap-btn" id="albumShuffleBtn" aria-label="Shuffle album">🔀</button>
     <button class="ap-btn" id="albumSaveBtn" aria-label="Save album to library">🔖</button>
     <button class="ap-btn ap-play" id="albumPlayBtn" aria-label="Play album">▶</button>
+    <button class="ap-btn" id="albumOpenPlayerBtn" aria-label="Open player">▲</button>
     <button class="ap-btn" id="albumShareBtn" aria-label="Share album">↗</button>
     <button class="ap-btn" id="albumMoreBtn" aria-label="More album options" aria-haspopup="menu">⋮</button>
   </div>
@@ -1580,6 +1595,8 @@ window.lmNativeProgress = function(pos, dur, playing){
   nativeState.pos = pos || 0;
   nativeState.dur = dur || 0;
   nativeState.playing = !!playing;
+  /* v2.2.118: karaoke clock — the 250 ms sync timer interpolates from here. */
+  try { window._karaokeClock = { pos: pos || 0, at: performance.now(), playing: !!playing }; } catch(e){}
   if(!state.seeking){
     try {
       if(nativeState.dur > 0){
@@ -1801,7 +1818,16 @@ function renderAlbumTrackList(tracks){
 }
 /* v2.2.61: bind Play/Shuffle/Save directly to the given tracks (deep fix). */
 function bindAlbumPanelActions(title, artist, art, browseId, tracks){
-  var playBtn = $("albumPlayBtn"), shuffleBtn = $("albumShuffleBtn"), saveBtn = $("albumSaveBtn");
+  var playBtn = $("albumPlayBtn"), shuffleBtn = $("albumShuffleBtn"), saveBtn = $("albumSaveBtn"), openBtn = $("albumOpenPlayerBtn");
+  if(openBtn){
+    /* v2.2.118: in-panel escape for the album-player trap — the mini
+       player sits outside the album focus layer, so without this the
+       remote can never reach the full player from an open album. */
+    openBtn.onclick = function(){
+      if($("miniPlayer").hidden){ say("Nothing playing yet."); return; }
+      expandPlayer();
+    };
+  }
   if(playBtn){
     playBtn.onclick = function(){
       if(!tracks.length){ say("No tracks."); return; }
@@ -3837,7 +3863,11 @@ function playQueueIndex(i, fresh){
       } catch(e){ say("Player isn't ready yet."); return; }
       var freshStart = $("miniPlayer").hidden;
       $("miniPlayer").hidden = false;
-      if(IS_TV && freshStart) expandPlayer();
+      /* v2.2.118: expand on album-open plays too, not just fresh starts —
+         but never yank focus when the player is already open (the album
+         panel sits underneath the open player, still unhidden, so an
+         album-open check alone would refocus on every Next press). */
+      if(IS_TV && (freshStart || (!$("albumPanel").hidden && $("fullPlayer").hidden))) expandPlayer();
       say("Loading " + v.title + ".");
       refillAfterHandoff();
       return;
@@ -3846,8 +3876,9 @@ function playQueueIndex(i, fresh){
     var freshStart2 = $("miniPlayer").hidden;
     $("miniPlayer").hidden = false;
     /* TV: open the full player as soon as music starts — no hunting for the
-       mini player with the remote. Later tracks leave it as the user left it. */
-    if(IS_TV && freshStart2) expandPlayer();
+       mini player with the remote. Album-open plays expand too (same
+       already-open guard as the native branch above). */
+    if(IS_TV && (freshStart2 || (!$("albumPanel").hidden && $("fullPlayer").hidden))) expandPlayer();
     refillAfterHandoff();
   }).catch(function(){
     if(state.queue[state.qi] !== v) return;
@@ -4000,6 +4031,9 @@ $("fpSeek").addEventListener("change", function(){
     if(NATIVE_AUDIO) LynxosPlayer.seekTo(parseInt($("fpSeek").value, 10));
     else if(state.player) state.player.seekTo(parseInt($("fpSeek").value, 10), true);
   } catch(e){}
+  /* v2.2.118: karaoke clock snaps to the seek target; the next native
+     progress tick corrects it further. */
+  try { window._karaokeClock = { pos: parseInt($("fpSeek").value, 10) || 0, at: performance.now(), playing: nativeState.playing }; } catch(e){}
 });
 /* player buttons */
 $("mpPlayBtn").addEventListener("click", togglePlayPause);
@@ -6023,6 +6057,23 @@ function applyEnglishOnlyBtn(){
     b.setAttribute("aria-pressed", on ? "true" : "false");
   }
 }
+/* v2.2.118: spoken karaoke lines — opt-in, default OFF. speakLyricsEnabled
+   itself lives in the karaoke block; this toggle only reads/writes it. */
+function applySpeakLyricsBtn(){
+  var on = speakLyricsEnabled();
+  var b = $("speakLyricsToggleBtn");
+  if(b){
+    b.textContent = on ? "🔊 Speak lyrics lines: On" : "🔇 Speak lyrics lines: Off";
+    b.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+}
+$("speakLyricsToggleBtn").addEventListener("click", function(){
+  var on = !speakLyricsEnabled();
+  try { localStorage.setItem("lm_speak_lyrics", on ? "1" : "0"); } catch(e){}
+  applySpeakLyricsBtn();
+  say(on ? "Spoken lyrics on. Each karaoke line will be spoken as it is sung." : "Spoken lyrics off.");
+});
+applySpeakLyricsBtn();
 /* v2.2.99: the Settings toggle itself. Flipping it clears the
    in-memory feed caches — otherwise the shelves would keep serving
    the old (un)filtered lists until the 6-hour TTL expired — and
@@ -6797,15 +6848,197 @@ function renderRecentPlayed(){
 $("fpArtistBtn").addEventListener("click", openArtistPanel);
 /* ================= lyrics ================= */
 /* ================= lyrics ================= */
+/* v2.2.118: karaoke — timed lyrics from LRCLIB (line-level LRC), with the
+   existing lyrics.ovh plain text as fallback. Never fake timings; never
+   label unsynced text as synced. Renders only in tvLyricsBody/lyricsBody
+   (the TV panel stays display:none on TV by design). */
+var _karaokeCache = { key: "", tried: false, lines: null, instrumental: false };
+var _karaokeInflight = null; /* {key, promise} — one LRCLIB attempt per song, shared by both TV bodies */
+var _lyricsSongKey = "";
+function karaokeKey(artist, title){ return String(artist + "|" + title).toLowerCase(); }
+function parseLrc(text){
+  var out = [];
+  if(!text) return out;
+  var rows = String(text).split(/\r?\n/);
+  for(var i = 0; i < rows.length; i++){
+    var m = rows[i].match(/\[(\d+):(\d+(?:\.\d+)?)\]\s*(.*)$/);
+    if(!m) continue;
+    var t = parseInt(m[1], 10) * 60 + parseFloat(m[2]);
+    var txt = (m[3] || "").trim();
+    if(txt) out.push({ t: t, text: txt });
+  }
+  out.sort(function(a, b){ return a.t - b.t; });
+  return out;
+}
+function speakLyricsEnabled(){
+  try { return localStorage.getItem("lm_speak_lyrics") === "1"; } catch(e){ return false; }
+}
+function karaokePos(){
+  try {
+    if(NATIVE_AUDIO && window._karaokeClock){
+      var c = window._karaokeClock;
+      return c.playing ? c.pos + (performance.now() - c.at) / 1000 : c.pos;
+    }
+    if(state.player && state.player.getCurrentTime) return state.player.getCurrentTime();
+    return nativeState.pos || 0;
+  } catch(e){ return nativeState.pos || 0; }
+}
+function clearKaraoke(bodyEl){
+  if(!bodyEl) return;
+  if(bodyEl._lyricsTimer){ clearInterval(bodyEl._lyricsTimer); bodyEl._lyricsTimer = null; }
+  bodyEl._karaokeLines = null; bodyEl._karaokeIdx = -1; bodyEl._karaokeHold = false;
+}
+function renderKaraokeLines(bodyEl, lines){
+  if(!bodyEl) return;
+  bodyEl.innerHTML = "";
+  bodyEl._karaokeLines = lines;
+  bodyEl._karaokeIdx = -1;
+  bodyEl._karaokeHold = false;
+  for(var i = 0; i < lines.length; i++){
+    var d = document.createElement("div");
+    d.className = "karaoke-line";
+    d.textContent = lines[i].text;
+    bodyEl.appendChild(d);
+  }
+}
+function karaokeTick(bodyEl){
+  if(!bodyEl || !bodyEl._karaokeLines || !bodyEl._karaokeLines.length) return;
+  var lines = bodyEl._karaokeLines;
+  var pos = karaokePos();
+  var lo = 0, hi = lines.length - 1, ans = -1;
+  while(lo <= hi){ var mid = (lo + hi) >> 1; if(lines[mid].t <= pos){ ans = mid; lo = mid + 1; } else { hi = mid - 1; } }
+  if(ans === bodyEl._karaokeIdx) return;
+  var prev = bodyEl._karaokeIdx;
+  bodyEl._karaokeIdx = ans;
+  var kids = bodyEl.childNodes;
+  if(prev >= 0 && kids[prev]) kids[prev].classList.remove("karaoke-active");
+  if(ans >= 0 && kids[ans]){
+    kids[ans].classList.add("karaoke-active");
+    /* Auto-scroll only when the active line is outside the visible region.
+       scrollIntoView moves no focus, and tvLyricsBody is tabindex="-1" on
+       TV, so this cannot fight the D-pad controller. A manual scroll on
+       phone sets hold: this line change skips scrolling and clears hold,
+       so scrolling resumes from the next line change. */
+    if(!bodyEl._karaokeHold){
+      try {
+        var r = kids[ans].getBoundingClientRect(), br = bodyEl.getBoundingClientRect();
+        if(r.top < br.top || r.bottom > br.bottom){
+          bodyEl._karaokeAutoUntil = Date.now() + 500;
+          kids[ans].scrollIntoView({ block: "center" });
+        }
+      } catch(e){}
+    }
+    bodyEl._karaokeHold = false;
+    /* Spoken lines (opt-in toggle, default OFF) — through the native TTS
+       bridge, never say() (aria-live + toast, not speech). */
+    if(speakLyricsEnabled()){
+      try { if(window.LynxosPlayer && LynxosPlayer.speak) LynxosPlayer.speak(lines[ans].text); } catch(e){}
+    }
+  } else {
+    bodyEl._karaokeHold = false;
+  }
+}
+function startKaraoke(bodyEl, lines){
+  if(!bodyEl) return;
+  renderKaraokeLines(bodyEl, lines);
+  if(bodyEl._lyricsTimer){ clearInterval(bodyEl._lyricsTimer); bodyEl._lyricsTimer = null; }
+  /* Phone only: a manual scroll/touch pauses auto-scroll (see karaokeTick).
+     Programmatic scrolls set _karaokeAutoUntil first so their own scroll
+     events do not count as manual. TV needs none of this — arrows are
+     controller-owned there. */
+  if(!IS_TV && !bodyEl._karaokeScrollBound){
+    bodyEl._karaokeScrollBound = true;
+    bodyEl.addEventListener("scroll", function(){
+      try { if(Date.now() < (bodyEl._karaokeAutoUntil || 0)) return; } catch(e){}
+      bodyEl._karaokeHold = true;
+    });
+    bodyEl.addEventListener("touchstart", function(){ bodyEl._karaokeHold = true; });
+  }
+  /* Reuses the _lyricsTimer slot, so only one lyrics timer ever runs. */
+  bodyEl._lyricsTimer = setInterval(function(){ karaokeTick(bodyEl); }, 250);
+  karaokeTick(bodyEl);
+}
+function fetchLrclibSynced(artist, title){
+  function timeoutMs(ms){ return new Promise(function(_, reject){ setTimeout(function(){ reject(new Error("timeout")); }, ms); }); }
+  function getJson(url){
+    return Promise.race([fetch(url), timeoutMs(8000)]).then(function(r){ if(!r.ok) throw new Error("http " + r.status); return r.json(); });
+  }
+  function pick(d){
+    if(!d) return null;
+    if(d.instrumental) return "instrumental";
+    if(d.syncedLyrics){ var lines = parseLrc(d.syncedLyrics); if(lines.length) return lines; }
+    return null;
+  }
+  var dur = 0;
+  try { dur = Math.round(nativeState.dur || 0); } catch(e){}
+  var base = "https://lrclib.net/api/get?artist_name=" + encodeURIComponent(artist) + "&track_name=" + encodeURIComponent(title);
+  if(dur > 0) base += "&duration=" + dur;
+  /* Note: fetch() in a WebView cannot override the User-Agent header
+     (forbidden header) — the WebView's own UA is sent. LRCLIB reads need
+     no key. */
+  return getJson(base).then(function(d){
+    var p = pick(d);
+    if(p) return p;
+    var s = "https://lrclib.net/api/search?artist_name=" + encodeURIComponent(artist) + "&track_name=" + encodeURIComponent(title);
+    return getJson(s).then(function(arr){
+      if(!Array.isArray(arr)) return null;
+      for(var i = 0; i < arr.length; i++){ var q = pick(arr[i]); if(q) return q; }
+      return null;
+    });
+  }).catch(function(){ return null; });
+}
+function applyKaraokeResult(res, bodyEl, artist, title, announce){
+  /* Stale-guard: a newer song's fetchLyrics owns the bodies now. */
+  if(_lyricsSongKey !== karaokeKey(artist, title)) return;
+  var kkey = karaokeKey(artist, title);
+  if(res === "instrumental"){
+    _karaokeCache = { key: kkey, tried: true, lines: null, instrumental: true };
+    if(bodyEl) bodyEl.textContent = "Instrumental";
+    if(announce) say("Instrumental.");
+    return;
+  }
+  if(res && res.length){
+    _karaokeCache = { key: kkey, tried: true, lines: res, instrumental: false };
+    startKaraoke(bodyEl, res);
+    if(announce) say("Lyrics loaded.");
+    return;
+  }
+  _karaokeCache = { key: kkey, tried: true, lines: null, instrumental: false };
+  fetchLyricsPlain(artist, title, null, bodyEl, announce, true);
+}
 function fetchLyrics(artist, title, titleEl, bodyEl, announce){
+  if(titleEl) titleEl.textContent = title + " — " + artist;
+  if(bodyEl){ bodyEl.textContent = "Loading lyrics…"; bodyEl.scrollTop = 0; clearKaraoke(bodyEl); }
+  if(announce) say("Loading lyrics for " + title + ".");
+  var kkey = karaokeKey(artist, title);
+  _lyricsSongKey = kkey;
+  if(_karaokeCache.key === kkey && _karaokeCache.tried){
+    if(_karaokeCache.lines){ startKaraoke(bodyEl, _karaokeCache.lines); if(announce) say("Lyrics loaded."); return; }
+    if(_karaokeCache.instrumental){ if(bodyEl) bodyEl.textContent = "Instrumental"; if(announce) say("Instrumental."); return; }
+    fetchLyricsPlain(artist, title, titleEl, bodyEl, announce, true);
+    return;
+  }
+  if(_karaokeInflight && _karaokeInflight.key === kkey){
+    _karaokeInflight.promise.then(function(res){ applyKaraokeResult(res, bodyEl, artist, title, announce); });
+    return;
+  }
+  var pr = fetchLrclibSynced(artist, title);
+  _karaokeInflight = { key: kkey, promise: pr };
+  pr.then(function(res){
+    if(_karaokeInflight && _karaokeInflight.key === kkey) _karaokeInflight = null;
+    applyKaraokeResult(res, bodyEl, artist, title, announce);
+  });
+}
+function fetchLyricsPlain(artist, title, titleEl, bodyEl, announce, alreadyAnnounced){
   if(titleEl) titleEl.textContent = title + " — " + artist;
   if(bodyEl){
     bodyEl.textContent = "Loading lyrics…";
     bodyEl.scrollTop = 0;
     /* Stop any previous auto-scroll. */
     if(bodyEl._lyricsTimer){ clearInterval(bodyEl._lyricsTimer); bodyEl._lyricsTimer = null; }
+    bodyEl._karaokeLines = null; bodyEl._karaokeIdx = -1;
   }
-  if(announce) say("Loading lyrics for " + title + ".");
+  if(announce && !alreadyAnnounced) say("Loading lyrics for " + title + ".");
   var url = "https://api.lyrics.ovh/v1/" + encodeURIComponent(artist) + "/" + encodeURIComponent(title);
   /* Timeout after 10s so a hanging request can't leave the UI stuck. */
   var timeout = new Promise(function(_, reject){
@@ -6840,6 +7073,9 @@ function fetchLyrics(artist, title, titleEl, bodyEl, announce){
           Promise.race([fetch(url2), timeout]).then(function(r2){ return r2.json(); }).then(function(d2){
             if(d2 && d2.lyrics){
               if(bodyEl) bodyEl.textContent = d2.lyrics;
+              /* v2.2.118: the retry branch never started the auto-scroll
+                 timer — the first-success branch did. Start it here too. */
+              if(bodyEl) startAutoScroll(bodyEl);
               if(announce) say("Lyrics loaded.");
             } else {
               if(bodyEl) bodyEl.textContent = "No lyrics found for this song.";
@@ -6876,6 +7112,8 @@ $("fpLyricsBtn").addEventListener("click", function(){
 });
 $("lyricsBackBtn").addEventListener("click", function(){
   $("lyricsPanel").hidden = true;
+  /* v2.2.118: stop karaoke timers when the panel closes. */
+  try { clearKaraoke($("lyricsBody")); clearKaraoke($("tvLyricsBody")); } catch(e){}
 });
 /* ================= share ================= */
 function shareText(text, label){
