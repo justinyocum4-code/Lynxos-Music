@@ -129,6 +129,17 @@ jobs:
                       abiFilters "armeabi-v7a", "arm64-v8a"
                   }
               }
+              /* v2.2.117: core library desugaring — supplies Java 11 APIs
+                 (e.g. Collectors.toUnmodifiableList, used by NewPipe's
+                 thumbnail code) on pre-API-33 devices. NOTE: this does NOT
+                 fix the Stream.toArray(IntFunction) crash — that method is
+                 unsupported at all minSDK levels and is fixed by the
+                 Throwable-widened catches in MusicService instead. */
+              compileOptions {
+                  coreLibraryDesugaringEnabled true
+                  sourceCompatibility JavaVersion.VERSION_1_8
+                  targetCompatibility JavaVersion.VERSION_1_8
+              }
           }
           chaquopy {
               defaultConfig {
@@ -158,6 +169,10 @@ jobs:
               implementation 'com.github.TeamNewPipe:NewPipeExtractor:v0.26.5'
               /* v2.2.92: FileProvider for the in-app updater. */
               implementation 'androidx.core:core:1.12.0'
+              /* v2.2.117: desugaring library (see compileOptions above).
+                 Pin 2.0.1 verified against AGP 8.5.2: 2.x requires AGP
+                 7.4+, and the official support table cites 2.0.1. */
+              coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.1'
           }
           EOF
           sed -i "s/__APP_VERSION_CODE__/$APP_VERSION_CODE/g; s/__APP_VERSION_NAME__/$APP_VERSION_NAME/g" app/build.gradle
@@ -1992,6 +2007,31 @@ jobs:
                       return (s.length() > 60) ? s.substring(0, 60) : s;
                   } catch (Exception ignored) { return ""; }
               }
+              /* v2.2.117: shorten() amputated the method signature at 60
+                 chars (the v2.2.116 log showed only "NoSuchMet"). The
+                 resolve-failure line uses the 200-char variant so the next
+                 log names the method; shorten() stays for its other uses. */
+              private static String shortenLong(String s) {
+                  try {
+                      if (s == null) return "";
+                      s = s.replace('\n', ' ').replace('\r', ' ');
+                      return (s.length() > 200) ? s.substring(0, 200) : s;
+                  } catch (Exception ignored) { return ""; }
+              }
+              /* v2.2.117: unwrap a Future's ExecutionException chain to the
+                 real cause, so the log prints "NoSuchMethodError: …" instead
+                 of the wrapper. Bounded loop, never throws, never null. */
+              private static String unwrapMessage(Throwable th) {
+                  try {
+                      Throwable t = th;
+                      for (int i = 0; i < 10 && t instanceof java.util.concurrent.ExecutionException && t.getCause() != null; i++) {
+                          t = t.getCause();
+                      }
+                      if (t == null) return "";
+                      String m = t.toString().replace('\n', ' ').replace('\r', ' ');
+                      return (m.length() > 200) ? m.substring(0, 200) : m;
+                  } catch (Exception ignored) { return ""; }
+              }
               /* v2.2.98: does this extractor error mean the upload itself is
                  gone (private / removed / unavailable) rather than a blip?
                  Class-name checks cover NewPipe's ContentNotAvailable family;
@@ -2156,8 +2196,8 @@ jobs:
                       } else {
                           out.kind = KIND_TRANSIENT; out.message = "Resolve timed out";
                       }
-                  } catch (Exception e) {
-                      out.kind = KIND_TRANSIENT; out.message = String.valueOf(e);
+                  } catch (Throwable e) {
+                      out.kind = KIND_TRANSIENT; out.message = unwrapMessage(e);
                   }
                   if (out.kind == KIND_DEAD) markDeadId(videoId);
                   return out;
@@ -3947,7 +3987,7 @@ jobs:
                                          the message was previously passed to
                                          the page and dropped, so the log
                                          could never name the exception. */
-                                      String failMsg = shorten(rr.message);
+                                      String failMsg = shortenLong(rr.message);
                                       diag("resolve failed idx=" + wantIndex + " kind="
                                               + (rr.kind == KIND_DEAD ? "dead" : "transient")
                                               + " msg=" + (failMsg.isEmpty() ? "-" : failMsg)
@@ -4473,7 +4513,7 @@ jobs:
                               }
                           }
                       }
-                  } catch (Exception e) {
+                  } catch (Throwable e) {
                       android.util.Log.w("LynxosMusic", "Direct Python failed for " + videoId, e);
                       out.message = String.valueOf(e.getMessage());
                   }
@@ -4489,7 +4529,10 @@ jobs:
                   ResolveResult out = new ResolveResult();
                   out.resolvedVideoId = videoId;
                   // Try NewPipeExtractor first (fast)
-                  Exception npErr = null;
+                  /* v2.2.117: Throwable, not Exception — the API-28
+                     NoSuchMethodError is an Error, and catch (Exception)
+                     let it abort before the Python fallback ever ran. */
+                  Throwable npErr = null;
                   try {
                       StreamExtractor ex = ServiceList.YouTube.getStreamExtractor("https://www.youtube.com/watch?v=" + videoId);
                       ex.fetchPage();
@@ -4561,14 +4604,14 @@ jobs:
                           out.kind = KIND_OK;
                           return out;
                       }
-                  } catch (Exception e) {
+                  } catch (Throwable e) {
                       npErr = e;
                       android.util.Log.w("LynxosMusic", "NewPipe failed for " + videoId + ", trying yt-dlp", e);
                   }
                   // Fall back to Python yt-dlp with automatic alternatives (robust)
                   ResolveResult py = null;
                   try { py = getStreamUrlViaPythonDirect(videoId, title, artist); }
-                  catch (Exception e) { android.util.Log.w("LynxosMusic", "Python yt-dlp failed for " + videoId, e); }
+                  catch (Throwable e) { android.util.Log.w("LynxosMusic", "Python yt-dlp failed for " + videoId, e); }
                   if (py != null && py.url != null && !py.url.isEmpty()) {
                       android.util.Log.i("LynxosMusic", "Got stream URL via Python yt-dlp for " + videoId);
                       /* v2.2.106: the Python producer's Playback-log line —
