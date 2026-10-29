@@ -377,23 +377,26 @@
   body.tv #fullPlayer {
     display: flex; flex-direction: column;
     height: 100vh; max-height: 100vh; overflow: hidden;
-    box-sizing: border-box; padding: 2vh 5vw; gap: 1vh;
+    box-sizing: border-box; padding: 1vh 5vw; gap: 0.5vh;
   }
   /* The flex display above outranks #fullPlayer[hidden]{display:none}, which
      once made the player unclosable on TV — this restores the hidden state. */
   body.tv #fullPlayer[hidden] { display: none; }
   body.tv .fp-top { flex: 0 0 auto; }
+  /* v2.2.126: top-bar buttons 76px -> 52px (still a large D-pad target).
+     Specificity (0,3,1) beats body.tv .iconbtn (0,2,1); TV-scoped only. */
+  body.tv .fp-top .iconbtn { min-width: 52px; min-height: 52px; }
   body.tv .fp-tv-main {
     flex: 1 1 auto; min-height: 0; min-width: 0;
     display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 3vw;
   }
   body.tv .fp-tv-left {
     display: flex; flex-direction: column; align-items: center; justify-content: center;
-    min-height: 0; min-width: 0; overflow: hidden; gap: 1vh;
+    min-height: 0; min-width: 0; overflow: hidden; gap: 0.5vh;
   }
   body.tv #fpArt {
     order: 1; flex: 0 1 auto; min-height: 48px; min-width: 0;
-    width: auto; height: auto; max-width: 100%; max-height: 48vh;
+    width: 100%; aspect-ratio: 1; max-width: 100%; max-height: 48vh;
     object-fit: contain; margin: 0; border-radius: 10px;
   }
   body.tv .fp-tv-left #fpTitleBtn {
@@ -401,15 +404,15 @@
     max-width: 100%; display: block;
   }
   body.tv .fp-tv-left #fpTitle {
-    font-size: 26px; margin: 0; text-align: center;
+    font-size: 20px; margin: 0; text-align: center;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
   }
   body.tv .fp-tv-left #fpArtist {
-    order: 3; flex: 0 0 auto; font-size: 22px; margin: 0; text-align: center; color: var(--gold);
+    order: 3; flex: 0 0 auto; font-size: 18px; margin: 0; text-align: center; color: var(--gold);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
   }
   body.tv .fp-tv-left .fp-pills { order: 4; flex: 0 0 auto; margin: 0; justify-content: center; }
-  body.tv .fp-tv-left .fp-pills .fp-pill { font-size: 22px; padding: 12px 20px; }
+  body.tv .fp-tv-left .fp-pills .fp-pill { font-size: 18px; padding: 8px 16px; }
   body.tv .fp-tv-left .fp-controls {
     order: 5; flex: 0 0 auto; margin: 0; justify-content: center; gap: 10px;
   }
@@ -427,11 +430,11 @@
   body.tv #fpPlayBtn { width: 68px; height: 68px; min-width: 68px; min-height: 68px; font-size: 34px; background: rgba(212,175,55,.18); }
   body.tv .fp-tv-left label.sr-only { order: 7; }
   body.tv .fp-tv-left #fpSeek { order: 8; flex: 0 0 auto; margin: 0; width: 100%; max-width: 420px; }
-  body.tv .fp-tv-left .times { order: 9; flex: 0 0 auto; font-size: 22px; margin: 0; width: 100%; max-width: 420px; }
+  body.tv .fp-tv-left .times { order: 9; flex: 0 0 auto; font-size: 18px; margin: 0; width: 100%; max-width: 420px; }
   /* v2.2.89: TV gets a D-pad-friendly Up Next queue as an overlay drawer.
      The handle stays visible; opening it shows the queue in a fixed panel
      with focus moved inside (see toggleUpNext). */
-  body.tv #fpUpNextHandle { display: flex; }
+  body.tv #fpUpNextHandle { display: flex; padding: 8px 0 6px; margin-top: 4px; }
   body.tv #fpUpNextBody[hidden] { display: none; }
   body.tv #fpUpNextBody:not([hidden]) {
     display: block; position: fixed; top: 0; right: 0; bottom: 0; z-index: 120;
@@ -601,7 +604,7 @@
 <!-- v2.2.89: TV-visible toast (say() shows it on TV; phones never see it). -->
 <div id="tvToast" hidden></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.125</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.126</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -802,7 +805,7 @@
     </div>
     <div class="card" id="settingsAboutCard" tabindex="0" aria-label="About">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.125. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.126. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
