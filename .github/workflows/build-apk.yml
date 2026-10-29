@@ -264,7 +264,7 @@ jobs:
 
           cat > app/src/main/java/com/lynxosmusic/app/MainActivity.java <<'EOF'
           package com.lynxosmusic.app;
-
+          
           import android.Manifest;
           import android.app.Activity;
           import android.app.AlertDialog;
@@ -297,7 +297,7 @@ jobs:
           import com.chaquo.python.Python;
           import com.chaquo.python.PyObject;
           import com.chaquo.python.android.AndroidPlatform;
-
+          
           public class MainActivity extends Activity {
               private WebView webView;
               private boolean backArmed = false;
@@ -311,6 +311,8 @@ jobs:
               private ValueCallback<Uri[]> filePathCallback;
               private final Handler mainHandler = new Handler(Looper.getMainLooper());
               private MusicService musicService;
+              /* v2.2.118: stored so onDestroy can shut the karaoke TTS down. */
+              private AudioBridge audioBridgeInstance = null;
               private boolean svcBound = false;
               private boolean pageAlive = false;
               private Runnable pendingSvcAction;
@@ -320,7 +322,7 @@ jobs:
                  a cold start delivers it through onCreate's intent anyway,
                  and the pull clears it so it is handled exactly once. */
               private volatile String pendingSharedLink = "";
-
+          
               private final ServiceConnection svcConn = new ServiceConnection() {
                   @Override public void onServiceConnected(ComponentName name, IBinder binder) {
                       musicService = ((MusicService.LocalBinder) binder).getService();
@@ -340,7 +342,7 @@ jobs:
                       svcBound = false;
                   }
               };
-
+          
               // Forward a JavaScript call to the music service, binding first if needed.
               private void withService(final Runnable r) {
                   if (svcBound && musicService != null) {
@@ -355,7 +357,7 @@ jobs:
                       bindService(svc, svcConn, Context.BIND_AUTO_CREATE);
                   } catch (Exception ignored) {}
               }
-
+          
               /* v2.2.106: capture a shared YouTube link from an incoming
                  intent. The manifest filter already constrains what reaches
                  us, but re-check defensively: only http(s) on one of the
@@ -387,7 +389,7 @@ jobs:
                       }
                   } catch (Exception ignored) {}
               }
-
+          
               // Events coming back from the music service into the web page.
               private final MusicService.UiListener svcListener = new MusicService.UiListener() {
                   private void js(final String code) {
@@ -438,7 +440,7 @@ jobs:
                       return true;
                   }
               };
-
+          
               // Called from JavaScript as LynxosPlayer.* — the native audio engine
               // (v1.9). Plays through ExoPlayer in a foreground service so music
               // keeps going with the screen off.
@@ -948,8 +950,58 @@ jobs:
                       return result[0];
                   }
               }
-
+          
               public class AudioBridge {
+                  /* v2.2.118: spoken karaoke lines — android.speech.tts.TextToSpeech,
+                     STREAM_MUSIC, QUEUE_FLUSH per line so lines never pile up, lazy
+                     init, latest-only pending text until onInit. Page-side this is
+                     gated by the opt-in speak-lyrics toggle (default OFF); TTS talks
+                     over the music (no ducking in this build) — that is why it is
+                     opt-in. */
+                  private android.speech.tts.TextToSpeech lyricTts = null;
+                  private volatile boolean lyricTtsReady = false;
+                  private volatile String lyricTtsPending = null;
+          
+                  @android.webkit.JavascriptInterface
+                  public void speak(String text) {
+                      if (text == null) return;
+                      final String line = text.trim();
+                      if (line.isEmpty()) return;
+                      try {
+                          if (lyricTts == null) {
+                              lyricTtsPending = line;
+                              lyricTts = new android.speech.tts.TextToSpeech(MainActivity.this, new android.speech.tts.TextToSpeech.OnInitListener() {
+                                  @Override public void onInit(int status) {
+                                      lyricTtsReady = (status == android.speech.tts.TextToSpeech.SUCCESS);
+                                      if (lyricTtsReady) {
+                                          String p = lyricTtsPending;
+                                          lyricTtsPending = null;
+                                          if (p != null) speakNow(p);
+                                      }
+                                  }
+                              });
+                              return;
+                          }
+                          if (!lyricTtsReady) { lyricTtsPending = line; return; }
+                          speakNow(line);
+                      } catch (Exception ignored) {}
+                  }
+          
+                  private void speakNow(String line) {
+                      try {
+                          android.os.Bundle params = new android.os.Bundle();
+                          params.putInt(android.speech.tts.TextToSpeech.Engine.KEY_PARAM_STREAM, android.media.AudioManager.STREAM_MUSIC);
+                          lyricTts.speak(line, android.speech.tts.TextToSpeech.QUEUE_FLUSH, params, "lyric-line");
+                      } catch (Exception ignored) {}
+                  }
+          
+                  public void shutdownTts() {
+                      try {
+                          if (lyricTts != null) { lyricTts.stop(); lyricTts.shutdown(); lyricTts = null; }
+                          lyricTtsReady = false;
+                          lyricTtsPending = null;
+                      } catch (Exception ignored) {}
+                  }
                   @JavascriptInterface public void playQueue(final String tracksJson, final int index) {
                       withService(new Runnable() {
                           @Override public void run() { musicService.playQueue(tracksJson, index); }
@@ -1065,7 +1117,7 @@ jobs:
                       }
                   }
               }
-
+          
               @Override
               protected void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
@@ -1091,7 +1143,8 @@ jobs:
                   s.setAllowFileAccess(true);
                   s.setAllowFileAccessFromFileURLs(true);
                   s.setAllowUniversalAccessFromFileURLs(true);
-                  webView.addJavascriptInterface(new AudioBridge(), "LynxosPlayer");
+                  audioBridgeInstance = new AudioBridge();
+                  webView.addJavascriptInterface(audioBridgeInstance, "LynxosPlayer");
                   /* v2.2.92: in-app updater bridge */
                   webView.addJavascriptInterface(new UpdateBridge(), "LynxosUpdater");
                   /* v2.2.30: YouTube Music Python bridge */
@@ -1226,7 +1279,7 @@ jobs:
                       } catch (Exception ignored) {}
                   }
               }
-
+          
               @Override
               protected void onActivityResult(int requestCode, int resultCode, Intent data) {
                   super.onActivityResult(requestCode, resultCode, data);
@@ -1248,7 +1301,7 @@ jobs:
                       filePathCallback = null;
                   }
               }
-
+          
               /* v2.2.114: the ONE TV detection for the whole app —
                  MusicService delegates here so native TV decisions can
                  never disagree. Signals: the leanback system feature
@@ -1268,7 +1321,7 @@ jobs:
                   } catch (Throwable ignored) {}
                   return false;
               }
-
+          
               // v1.9.1 crash capture: if anything in the app process dies
               // (player service included), save the stack trace. On the next
               // launch it is shown in a dialog so it can be read back.
@@ -1361,7 +1414,7 @@ jobs:
                       return "<html><body>Failed to load app.</body></html>";
                   }
               }
-
+          
               @Override
               protected void onSaveInstanceState(Bundle outState) {
                   /* v2.2.94: FIX for TransactionTooLargeException. The old
@@ -1374,7 +1427,7 @@ jobs:
                   super.onSaveInstanceState(outState);
                   try { outState.clear(); } catch (Exception ignored) {}
               }
-
+          
               @Override
               protected void onDestroy() {
                   pageAlive = false;
@@ -1384,9 +1437,10 @@ jobs:
                   } catch (Exception ignored) {}
                   musicService = null;
                   svcBound = false;
+                  try { if (audioBridgeInstance != null) audioBridgeInstance.shutdownTts(); } catch (Exception ignored) {}
                   super.onDestroy();
               }
-
+          
               @Override
               protected void onNewIntent(Intent intent) {
                   super.onNewIntent(intent);
@@ -1434,7 +1488,7 @@ jobs:
                       super.onBackPressed();
                   }
               }
-
+          
               // TV remote media keys: next skips forward, previous restarts
               // the song (or jumps back when pressed twice). Routed into the
               // page's lmRemote* hooks so one code path drives both the
@@ -1466,12 +1520,13 @@ jobs:
                   return super.dispatchKeyEvent(event);
               }
           }
-
+          
+          
           EOF
 
           cat > app/src/main/java/com/lynxosmusic/app/MusicService.java <<'EOF'
           package com.lynxosmusic.app;
-
+          
           import android.app.Notification;
           import android.app.NotificationChannel;
           import android.app.NotificationManager;
@@ -1535,7 +1590,7 @@ jobs:
           import org.schabi.newpipe.extractor.stream.AudioStream;
           import org.schabi.newpipe.extractor.stream.DeliveryMethod;
           import org.schabi.newpipe.extractor.stream.StreamExtractor;
-
+          
           /**
            * v1.9 native audio engine. Plays music through ExoPlayer in a foreground
            * service, so playback keeps going with the screen off. Audio stream URLs
@@ -1543,7 +1598,7 @@ jobs:
            * (the same approach NewPipe-style apps use).
            */
           public class MusicService extends Service {
-
+          
               public interface UiListener {
                   void onTrackChanged(int index);
                   void onProgress(int posSec, int durSec, boolean playing);
@@ -1567,14 +1622,14 @@ jobs:
                   boolean onNotifNext();
                   boolean onNotifPrev();
               }
-
+          
               public static class Track {
                   public String videoId = "";
                   public String title = "";
                   public String channel = "";
                   public String thumb = "";
               }
-
+          
               /* v2.2.98: structured resolve outcome — the playable URL, the
                  videoId that actually produced it (an alternative upload may
                  win), and a failure kind so JS can tell a deleted upload
@@ -1586,17 +1641,17 @@ jobs:
                   public int kind = KIND_TRANSIENT;
                   public String message = "";
               }
-
+          
               public class LocalBinder extends Binder {
                   public MusicService getService() { return MusicService.this; }
               }
-
+          
               public static final String ACT_TOGGLE = "com.lynxosmusic.app.TOGGLE";
               public static final String ACT_NEXT = "com.lynxosmusic.app.NEXT";
               public static final String ACT_PREV = "com.lynxosmusic.app.PREV";
               private static final String CH_ID = "lynxos_music_playback";
               private static final int NOTIF_ID = 7;
-
+          
               private final IBinder binder = new LocalBinder();
               private ExoPlayer player;
               /* v2.2.110: the download-and-bank disk cache (see
@@ -2084,6 +2139,9 @@ jobs:
                   return resolveShared(videoId, title, artist, RESOLVE_DEADLINE_MS);
               }
               private ResolveResult resolveShared(final String videoId, final String title, final String artist, final long deadlineMs) {
+                  /* v2.2.118: skip diagnostics — elapsed-ms on the cache diag lines
+                     (the timeout line needs none: elapsed == deadlineMs by construction). */
+                  long sharedT0 = android.os.SystemClock.uptimeMillis();
                   ResolveResult out = new ResolveResult();
                   if (videoId == null || videoId.isEmpty()) { out.message = "No video id"; return out; }
                   String cached = getCachedUrl(videoId);
@@ -2097,7 +2155,7 @@ jobs:
                           diag("resolve rejected video stream " + describeStreamUrl(cached));
                           clearCachedUrl(videoId);
                       } else {
-                          diag("resolve cache " + describeStreamUrl(cached));
+                          diag("resolve cache " + describeStreamUrl(cached) + " took=" + (android.os.SystemClock.uptimeMillis() - sharedT0) + "ms");
                           out.url = cached; out.resolvedVideoId = videoId; out.kind = KIND_OK;
                           return out;
                       }
@@ -2191,7 +2249,7 @@ jobs:
                           late = null;
                       }
                       if (late != null && !late.isEmpty()) {
-                          diag("resolve cache " + describeStreamUrl(late));
+                          diag("resolve cache " + describeStreamUrl(late) + " took=" + (android.os.SystemClock.uptimeMillis() - sharedT0) + "ms");
                           out.url = late; out.resolvedVideoId = videoId; out.kind = KIND_OK;
                       } else {
                           out.kind = KIND_TRANSIENT; out.message = "Resolve timed out";
@@ -2229,6 +2287,11 @@ jobs:
               private volatile int preloadedIndex = -1;
               private volatile String preloadedVideoId = "";
               private volatile String preloadedUrl = "";
+              private volatile long preloadedLandedAtMs = 0;
+              /* v2.2.118: adopt-by-identity recency window — 30 minutes. Within a
+                 single listening session and well inside googlevideo URL lifetimes;
+                 a skip after a longer pause falls back to a fresh resolve. */
+              private static final long PRELOAD_ADOPT_MAX_AGE_MS = 30L * 60L * 1000L;
               private volatile long landingPlayGen = -1;
               private volatile int autoAdvancedIndex = -1;
               private volatile long autoAdvancedGen = -1;
@@ -2238,7 +2301,7 @@ jobs:
               private int lastPlaybackState = Player.STATE_IDLE;
               /* v2.2.5: native repeat mode (0=off, 1=all, 2=one), set by the web page. */
               private int repeatMode = 0;
-
+          
               private final Runnable progressTick = new Runnable() {
                   @Override public void run() {
                       boolean playing = false;
@@ -2264,7 +2327,7 @@ jobs:
                       main.postDelayed(this, playing ? 1000 : 5000);
                   }
               };
-
+          
               // ---- v2.2.110: download-and-bank ----
               /* The rebuild the v2.2.109 failure pointed to. media3's
                  playlist preload is best-effort behind the current item's
@@ -2349,7 +2412,7 @@ jobs:
               private final java.util.concurrent.atomic.AtomicInteger playResolveInFlight =
                       new java.util.concurrent.atomic.AtomicInteger(0);
               private volatile List<Track> browseBank;
-
+          
               /* v2.2.111: a "head" is the first BANK_HEAD_BYTES of a
                  track, cached under the track's usual stable key. At the
                  capped ~70 kbps stream weight this is roughly 58 s of
@@ -2357,7 +2420,7 @@ jobs:
                  it starts from disk instantly and gets that much runway
                  while the remainder streams in behind it. */
               private static final long BANK_HEAD_BYTES = 512000L;
-
+          
               private static class BankTarget {
                   final int idx;
                   final String videoId;
@@ -2374,7 +2437,7 @@ jobs:
                       this.head = head;
                   }
               }
-
+          
               /* Builds the singleton cache + the player's cache data
                  source factory. Called once from onCreate before the
                  player is built. Any failure leaves both fields null and
@@ -2412,7 +2475,7 @@ jobs:
                       diag("media cache init failed " + shorten(String.valueOf(e)));
                   }
               }
-
+          
               /* Browse-open signal (page -> AudioBridge.bankBrowse): the
                  first four tracks of an opened album, playlist, or Liked
                  Songs list, as a browse context — NOT a play. Stored
@@ -2434,7 +2497,7 @@ jobs:
                       bankContextChanged();
                   } catch (Exception ignored) {}
               }
-
+          
               /* Every queue-context change funnels here: the epoch bump
                  invalidates in-flight targets, the current writer (if any)
                  is cancelled, and the worker re-derives targets from the
@@ -2445,7 +2508,7 @@ jobs:
                   if (w != null) { try { w.cancel(); } catch (Exception ignored) {} }
                   kickBanking();
               }
-
+          
               private void kickBanking() {
                   if (mediaCache == null || cacheDsFactory == null) return;
                   if (!bankRunning.compareAndSet(false, true)) {
@@ -2469,7 +2532,7 @@ jobs:
                       bankRunning.set(false);
                   }
               }
-
+          
               private void bankLoop() {
                   /* One pass. A work item that fails in this pass is not
                      retried within it; the next natural trigger starts a
@@ -2485,7 +2548,7 @@ jobs:
                       bankOne(t, failedHeads, failedFills);
                   }
               }
-
+          
               /* The next four indices after the current track, walking
                  the same repeat-aware effective-next step the preload
                  window uses (repeat-one returns -1, so the walk — and
@@ -2509,7 +2572,7 @@ jobs:
                   } catch (Exception ignored) {}
                   return walk;
               }
-
+          
               /* The freshest work item, or null when there is nothing
                  to do. Order: play-chain HEADS (+1..+4), play-chain
                  FILLS (+1..+4), browse HEADS (tracks 1-4), browse FILLS
@@ -2563,7 +2626,7 @@ jobs:
                   } catch (Exception ignored) {}
                   return null;
               }
-
+          
               private boolean stillWanted(BankTarget t) {
                   if (t.epoch != bankEpoch.get()) return false;
                   try {
@@ -2577,7 +2640,7 @@ jobs:
                   } catch (Exception ignored) {}
                   return false;
               }
-
+          
               private boolean bankYieldNow() {
                   /* v2.2.114: a play resolve in flight yields regardless
                      of the buffer state — the shared resolveExec pool is
@@ -2589,13 +2652,13 @@ jobs:
                      album-open case). */
                   return bankPlayerWants && bankBufferedAheadMs < 25000;
               }
-
+          
               private void setBankYield(boolean y) {
                   if (y == bankYielding) return;
                   bankYielding = y;
                   diag(y ? "bank yield" : "bank resume");
               }
-
+          
               private long bankContentLength(String key) {
                   try {
                       Cache c = mediaCache;
@@ -2604,7 +2667,7 @@ jobs:
                   } catch (Exception ignored) {}
                   return -1;
               }
-
+          
               /* Verified completion only: the content length is known and
                  the cached bytes cover it end to end. */
               private boolean isBanked(String videoId) {
@@ -2618,7 +2681,7 @@ jobs:
                   } catch (Exception ignored) {}
                   return false;
               }
-
+          
               /* v2.2.111: head satisfaction — the cached bytes cover
                  [0, min(BANK_HEAD_BYTES, contentLength)). When the
                  content length is not known yet, the full head size is
@@ -2638,7 +2701,7 @@ jobs:
                   } catch (Exception ignored) {}
                   return false;
               }
-
+          
               private void bankOne(final BankTarget t, java.util.Set<String> failedHeads,
                                    java.util.Set<String> failedFills) {
                   /* Failures land in the set for this item's kind; the
@@ -2663,7 +2726,9 @@ jobs:
                   /* Resolves go through the same choke point as playback:
                      single-flight, video-mime rejection, diag logging. A
                      failed resolve aborts this bank cleanly. */
-                  ResolveResult rr = resolveShared(t.videoId, t.title, t.artist);
+                  /* v2.2.118: background-deadline parity — bank resolves get the TV
+                     60 s deadline on TV (same detection as tap plays), 15 s elsewhere. */
+                  ResolveResult rr = resolveShared(t.videoId, t.title, t.artist, (isTvDevice() ? ADVANCE_RESOLVE_DEADLINE_MS : RESOLVE_DEADLINE_MS));
                   if (rr == null || rr.kind != KIND_OK || rr.url == null || rr.url.isEmpty()) {
                       diag("bank failed idx=" + t.idx + " reason=resolve");
                       failedSet.add(t.videoId);
@@ -2759,10 +2824,10 @@ jobs:
                       return;
                   }
               }
-
+          
               @Override
               public IBinder onBind(Intent intent) { return binder; }
-
+          
               @Override
               public void onCreate() {
                   super.onCreate();
@@ -3235,7 +3300,7 @@ jobs:
                                   }
                               }
                               if (newIdx < 0) { diag("advance auto (untracked)"); return; }
-                              preloadedIndex = -1; preloadedVideoId = ""; preloadedUrl = "";
+                              preloadedIndex = -1; preloadedVideoId = ""; preloadedUrl = ""; preloadedLandedAtMs = 0;
                               /* Drop the finished item (it sits before the
                                  current one) so the player again holds just
                                  the current track. */
@@ -3317,7 +3382,7 @@ jobs:
                                       && preloadedUrl != null && !preloadedUrl.isEmpty()
                                       && preloadedUrl.equals(currentMediaUrl())) {
                                   int errIdx = preloadedIndex;
-                                  preloadedIndex = -1; preloadedVideoId = ""; preloadedUrl = "";
+                                  preloadedIndex = -1; preloadedVideoId = ""; preloadedUrl = ""; preloadedLandedAtMs = 0;
                                   try {
                                       int cur = player.getCurrentMediaItemIndex();
                                       if (cur > 0) player.removeMediaItem(0);
@@ -3443,7 +3508,7 @@ jobs:
                   goForeground(null, true);
                   main.post(progressTick);
               }
-
+          
               @Override
               public int onStartCommand(Intent intent, int flags, int startId) {
                   if (intent != null && intent.getAction() != null) {
@@ -3465,7 +3530,7 @@ jobs:
                   }
                   return START_STICKY;
               }
-
+          
               @Override
               public void onDestroy() {
                   try { main.removeCallbacks(progressTick); } catch (Exception ignored) {}
@@ -3495,7 +3560,7 @@ jobs:
                   cacheDsFactory = null;
                   super.onDestroy();
               }
-
+          
               public void setUiListener(UiListener l) { ui = l; }
               /* v2.2.5: the web page sets this when the user changes repeat mode. */
               public void setRepeatMode(int mode) {
@@ -3527,9 +3592,9 @@ jobs:
                   if (endedIndex + 1 < queue.size()) { playAtInternal(endedIndex + 1, true); return; }
                   if (repeat == 1 && !queue.isEmpty()) { playAtInternal(0, true); }
               }
-
+          
               // ---- public API: call on the main thread ----
-
+          
               public void playQueue(String tracksJson, int index) {
                   List<Track> t = parseTracks(tracksJson);
                   queue.clear();
@@ -3540,7 +3605,7 @@ jobs:
                   browseBank = null;
                   playAtInternal(index);
               }
-
+          
               public void appendTracks(String tracksJson) {
                   queue.addAll(parseTracks(tracksJson));
                   /* v2.2.110: a longer queue can give the worker a target
@@ -3549,9 +3614,9 @@ jobs:
                      the target already in flight. */
                   kickBanking();
               }
-
+          
               public void playAt(int index) { playAtInternal(index); }
-
+          
               /* v2.1.1: sync a JS-resolved videoId into the service queue
                  before playing (album tracks resolve on demand). */
               public void playTrackAt(final int index, final String videoId) {
@@ -3564,11 +3629,11 @@ jobs:
                       }
                   });
               }
-
+          
               public void toggle() { toggleInternal("page"); }
-
+          
               public void pausePlayback() { pauseOnlyInternal("page"); }
-
+          
               /* v2.2.99: explicit pause — used by the JS bridge pause and the
                  Bluetooth PAUSE key. It is NOT a toggle: a duplicated AVRCP
                  delivery can no longer un-pause, and pausing during buffering
@@ -3578,7 +3643,7 @@ jobs:
                  clears the focus-pause flag: regaining audio focus must never
                  undo a pause the user made. */
               private void pauseOnlyInternal() { pauseOnlyInternal("internal"); }
-
+          
               /* v2.2.102: src names the arrival path of the command —
                  "bt/session" (media-session callback), "notification"
                  (notification action fallback), "page" (JS bridge),
@@ -3602,11 +3667,11 @@ jobs:
                   pushProgress();
                   updateNotification();
               }
-
+          
               /* v2.2.99: explicit play (Bluetooth PLAY key) — never a toggle.
                  Any user play also clears the focus-pause flag. */
               private void playOnlyInternal() { playOnlyInternal("internal"); }
-
+          
               /* v2.2.102: see pauseOnlyInternal for the src tags. */
               private void playOnlyInternal(String src) {
                   diag("cmd play src=" + src);
@@ -3629,7 +3694,7 @@ jobs:
                   pushProgress();
                   updateNotification();
               }
-
+          
               /* v2.2.99: ask the system for audio focus before (re)starting
                  playback — every play command and every track start. Never
                  blocks playback: a denied request still plays. */
@@ -3661,7 +3726,7 @@ jobs:
                       }
                   } catch (Exception ignored) {}
               }
-
+          
               private void abandonAudioFocus() {
                   try {
                       if (audioManager == null) return;
@@ -3672,7 +3737,7 @@ jobs:
                       }
                   } catch (Exception ignored) {}
               }
-
+          
               /* v2.2.100: acquire/refresh the service's own wake + Wi-Fi
                  locks (see the field comment for WHY: they cover the
                  track-boundary gap ExoPlayer's own locks don't). Called at
@@ -3727,7 +3792,7 @@ jobs:
                       main.postDelayed(lockIdleWatchdog, PLAY_LOCK_WATCHDOG_MS);
                   } catch (Exception ignored) {}
               }
-
+          
               /* v2.2.100: release the play locks. v2.2.101: the callers are
                  now session-end only — service destroy, or the idle
                  watchdog after ~35 idle minutes. A user pause deliberately
@@ -3747,7 +3812,7 @@ jobs:
                   lockSessionActive = false;
                   try { main.removeCallbacks(lockIdleWatchdog); } catch (Exception ignored) {}
               }
-
+          
               /* v2.2.99: the app's own audio-focus reactions (the player no
                  longer handles focus itself). Transient losses — another app's
                  short sound, a ringing call — DUCK to 20% instead of pausing,
@@ -3809,12 +3874,12 @@ jobs:
                       }
                   } catch (Exception ignored) {}
               }
-
+          
               public void seekTo(int sec) {
                   try { if (player != null) player.seekTo(Math.max(0, sec) * 1000L); } catch (Exception ignored) {}
                   pushProgress();
               }
-
+          
               public void removeAt(int index) {
                   if (index < 0 || index >= queue.size() || index == currentIndex) return;
                   queue.remove(index);
@@ -3833,7 +3898,7 @@ jobs:
                   /* v2.2.110: queue edits shift banking target indices. */
                   bankContextChanged();
               }
-
+          
               public void truncateAfter(int index) {
                   while (queue.size() > index + 1) queue.remove(queue.size() - 1);
                   /* v2.2.108: if the cut removed the appended track, drop
@@ -3845,11 +3910,11 @@ jobs:
                   /* v2.2.110: queue edits shift banking target indices. */
                   bankContextChanged();
               }
-
+          
               // ---- internals ----
-
+          
               private void toggleInternal() { toggleInternal("internal"); }
-
+          
               /* v2.2.102: see pauseOnlyInternal for the src tags. */
               private void toggleInternal(String src) {
                   diag("cmd toggle src=" + src);
@@ -3881,9 +3946,9 @@ jobs:
                   pushProgress();
                   updateNotification();
               }
-
+          
               private void playAtInternal(int i) { playAtInternal(i, false); }
-
+          
               /* v2.2.100: fromAdvance marks plays that came from the native
                  ended-advance (advanceAfterEnded, and the native floor that
                  backs it up). Only those get the long resolve deadline and
@@ -4063,13 +4128,23 @@ jobs:
                                          an AUTO crossing. Any check failing
                                          falls through to the untouched paths
                                          below. */
+                                      /* v2.2.118: adopt by identity, not URL equality —
+                                         the Python leg mints a fresh expiring URL per
+                                         extraction, so the appended item's URL almost
+                                         never equals a fresh resolve's URL even though
+                                         it is the same song with buffered audio. The
+                                         recency guard keeps a stale item from an
+                                         earlier queue from being adopted after a long
+                                         pause; anything older falls through to a fresh
+                                         resolve. (The v2.2.109 comment above predates
+                                         this: URL equality is no longer required.) */
                                       try {
                                           skipAdopted = pendingSeekIndex != wantIndex
                                                   && preloadedIndex == wantIndex
                                                   && preloadedVideoId != null && t.videoId != null
                                                   && preloadedVideoId.equals(t.videoId)
-                                                  && preloadedUrl != null && !preloadedUrl.isEmpty()
-                                                  && preloadedUrl.equals(rr.url)
+                                                  && preloadedLandedAtMs > 0
+                                                  && (android.os.SystemClock.uptimeMillis() - preloadedLandedAtMs) <= PRELOAD_ADOPT_MAX_AGE_MS
                                                   && player.getMediaItemCount() == 2
                                                   && player.getCurrentMediaItemIndex() == 0
                                                   && player.getPlaybackState() != Player.STATE_ENDED
@@ -4093,7 +4168,7 @@ jobs:
                                                  currentPlayGen already name
                                                  this play — they were set at
                                                  playAtInternal entry.) */
-                                              preloadedIndex = -1; preloadedVideoId = ""; preloadedUrl = "";
+                                              preloadedIndex = -1; preloadedVideoId = ""; preloadedUrl = ""; preloadedLandedAtMs = 0;
                                               autoAdvancedIndex = wantIndex;
                                               autoAdvancedGen = myGen;
                                               try { if (player.getMediaItemCount() > 1) player.removeMediaItem(0); } catch (Exception ignored) {}
@@ -4152,7 +4227,7 @@ jobs:
                                               /* v2.2.108: setMediaItem replaced the
                                                  whole window — any appended preload
                                                  is physically gone with it. */
-                                              preloadedIndex = -1; preloadedVideoId = ""; preloadedUrl = "";
+                                              preloadedIndex = -1; preloadedVideoId = ""; preloadedUrl = ""; preloadedLandedAtMs = 0;
                                           }
                                       }
                                       /* v2.2.99: an error retry resumes where
@@ -4204,7 +4279,7 @@ jobs:
                       }
                   });
               }
-
+          
               /* v2.2.100: the native failure floor. scheduleNativeFloor is
                  called when an advance-originated play fails (resolve
                  failure in playAtInternal, or playback-error exhaustion in
@@ -4238,7 +4313,7 @@ jobs:
                       }
                   }, NATIVE_FLOOR_GRACE_MS);
               }
-
+          
               private void runNativeFloor(final int index, final long gen, final long fseq, final boolean freshResolve, final String failedUrl) {
                   try {
                       if (player == null) return;
@@ -4300,7 +4375,7 @@ jobs:
                       });
                   } catch (Exception ignored) {}
               }
-
+          
               /* The floor's own advance: the next index the way
                  advanceAfterEnded computes it, WITHOUT the repeat-all wrap
                  (and without repeat-one's replay — the track just failed).
@@ -4319,7 +4394,7 @@ jobs:
                       diag("floor at queue end idx=" + failedIndex);
                   }
               }
-
+          
               /* v2.1.7: resolve the next track's audio URL ahead of time.
                  v2.2.98: passes the track's real title/artist (the Python
                  alternative search needs them — it used to get "" and could
@@ -4355,7 +4430,7 @@ jobs:
                       }
                   });
               }
-
+          
               /* v2.2.108: the effective next index under the service's own
                  advance policy — the same computation advanceAfterEnded
                  performs (sequential; repeat-all wraps; repeat-one replays
@@ -4376,7 +4451,7 @@ jobs:
                   if (repeatMode == 1 && !queue.isEmpty() && curIdx != 0) return 0;
                   return -1;
               }
-
+          
               /* v2.2.108: append the effective next track's media item to
                  the player so ExoPlayer downloads its audio while the
                  current track plays (the LoadControl's 90s total buffer is
@@ -4405,7 +4480,8 @@ jobs:
                       bg.execute(new Runnable() {
                           @Override public void run() {
                               ResolveResult rr = null;
-                              try { rr = resolveShared(tt.videoId, tt.title, tt.channel); } catch (Throwable ignored) {}
+                              /* v2.2.118: background-deadline parity — same TV 60 s / non-TV 15 s rule as bankOne. */
+                          try { rr = resolveShared(tt.videoId, tt.title, tt.channel, (isTvDevice() ? ADVANCE_RESOLVE_DEADLINE_MS : RESOLVE_DEADLINE_MS)); } catch (Throwable ignored) {}
                               final ResolveResult fr = rr;
                               main.post(new Runnable() {
                                   @Override public void run() {
@@ -4434,6 +4510,7 @@ jobs:
                                           preloadedIndex = target;
                                           preloadedVideoId = (now != null && now.videoId != null) ? now.videoId : wantVid;
                                           preloadedUrl = fr.url;
+                                          preloadedLandedAtMs = android.os.SystemClock.uptimeMillis();
                                           diag("preload next idx=" + target);
                                       } catch (Exception ignored) {}
                                   }
@@ -4442,7 +4519,7 @@ jobs:
                       });
                   } catch (Exception ignored) {}
               }
-
+          
               /* v2.2.108: remove the appended preload item from the player
                  (found by its URL, skipping the current item — robust to
                  index drift) and clear its bookkeeping. Called when the
@@ -4452,7 +4529,7 @@ jobs:
                   if (preloadedIndex < 0) return;
                   int idx = preloadedIndex;
                   String url = preloadedUrl;
-                  preloadedIndex = -1; preloadedVideoId = ""; preloadedUrl = "";
+                  preloadedIndex = -1; preloadedVideoId = ""; preloadedUrl = ""; preloadedLandedAtMs = 0;
                   try {
                       if (player != null && url != null && !url.isEmpty()) {
                           int cur = player.getCurrentMediaItemIndex();
@@ -4469,7 +4546,7 @@ jobs:
                   } catch (Exception ignored) {}
                   diag("preload dropped idx=" + idx + " (" + why + ")");
               }
-
+          
               /* v2.2.39: Direct Python call with automatic alternatives.
                  If the primary video ID fails, Python searches for alternative
                  versions of the same song. This is the permanent skip fix.
@@ -4525,7 +4602,24 @@ jobs:
                  throwing a generic ExtractionException that erased WHY the
                  resolve failed — an explicit unavailable/private/removed
                  signal from either layer classifies the failure DEAD. */
+              /* v2.2.118: NewPipe can never succeed on a device where its
+                 Stream.toArray(IntFunction) call throws NoSuchMethodError
+                 (API 28 and below) — remember that per process so later
+                 resolves skip the dead leg and go straight to Python. Set
+                 ONLY on that failure shape, never on other NewPipe failures. */
+              private volatile boolean newPipeMethodMissing = false;
+              private static boolean isNoSuchMethodError(Throwable e) {
+                  try {
+                      for (int i = 0; i < 10 && e != null; i++) {
+                          if (e instanceof NoSuchMethodError) return true;
+                          e = e.getCause();
+                      }
+                  } catch (Exception ignored) {}
+                  return false;
+              }
               private ResolveResult resolveAudioUrl(String videoId, String title, String artist) {
+                  /* v2.2.118: skip diagnostics — elapsed-ms on the resolve diag lines. */
+                  long resolveT0 = android.os.SystemClock.uptimeMillis();
                   ResolveResult out = new ResolveResult();
                   out.resolvedVideoId = videoId;
                   // Try NewPipeExtractor first (fast)
@@ -4533,7 +4627,10 @@ jobs:
                      NoSuchMethodError is an Error, and catch (Exception)
                      let it abort before the Python fallback ever ran. */
                   Throwable npErr = null;
-                  try {
+                  /* v2.2.118: fast-path — once NewPipe has thrown NoSuchMethodError
+                     on this device, it can never succeed here, so skip the dead leg
+                     (and its fetchPage network work) and go straight to Python. */
+                  if (!newPipeMethodMissing) try {
                       StreamExtractor ex = ServiceList.YouTube.getStreamExtractor("https://www.youtube.com/watch?v=" + videoId);
                       ex.fetchPage();
                       List<AudioStream> streams = ex.getAudioStreams();
@@ -4599,13 +4696,14 @@ jobs:
                              v2.2.107: prints chosenKbps (normalized), not
                              the raw getter value, so the logged weight is
                              real kbps. */
-                          diag("resolve newpipe abr=" + chosenKbps + " " + describeStreamUrl(best.getUrl()));
+                          diag("resolve newpipe abr=" + chosenKbps + " " + describeStreamUrl(best.getUrl()) + " took=" + (android.os.SystemClock.uptimeMillis() - resolveT0) + "ms");
                           out.url = best.getUrl();
                           out.kind = KIND_OK;
                           return out;
                       }
                   } catch (Throwable e) {
                       npErr = e;
+                      if (isNoSuchMethodError(e)) newPipeMethodMissing = true;
                       android.util.Log.w("LynxosMusic", "NewPipe failed for " + videoId + ", trying yt-dlp", e);
                   }
                   // Fall back to Python yt-dlp with automatic alternatives (robust)
@@ -4617,7 +4715,7 @@ jobs:
                       /* v2.2.106: the Python producer's Playback-log line —
                          which door a heavy stream came through is the whole
                          point of the log. */
-                      diag("resolve python " + describeStreamUrl(py.url));
+                      diag("resolve python " + describeStreamUrl(py.url) + " took=" + (android.os.SystemClock.uptimeMillis() - resolveT0) + "ms");
                       return py;
                   }
                   /* Both layers failed — classify, preserving the real reason. */
@@ -4631,7 +4729,7 @@ jobs:
                   out.message = (msg == null) ? "" : msg;
                   return out;
               }
-
+          
               private List<Track> parseTracks(String json) {
                   List<Track> out = new ArrayList<>();
                   try {
@@ -4653,7 +4751,7 @@ jobs:
                   } catch (Exception ignored) {}
                   return out;
               }
-
+          
               private void pushProgress() {
                   UiListener l = ui;
                   if (l == null || player == null) return;
@@ -4667,7 +4765,7 @@ jobs:
                   if (dur == C.TIME_UNSET || dur < 0) dur = 0;
                   try { l.onProgress((int) (pos / 1000), (int) (dur / 1000), playing); } catch (Exception ignored) {}
               }
-
+          
               private void createChannel() {
                   if (Build.VERSION.SDK_INT >= 26) {
                       try {
@@ -4678,14 +4776,14 @@ jobs:
                       } catch (Exception ignored) {}
                   }
               }
-
+          
               private PendingIntent svcAction(String action) {
                   Intent i = new Intent(this, MusicService.class).setAction(action);
                   int flags = PendingIntent.FLAG_UPDATE_CURRENT;
                   if (Build.VERSION.SDK_INT >= 23) flags |= PendingIntent.FLAG_IMMUTABLE;
                   return PendingIntent.getService(this, action.hashCode(), i, flags);
               }
-
+          
               private Notification buildNotification(Track t, boolean loading) {
                   boolean playing = false;
                   try { playing = player != null && player.isPlaying(); } catch (Exception ignored) {}
@@ -4712,7 +4810,7 @@ jobs:
                   } catch (Exception ignored) {}
                   return b.build();
               }
-
+          
               private void goForeground(Track t, boolean loading) {
                   try {
                       Notification n = buildNotification(t, loading);
@@ -4723,7 +4821,7 @@ jobs:
                       }
                   } catch (Exception ignored) {}
               }
-
+          
               private void updateNotification() {
                   Track t = (currentIndex >= 0 && currentIndex < queue.size()) ? queue.get(currentIndex) : null;
                   if (t == null) return;
@@ -4732,7 +4830,7 @@ jobs:
                       if (nm != null) nm.notify(NOTIF_ID, buildNotification(t, false));
                   } catch (Exception ignored) {}
               }
-
+          
               /** Minimal HTTP downloader for the NewPipe extractor. */
               static class ExtractorDownloader extends Downloader {
                   @Override
@@ -4777,7 +4875,8 @@ jobs:
                   }
               }
           }
-
+          
+          
           EOF
 
       - name: Set up Gradle
