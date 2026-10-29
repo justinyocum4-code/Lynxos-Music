@@ -1829,6 +1829,32 @@ jobs:
               /* v2.2.98: one fresh-URL retry (was 2) — with error kinds now
                  propagated, dead uploads never reach this path at all. */
               private static final int MAX_RETRIES = 1;
+              /* v2.2.129: session audio cap (kbps) + stall-triggered
+                 rendition downgrade. Starts at 160 (the v2.2.124 quality
+                 choice). The first downgrade drops it to 70 for the rest
+                 of the session — later tracks and banking resolve at 70
+                 too — because re-stalling once per song is the same bad
+                 UX once per track instead of once per session. Reset =
+                 app restart (a manual quality reset is a follow-up, not
+                 part of this build). Volatile: written on the main
+                 thread by the downgrade trigger, read by the resolve
+                 threads and the bank thread. */
+              private static volatile int sessionCapKbps = 160;
+              private static final int DOWNGRADE_CAP_KBPS = 70;
+              private static final int DOWNGRADE_STALLS = 2;
+              private static final long STALL_DOWNGRADE_MIN_MS = 5000;
+              /* Per-track stall episode, owned by the player listener
+                 (main thread); reset in playAtInternal on every track
+                 start. stallReadySeen gates counting: the initial
+                 buffering entry of a cold track is load, not a stall —
+                 only buffering AFTER the track has once been READY
+                 counts toward a downgrade. bufferingStartMs times one
+                 buffering episode so sub-second seek buffering never
+                 counts (see the buffering-end branch). */
+              private int stallTrackIndex = -1;
+              private int stallCount = 0;
+              private boolean stallReadySeen = false;
+              private long bufferingStartMs = 0;
               private final java.util.Map<String, Long> urlCacheTime = new java.util.HashMap<String, Long>();
               /* v2.2.98: access-ordered LRU capped at 100 entries (was: the
                  WHOLE cache was cleared past 100, wiping upcoming prefetches
@@ -1839,29 +1865,44 @@ jobs:
                   }
               };
               private static final long URL_CACHE_TTL_MS = 4 * 60 * 60 * 1000; /* 4 hours */
+              /* v2.2.129: the URL cache is keyed by (videoId, cap) — a
+                 resolve at 70 must never return a URL resolved at 160,
+                 or the player would play a 160 stream under the 70
+                 cache key. Callers always mean the CURRENT session cap;
+                 tasks in flight pin their own cap (see resolveShared).
+                 */
+              private static String urlCacheKey(String videoId, int capKbps) { return videoId + "|" + capKbps; }
               private String getCachedUrl(String videoId) {
                   try {
+                      String key = urlCacheKey(videoId, sessionCapKbps);
                       synchronized (urlCache) {
-                          String url = urlCache.get(videoId);
-                          Long time = urlCacheTime.get(videoId);
+                          String url = urlCache.get(key);
+                          Long time = urlCacheTime.get(key);
                           if (url != null && time != null) {
                               if (System.currentTimeMillis() - time < URL_CACHE_TTL_MS) {
                                   return url;
                               } else {
                                   /* Expired - remove */
-                                  urlCache.remove(videoId);
-                                  urlCacheTime.remove(videoId);
+                                  urlCache.remove(key);
+                                  urlCacheTime.remove(key);
                               }
                           }
                       }
                   } catch (Exception ignored) {}
                   return null;
               }
-              private void putCachedUrl(String videoId, String url) {
+              private void putCachedUrl(String videoId, String url) { putCachedUrlForCap(videoId, url, sessionCapKbps); }
+              /* v2.2.129: cap-pinned write — a resolve task started at one
+                 cap must file its URL under THAT cap even if a downgrade
+                 moved the session cap while it was in flight; filing
+                 under the live cap would poison the new cap's entry with
+                 an old-cap URL. */
+              private void putCachedUrlForCap(String videoId, String url, int capKbps) {
                   try {
+                      String key = urlCacheKey(videoId, capKbps);
                       synchronized (urlCache) {
-                          urlCache.put(videoId, url);
-                          urlCacheTime.put(videoId, System.currentTimeMillis());
+                          urlCache.put(key, url);
+                          urlCacheTime.put(key, System.currentTimeMillis());
                       }
                       /* v2.2.110: record the reverse mapping too — the
                          player's cache key factory reads it to give every
@@ -1892,12 +1933,23 @@ jobs:
                  player's CacheKeyFactory computes the identical string
                  from the reverse map above. One computation, both paths —
                  mismatched keys are how the v2.2.101 cache never served. */
-              private static String cacheKeyFor(String videoId) { return "lmv2_" + videoId; }
+              /* v2.2.129: the key gains the session-cap dimension. A
+                 rendition switch must never serve old-rendition spans
+                 as new-rendition bytes (and the recorded content length
+                 belongs to one rendition only, so banking state would
+                 corrupt too). Cap 160 keeps the historical bare key, so
+                 sessions that never downgrade re-bank nothing; any lower
+                 cap suffixes, so downgraded sessions bank and read
+                 under their own key. */
+              private static String cacheKeyFor(String videoId) {
+                  return sessionCapKbps == 160 ? ("lmv2_" + videoId) : ("lmv2_" + videoId + "_" + sessionCapKbps);
+              }
               private void clearCachedUrl(String videoId) {
                   try {
+                      String key = urlCacheKey(videoId, sessionCapKbps);
                       synchronized (urlCache) {
-                          urlCache.remove(videoId);
-                          urlCacheTime.remove(videoId);
+                          urlCache.remove(key);
+                          urlCacheTime.remove(key);
                       }
                   } catch (Exception ignored) {}
               }
@@ -2163,6 +2215,14 @@ jobs:
                   long sharedT0 = android.os.SystemClock.uptimeMillis();
                   ResolveResult out = new ResolveResult();
                   if (videoId == null || videoId.isEmpty()) { out.message = "No video id"; return out; }
+                  /* v2.2.129: pin the cap for this resolve. The session cap
+                     can move (downgrade) while this task runs; the task
+                     must resolve AND file under the cap it started with,
+                     and its single-flight key must differ per cap, or a
+                     downgrade resolve would join an old-cap task and play
+                     an old-cap URL under the new cap's cache key. */
+                  final int resolveCap = sessionCapKbps;
+                  final String flightKey = videoId + "|" + resolveCap;
                   String cached = getCachedUrl(videoId);
                   if (cached != null && !cached.isEmpty()) {
                       /* v2.2.106: the video-stream gate covers cache hits
@@ -2188,7 +2248,7 @@ jobs:
                   java.util.concurrent.Callable<ResolveResult> task = new java.util.concurrent.Callable<ResolveResult>() {
                       @Override public ResolveResult call() {
                           try {
-                              ResolveResult r = resolveAudioUrl(videoId, title, artist);
+                              ResolveResult r = resolveAudioUrl(videoId, title, artist, resolveCap);
                               /* v2.2.106: VIDEO-STREAM GATE — the choke point.
                                  resolveShared is the only road a stream URL
                                  can take to the player (playAtInternal, the
@@ -2215,7 +2275,7 @@ jobs:
                                          upload's URL must not be filed under the
                                          dead id that was originally asked for. */
                                       String wid = (r.resolvedVideoId != null && !r.resolvedVideoId.isEmpty()) ? r.resolvedVideoId : videoId;
-                                      putCachedUrl(wid, r.url);
+                                      putCachedUrlForCap(wid, r.url, resolveCap);
                                   }
                               } catch (Exception ignored) {}
                               return r;
@@ -2223,14 +2283,14 @@ jobs:
                               /* v2.2.100: owner-only removal — the task
                                  itself unregisters when it completes, never
                                  a timed-out waiter (see method comment). */
-                              try { inFlight.remove(videoId, selfRef.get()); } catch (Exception ignored) {}
+                              try { inFlight.remove(flightKey, selfRef.get()); } catch (Exception ignored) {}
                           }
                       }
                   };
                   java.util.concurrent.FutureTask<ResolveResult> ft =
                           new java.util.concurrent.FutureTask<ResolveResult>(task);
                   selfRef.set(ft);
-                  java.util.concurrent.Future<ResolveResult> existing = inFlight.putIfAbsent(videoId, ft);
+                  java.util.concurrent.Future<ResolveResult> existing = inFlight.putIfAbsent(flightKey, ft);
                   boolean owner = (existing == null);
                   java.util.concurrent.Future<ResolveResult> f = owner ? ft : existing;
                   if (owner) {
@@ -2238,7 +2298,7 @@ jobs:
                       catch (Exception e) {
                           /* The task will never run, so it can never remove
                              its own entry — the submitter cleans up instead. */
-                          inFlight.remove(videoId, ft);
+                          inFlight.remove(flightKey, ft);
                           out.message = String.valueOf(e);
                           return out;
                       }
@@ -2362,7 +2422,7 @@ jobs:
                    CacheKeyFactory that maps each stream URL back to its
                    videoId, so every item addresses the cache as
                    "lmv2_" + videoId no matter which expiring URL a resolve
-                   handed out. The banking writer sets the same key
+                   handed out (v2.2.129: plus the session-cap suffix when capped below 160 — see cacheKeyFor). The banking writer sets the same key
                    explicitly on its DataSpec (cacheKeyFor — one
                    computation, both paths).
                    v2.2.124: prefix was "lmv_" — bumped to "lmv2_" with the
@@ -3298,8 +3358,21 @@ jobs:
                               long bufPos = -1;
                               try { bufPos = player.getBufferedPosition(); } catch (Exception ignored) {}
                               diag("buffering start buf=" + bufPos + "ms");
+                              bufferingStartMs = android.os.SystemClock.uptimeMillis();
                           } else if (lastPlaybackState == Player.STATE_BUFFERING) {
                               diag("buffering end");
+                              /* v2.2.129: only a buffering episode that
+                                 actually hurt counts toward a downgrade —
+                                 sub-second seek buffering must never
+                                 trigger one. Recovery into READY after
+                                 a >=5 s episode is a genuine stall. */
+                              if (state == Player.STATE_READY && bufferingStartMs > 0) {
+                                  long stallMs = android.os.SystemClock.uptimeMillis() - bufferingStartMs;
+                                  bufferingStartMs = 0;
+                                  if (stallMs >= STALL_DOWNGRADE_MIN_MS) countStallForDowngrade();
+                              } else {
+                                  bufferingStartMs = 0;
+                              }
                           }
                           lastPlaybackState = state;
                           if (state == Player.STATE_ENDED) {
@@ -3317,6 +3390,9 @@ jobs:
                               UiListener l = ui;
                               if (l != null) { try { l.onTrackEnded(); } catch (Exception ignored) {} }
                           } else if (state == Player.STATE_READY) {
+                              /* v2.2.129: the track has played — later
+                                 buffering entries are genuine stalls. */
+                              stallReadySeen = true;
                               /* v2.2.79: Clear retry counter on successful playback */
                               try {
                                   if (currentIndex >= 0 && currentIndex < queue.size()) {
@@ -4049,6 +4125,46 @@ jobs:
                   updateNotification();
               }
 
+              /* v2.2.129: stall-triggered rendition downgrade. Called from
+                 the buffering-end branch of the player listener (main
+                 thread). Counts only genuine mid-playback stalls (see
+                 stallReadySeen + the >=5 s episode gate); on the 2nd
+                 stall of a track whose session cap is still above the
+                 downgrade cap, it drops the session cap, clears the
+                 track's cached URL, and restarts the SAME track through
+                 playAtInternal with a pending seek — the proven
+                 error-retry shape (resolve → setMediaItem → seek →
+                 onTrackChanged), so lyrics reload from cache and
+                 banking retargets. Never fires while paused
+                 (playWhenReady false) — a pause press mid-buffer must
+                 not turn into a restart — and never re-fires for the
+                 session once the cap is at the downgrade cap. */
+              private void countStallForDowngrade() {
+                  if (currentIndex != stallTrackIndex) {
+                      stallTrackIndex = currentIndex;
+                      stallCount = 0;
+                      stallReadySeen = false;
+                      return;
+                  }
+                  if (!stallReadySeen) return;
+                  stallCount++;
+                  if (stallCount >= DOWNGRADE_STALLS && sessionCapKbps > DOWNGRADE_CAP_KBPS) triggerDowngrade();
+              }
+              private void triggerDowngrade() {
+                  if (player == null || currentIndex < 0 || currentIndex >= queue.size()) return;
+                  try { if (!player.getPlayWhenReady()) return; } catch (Exception ignored) { return; }
+                  final Track t = queue.get(currentIndex);
+                  if (t == null || t.videoId == null || t.videoId.isEmpty()) return;
+                  final long posMs;
+                  try { posMs = player.getCurrentPosition(); } catch (Exception ignored) { return; }
+                  sessionCapKbps = DOWNGRADE_CAP_KBPS;
+                  clearCachedUrl(t.videoId);
+                  diag("downgrade idx=" + currentIndex + " cap=70 pos=" + posMs + "ms");
+                  if (posMs > 0) { pendingSeekIndex = currentIndex; pendingSeekMs = posMs; }
+                  stallCount = 0;
+                  stallReadySeen = false;
+                  playAtInternal(currentIndex);
+              }
               private void playAtInternal(int i) { playAtInternal(i, false); }
 
               /* v2.2.100: fromAdvance marks plays that came from the native
@@ -4087,6 +4203,10 @@ jobs:
                      any other play supersedes and discards it. */
                   if (pendingSeekIndex >= 0 && pendingSeekIndex != i) { pendingSeekIndex = -1; pendingSeekMs = 0; }
                   currentIndex = i;
+                  /* v2.2.129: a track start opens a new stall episode. */
+                  stallTrackIndex = i;
+                  stallCount = 0;
+                  stallReadySeen = false;
                   final long myGen = playGen.incrementAndGet();
                   currentPlayGen = myGen;
                   /* v2.2.108: this command owns the player window until its
@@ -4680,7 +4800,7 @@ jobs:
                  v2.2.98: returns the full ResolveResult — Python reports the
                  winning videoId (resolved_video_id) and an error_kind, parsed
                  as real JSON instead of string-scraping just the URL. */
-              private ResolveResult getStreamUrlViaPythonDirect(String videoId, String title, String artist) {
+              private ResolveResult getStreamUrlViaPythonDirect(String videoId, String title, String artist, int capKbps) {
                   ResolveResult out = new ResolveResult();
                   out.resolvedVideoId = videoId;
                   try {
@@ -4692,7 +4812,7 @@ jobs:
                           com.chaquo.python.PyObject r = mod.callAttr("get_playable_stream",
                               title != null ? title : "",
                               artist != null ? artist : "",
-                              videoId);
+                              videoId, capKbps);
                           String json = r.toString();
                           if (json != null) {
                               try {
@@ -4744,7 +4864,7 @@ jobs:
                   } catch (Exception ignored) {}
                   return false;
               }
-              private ResolveResult resolveAudioUrl(String videoId, String title, String artist) {
+              private ResolveResult resolveAudioUrl(String videoId, String title, String artist, int capKbps) {
                   /* v2.2.118: skip diagnostics — elapsed-ms on the resolve diag lines. */
                   long resolveT0 = android.os.SystemClock.uptimeMillis();
                   ResolveResult out = new ResolveResult();
@@ -4795,7 +4915,8 @@ jobs:
                           int kbps = br > 2000 ? br / 1000 : br;
                           if (kbps > 0) {
                               if (lightest == null || kbps < lightestKbps) { lightest = s; lightestKbps = kbps; }
-                              if (kbps <= 160 && (best == null || kbps > bestKbps)) { best = s; bestKbps = kbps; }
+                              /* v2.2.129: capKbps is the session cap (160, or 70 after a stall downgrade). */
+                              if (kbps <= capKbps && (best == null || kbps > bestKbps)) { best = s; bestKbps = kbps; }
                           }
                       }
                       /* The chosen stream's normalized kbps, so the resolve
@@ -4835,7 +4956,7 @@ jobs:
                   }
                   // Fall back to Python yt-dlp with automatic alternatives (robust)
                   ResolveResult py = null;
-                  try { py = getStreamUrlViaPythonDirect(videoId, title, artist); }
+                  try { py = getStreamUrlViaPythonDirect(videoId, title, artist, capKbps); }
                   catch (Throwable e) { android.util.Log.w("LynxosMusic", "Python yt-dlp failed for " + videoId, e); }
                   if (py != null && py.url != null && !py.url.isEmpty()) {
                       android.util.Log.i("LynxosMusic", "Got stream URL via Python yt-dlp for " + videoId);
