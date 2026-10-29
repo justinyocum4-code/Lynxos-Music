@@ -172,7 +172,7 @@
   .fp-top { display: flex; align-items: center; justify-content: space-between; }
   .fp-top span { color: var(--muted); font-size: 13px; letter-spacing: 1px; }
   .fp-top-spacer { flex: 1; }
-  #fpArt { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; background: var(--surface); margin: 8px auto 16px; max-width: 420px; display: block; }
+  #fpArt { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; background: var(--surface); margin: 8px auto 16px; max-width: 560px; display: block; }
   /* v2.2.82: YTM-style player — tappable title, action pills, big play, up-next handle. */
   .fp-title-btn { background: none; border: none; padding: 0; margin: 0; color: var(--text); font-size: 22px; font-weight: 800; text-align: left; display: block; width: 100%; }
   .fp-title-btn .fp-title-chev { color: var(--muted); font-weight: 400; }
@@ -393,7 +393,7 @@
   }
   body.tv #fpArt {
     order: 1; flex: 0 1 auto; min-height: 48px; min-width: 0;
-    width: auto; height: auto; max-width: 100%; max-height: 30vh;
+    width: auto; height: auto; max-width: 100%; max-height: 48vh;
     object-fit: contain; margin: 0; border-radius: 10px;
   }
   body.tv .fp-tv-left #fpTitleBtn {
@@ -456,6 +456,12 @@
   /* v2.2.121: TV single-line karaoke — one gold line, wrapped, never
      truncated (truncating drops words). */
   body.tv #tvLyricsBody .karaoke-single { color: var(--gold); font-weight: 800; font-size: 32px; line-height: 1.4; white-space: normal; overflow-wrap: break-word; }
+  /* v2.2.124: word-by-word karaoke — unlit words dim, lit words gold
+     and bold (exactly today's active line). Sizes inherit (TV 32 px,
+     phone list sizes); spans stay inline, wrapping still breaks at
+     the real spaces between them. */
+  .karaoke-word { color: var(--muted); }
+  .karaoke-word.karaoke-lit { color: var(--gold); font-weight: 800; }
   /* TV: the secondary action rows (Playlist, YouTube Music, Radio, Sleep…)
      stay on the phone — on TV they clutter the player, so they're hidden. */
   body.tv #fullPlayer > .row { display: none; }
@@ -595,7 +601,7 @@
 <!-- v2.2.89: TV-visible toast (say() shows it on TV; phones never see it). -->
 <div id="tvToast" hidden></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.123</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.124</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -796,7 +802,7 @@
     </div>
     <div class="card" id="settingsAboutCard" tabindex="0" aria-label="About">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.123. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.124. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -1826,7 +1832,9 @@ function renderAlbumTrackList(tracks){
      their tracks land), so this is the single call site. */
   try {
     if(NATIVE_AUDIO && tracks && tracks.length && LynxosPlayer.bankBrowse){
-      LynxosPlayer.bankBrowse(JSON.stringify(tracks.slice(0, 2).map(function(v){
+      /* v2.2.124: drop blank-id tracks BEFORE slicing, so a blank-headed
+         list cannot waste its whole browse budget on tracks native drops. */
+      LynxosPlayer.bankBrowse(JSON.stringify(tracks.filter(function(v){ return v.videoId; }).slice(0, 2).map(function(v){
         return { videoId: v.videoId || "", title: v.title || "", channel: v.channel || "", thumb: v.thumb || "" };
       })));
     }
@@ -2745,9 +2753,12 @@ document.addEventListener("keydown", function(e){
   }
   /* ArrowLeft and Back are handled by the existing closer above. */
 });
-/* Remote media-key hooks, called by the native wrapper on TV:
-   play/pause toggles, next skips forward, previous restarts the song
-   (or jumps to the previous song when pressed twice quickly). */
+/* v2.2.124: uncalled defensive stubs — the native wrapper NEVER calls
+   these (zero references in the native code); the old comment claiming
+   otherwise was wrong. Kept, not deleted: harmless, and deletion risk
+   exceeds benefit. If anything ever wires them up: play/pause toggles,
+   next skips forward, previous restarts the song (or jumps to the
+   previous song when pressed twice quickly). */
 window.lmRemotePlayPause = function(){ try { togglePlayPause(); } catch(e){} return "handled"; };
 window.lmRemoteNext = function(){ try { playNext(false); } catch(e){} return "handled"; };
 window.lmRemotePrev = function(){ try { playPrev(); } catch(e){} return "handled"; };
@@ -4740,7 +4751,9 @@ function openPlaylist(name){
      wins over browse banking. */
   try {
     if(NATIVE_AUDIO && p && p.length && LynxosPlayer.bankBrowse){
-      LynxosPlayer.bankBrowse(JSON.stringify(p.slice(0, 4).map(function(v){
+      /* v2.2.124: drop blank-id tracks BEFORE slicing, so a blank-headed
+         playlist cannot waste its whole browse budget on tracks native drops. */
+      LynxosPlayer.bankBrowse(JSON.stringify(p.filter(function(v){ return v.videoId; }).slice(0, 4).map(function(v){
         return { videoId: v.videoId || "", title: v.title || "", channel: v.channel || "", thumb: v.thumb || "" };
       })));
     }
@@ -4856,7 +4869,9 @@ function renderLiked(){
      the list renders non-empty. */
   try {
     if(NATIVE_AUDIO && l && l.length && LynxosPlayer.bankBrowse){
-      LynxosPlayer.bankBrowse(JSON.stringify(l.slice(0, 4).map(function(v){
+      /* v2.2.124: drop blank-id tracks BEFORE slicing, so a blank-headed
+         list cannot waste its whole browse budget on tracks native drops. */
+      LynxosPlayer.bankBrowse(JSON.stringify(l.filter(function(v){ return v.videoId; }).slice(0, 4).map(function(v){
         return { videoId: v.videoId || "", title: v.title || "", channel: v.channel || "", thumb: v.thumb || "" };
       })));
     }
@@ -5157,7 +5172,6 @@ $("themeToggleBtn").addEventListener("click", function(){
 /* v2.2.92: in-app updater button. */
 try { $("checkUpdateBtn").addEventListener("click", checkForUpdates); } catch(e){}
 applyTheme();
-refreshKeyStatus();
 syncPlayIcons();
 say("Lynxos Music ready.");
 </script>
@@ -7027,7 +7041,58 @@ function clearKaraoke(bodyEl){
   if(!bodyEl) return;
   if(bodyEl._lyricsTimer){ clearInterval(bodyEl._lyricsTimer); bodyEl._lyricsTimer = null; }
   bodyEl._karaokeLines = null; bodyEl._karaokeIdx = -1; bodyEl._karaokeHold = false;
+  bodyEl._karaokeLitCount = -1; bodyEl._karaokeWordSpans = null; bodyEl._karaokeWordStarts = null;
   bodyEl._karaokeSingle = null; /* v2.2.121: drop the TV single-line ref with the rest (the div itself is wiped by the next "Loading lyrics…" assignment). */
+}
+/* v2.2.124: word-by-word karaoke — ESTIMATE, not true word timing.
+   LRCLIB syncedLyrics is line-level LRC only; no per-word timestamps
+   exist anywhere, so within each line's window words light in
+   length-weighted order (longer words, plus their following space,
+   get proportionally more time). Fast or uneven phrasing will be
+   visibly approximate. Line starts stay exactly as LRCLIB reports —
+   this never invents timestamps, it only distributes a line's known
+   window across its words. */
+var DISTRIBUTION_CAP_S = 10;
+function karaokeWordStarts(lines, i){
+  var start = lines[i].t, end;
+  if(i + 1 < lines.length) end = lines[i + 1].t;
+  else {
+    /* Last line: no next line bounds the window. Duration chain, each
+       step validated as > lineStart — nativeState.dur can still be
+       the previous track's, so never trust it blindly; a stale-but-
+       larger value only stretches the estimate, it cannot invert it. */
+    end = 0;
+    try { if(nativeState && nativeState.dur > start) end = nativeState.dur; } catch(e){}
+    if(!end){ try { if(state.player && state.player.getDuration && state.player.getDuration() > start) end = state.player.getDuration(); } catch(e){} }
+    if(!end) end = start + DISTRIBUTION_CAP_S;
+  }
+  var dist = Math.min(end - start, DISTRIBUTION_CAP_S);
+  if(dist <= 0) return null; /* Degenerate window (duplicate timestamps):
+     light the whole line at once at lineStart. */
+  var tokens = String(lines[i].text).split(/\s+/);
+  var weights = [], total = 0;
+  for(var j = 0; j < tokens.length; j++){ var w = tokens[j].length + (j < tokens.length - 1 ? 1 : 0); weights.push(w); total += w; }
+  if(!total) return null;
+  var starts = [], acc = 0;
+  for(var j = 0; j < tokens.length; j++){ starts.push(start + (acc / total) * dist); acc += weights[j]; }
+  return starts;
+}
+function karaokeWordSpans(lineEl, text){
+  /* Word spans with real space text nodes between them, so wrapping
+     still breaks at spaces exactly as plain text did. Tokens verbatim.
+     No aria attributes, no tabindex: the line stays one readable
+     text sequence and the D-pad focus graph is unchanged. */
+  var tokens = String(text).split(/\s+/);
+  var spans = [];
+  for(var j = 0; j < tokens.length; j++){
+    if(j > 0) lineEl.appendChild(document.createTextNode(" "));
+    var sp = document.createElement("span");
+    sp.className = "karaoke-word";
+    sp.textContent = tokens[j];
+    lineEl.appendChild(sp);
+    spans.push(sp);
+  }
+  return spans;
 }
 function renderKaraokeLines(bodyEl, lines){
   if(!bodyEl) return;
@@ -7035,8 +7100,12 @@ function renderKaraokeLines(bodyEl, lines){
   bodyEl._karaokeLines = lines;
   bodyEl._karaokeIdx = -1;
   bodyEl._karaokeHold = false;
+  bodyEl._karaokeLitCount = -1;
+  bodyEl._karaokeWordSpans = null;
+  bodyEl._karaokeWordStarts = null;
   /* v2.2.121: TV shows exactly ONE line — the currently-sung line,
-     nothing else. One persistent element; the tick swaps its text.
+     nothing else. One persistent element; the tick rebuilds its word
+     spans on each line change (same frequency as the old text swap).
      Phone keeps one div per line below. */
   if(IS_TV){
     var s = document.createElement("div");
@@ -7048,7 +7117,8 @@ function renderKaraokeLines(bodyEl, lines){
   for(var i = 0; i < lines.length; i++){
     var d = document.createElement("div");
     d.className = "karaoke-line";
-    d.textContent = lines[i].text;
+    d._wordSpans = karaokeWordSpans(d, lines[i].text);
+    d._wordStarts = karaokeWordStarts(lines, i);
     bodyEl.appendChild(d);
   }
 }
@@ -7063,51 +7133,108 @@ function karaokeTick(bodyEl){
   if(!bodyEl || !bodyEl._karaokeLines || !bodyEl._karaokeLines.length) return;
   var lines = bodyEl._karaokeLines;
   var pos = karaokePos();
+  /* Computed once: the line search AND the word lighting below share
+     it — the 0.25 s lead is never added twice. */
+  var leadPos = pos + KARAOKE_LEAD_S;
   var lo = 0, hi = lines.length - 1, ans = -1;
-  while(lo <= hi){ var mid = (lo + hi) >> 1; if(lines[mid].t <= pos + KARAOKE_LEAD_S){ ans = mid; lo = mid + 1; } else { hi = mid - 1; } }
-  if(ans === bodyEl._karaokeIdx) return;
-  var prev = bodyEl._karaokeIdx;
-  bodyEl._karaokeIdx = ans;
-  /* v2.2.121: TV single-line — swap the one element's text, no class
-     toggles, no scrolling, no childNodes indexing (the body holds one
-     div, not one div per line). Gaps keep the last line: ans only
-     advances on new timestamps, and ans = -1 blanks the element
-     (exactly "nothing else" before the first line). Speak-lines follows
-     the tick exactly as on phone (same text, same change). */
-  if(IS_TV){
-    if(bodyEl._karaokeSingle) bodyEl._karaokeSingle.textContent = ans >= 0 ? lines[ans].text : "";
-    bodyEl._karaokeHold = false;
-    if(ans >= 0 && speakLyricsEnabled()){
-      try { if(window.LynxosPlayer && LynxosPlayer.speak) LynxosPlayer.speak(lines[ans].text); } catch(e){}
-    }
-    return;
-  }
-  var kids = bodyEl.childNodes;
-  if(prev >= 0 && kids[prev]) kids[prev].classList.remove("karaoke-active");
-  if(ans >= 0 && kids[ans]){
-    kids[ans].classList.add("karaoke-active");
-    /* Auto-scroll only when the active line is outside the visible region.
-       scrollIntoView moves no focus, and tvLyricsBody is tabindex="-1" on
-       TV, so this cannot fight the D-pad controller. A manual scroll on
-       phone sets hold: this line change skips scrolling and clears hold,
-       so scrolling resumes from the next line change. */
-    if(!bodyEl._karaokeHold){
-      try {
-        var r = kids[ans].getBoundingClientRect(), br = bodyEl.getBoundingClientRect();
-        if(r.top < br.top || r.bottom > br.bottom){
-          bodyEl._karaokeAutoUntil = Date.now() + 500;
-          kids[ans].scrollIntoView({ block: "center" });
+  while(lo <= hi){ var mid = (lo + hi) >> 1; if(lines[mid].t <= leadPos){ ans = mid; lo = mid + 1; } else { hi = mid - 1; } }
+  if(ans !== bodyEl._karaokeIdx){
+    var prev = bodyEl._karaokeIdx;
+    bodyEl._karaokeIdx = ans;
+    bodyEl._karaokeLitCount = -1; /* force the word path below to repaint */
+    /* v2.2.121: TV single-line — rebuild the one element's word spans
+       on each line change (same frequency as the old text swap), no
+       scrolling, no childNodes indexing (the body holds one div, not
+       one div per line). Gaps keep the last line: ans only advances
+       on new timestamps, and ans = -1 blanks the element (exactly
+       "nothing else" before the first line). Speak-lines follows the
+       tick exactly as on phone (same text, same change) and stays in
+       this line-change branch only — it always speaks the FULL line,
+       never word fragments. */
+    if(IS_TV){
+      if(ans >= 0){
+        if(bodyEl._karaokeSingle){
+          bodyEl._karaokeSingle.textContent = "";
+          bodyEl._karaokeWordSpans = karaokeWordSpans(bodyEl._karaokeSingle, lines[ans].text);
+          bodyEl._karaokeWordStarts = karaokeWordStarts(lines, ans);
+        } else { bodyEl._karaokeWordSpans = null; bodyEl._karaokeWordStarts = null; }
+      } else {
+        if(bodyEl._karaokeSingle) bodyEl._karaokeSingle.textContent = "";
+        bodyEl._karaokeWordSpans = null; bodyEl._karaokeWordStarts = null;
+      }
+      bodyEl._karaokeHold = false;
+      if(ans >= 0 && speakLyricsEnabled()){
+        try { if(window.LynxosPlayer && LynxosPlayer.speak) LynxosPlayer.speak(lines[ans].text); } catch(e){}
+      }
+    } else {
+      var kids = bodyEl.childNodes;
+      if(prev >= 0 && kids[prev]) kids[prev].classList.remove("karaoke-active");
+      if(ans >= 0 && kids[ans]){
+        kids[ans].classList.add("karaoke-active");
+        /* Auto-scroll only when the active line is outside the visible region.
+           scrollIntoView moves no focus, and tvLyricsBody is tabindex="-1" on
+           TV, so this cannot fight the D-pad controller. A manual scroll on
+           phone sets hold: this line change skips scrolling and clears hold,
+           so scrolling resumes from the next line change. */
+        if(!bodyEl._karaokeHold){
+          try {
+            var r = kids[ans].getBoundingClientRect(), br = bodyEl.getBoundingClientRect();
+            if(r.top < br.top || r.bottom > br.bottom){
+              bodyEl._karaokeAutoUntil = Date.now() + 500;
+              kids[ans].scrollIntoView({ block: "center" });
+            }
+          } catch(e){}
         }
+        bodyEl._karaokeHold = false;
+        /* Spoken lines (opt-in toggle, default OFF) — through the native TTS
+           bridge, never say() (aria-live + toast, not speech). */
+        if(speakLyricsEnabled()){
+          try { if(window.LynxosPlayer && LynxosPlayer.speak) LynxosPlayer.speak(lines[ans].text); } catch(e){}
+        }
+      } else {
+        bodyEl._karaokeHold = false;
+      }
+      /* v2.2.124: a line change clears every lit word span, so a seek
+         back across lines can never leave a future line glowing. The
+         word path below re-lights the current line from pos. */
+      try {
+        var lit = bodyEl.querySelectorAll(".karaoke-word.karaoke-lit");
+        for(var q = 0; q < lit.length; q++) lit[q].classList.remove("karaoke-lit");
       } catch(e){}
     }
-    bodyEl._karaokeHold = false;
-    /* Spoken lines (opt-in toggle, default OFF) — through the native TTS
-       bridge, never say() (aria-live + toast, not speech). */
-    if(speakLyricsEnabled()){
-      try { if(window.LynxosPlayer && LynxosPlayer.speak) LynxosPlayer.speak(lines[ans].text); } catch(e){}
-    }
+  }
+  /* v2.2.124: word-update path — runs on EVERY 50 ms tick, after the
+     line-change guard above, so it is never killed by the early
+     return that used to end the tick. Word state is recomputed from
+     pos each tick (never monotonically incremented): seeking back
+     within a line un-lights its later words. */
+  if(ans < 0){
+    if(bodyEl._karaokeLitCount !== 0) bodyEl._karaokeLitCount = 0;
+    return;
+  }
+  var spans, starts;
+  if(IS_TV){
+    spans = bodyEl._karaokeWordSpans; starts = bodyEl._karaokeWordStarts;
   } else {
-    bodyEl._karaokeHold = false;
+    var cur = bodyEl.childNodes[ans];
+    spans = cur ? cur._wordSpans : null;
+    /* Last line only: its window depends on duration, which can
+       refresh after render — recompute so the estimate tracks it.
+       Other lines' windows are fixed by the next line's timestamp. */
+    starts = (ans === lines.length - 1) ? karaokeWordStarts(lines, ans) : (cur ? cur._wordStarts : null);
+  }
+  if(!spans || !spans.length) return;
+  var target;
+  if(!starts){ target = spans.length; /* degenerate window: whole line at once */ }
+  else {
+    target = 0;
+    for(var w = 0; w < starts.length; w++){ if(starts[w] <= leadPos) target = w + 1; else break; }
+  }
+  if(target === bodyEl._karaokeLitCount) return; /* no DOM writes when unchanged */
+  bodyEl._karaokeLitCount = target;
+  for(var w2 = 0; w2 < spans.length; w2++){
+    if(w2 < target) spans[w2].classList.add("karaoke-lit");
+    else spans[w2].classList.remove("karaoke-lit");
   }
 }
 function startKaraoke(bodyEl, lines){
