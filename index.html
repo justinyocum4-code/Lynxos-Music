@@ -606,11 +606,11 @@
 <!-- v2.2.89: TV-visible toast (say() shows it on TV; phones never see it). -->
 <div id="tvToast" hidden></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.134</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.135</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
-    <div class="chipRow" id="homeChips" role="group" aria-label="Filter by genre"></div>
+    <div class="chipRow" id="homeChips" role="group" aria-label="Stations"></div>
     <!-- v2.2.87: Your mixes shelf moved to the top of Home (his request). -->
     <div class="homeBlock">
       <h2>Your mixes</h2>
@@ -807,7 +807,7 @@
     </div>
     <div class="card" id="settingsAboutCard" tabindex="0" aria-label="About">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.134. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.135. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -4080,6 +4080,9 @@ function refillRadioNow(restartOnEmpty){
      and keep the old "End of queue." behavior. */
   function endEmpty(){
     if(restartOnEmpty){
+      /* v2.2.135: My Mix restarts itself — its seedName is not a genre
+         or an artist, so startRadio would search for it literally. */
+      if(r.taste){ startTasteStation(); return; }
       var nm = r.genre || r.seedName;
       if(nm){ startRadio(nm); return; }
     }
@@ -6136,6 +6139,63 @@ function startRadioFromVideo(v){
     say("Radio started with " + all.length + " songs. It keeps widening as you listen.");
   }).catch(function(err){ say("Radio failed: " + (err && err.message ? err.message : "unknown error")); });
 }
+/* v2.2.135: personal picks — My Mix, a station seeded from the artists
+   you like and play instead of a genre's generic seeds. Seeds come from
+   the app's own Liked Songs + history (most recent first), so it works
+   whether that data arrived via the YouTube import or the Takeout file.
+   One representative video per artist, up to 8 seeds; the queue itself
+   is the seeds' radios, merged and filtered by the usual station rules
+   (no music-video or live versions, English only) but with NO genre
+   filter, since taste crosses genres. */
+function tasteSeedVideos(){
+  var seeds = [], seenArtists = {}, seenIds = {};
+  function pushFrom(list){
+    (list || []).forEach(function(t){
+      if(!t || !t.videoId || seenIds[t.videoId]) return;
+      var a = normArtist(t.channel || "");
+      if(a && seenArtists[a]) return;
+      seenIds[t.videoId] = true;
+      if(a) seenArtists[a] = true;
+      seeds.push(t);
+    });
+  }
+  pushFrom(getLiked());
+  pushFrom(getHistory());
+  return seeds.slice(0, 8);
+}
+function startTasteStation(){
+  var seeds = tasteSeedVideos();
+  if(!seeds.length){
+    say("Like some songs or play some music first, then My Mix will have something to build from.");
+    return;
+  }
+  say("Starting My Mix from your taste.");
+  var seedIds = seeds.map(function(t){ return t.videoId; });
+  Promise.all(seedIds.map(function(id){ return fetchYouTubeRadio(id).catch(function(){ return []; }); }))
+    .then(function(results){
+      var all = [], seen = {};
+      results.forEach(function(videos){
+        (videos || []).forEach(function(sv){
+          if(sv.videoId && !seen[sv.videoId]){ seen[sv.videoId] = true; all.push(sv); }
+        });
+      });
+      all = all.filter(function(sv){
+        return !isMusicVideoOnly(sv.title) && !isLiveVersion(sv.title) && !isNonEnglish(sv.title, sv.ownerChannel || sv.channel);
+      });
+      all = capPerArtist(all, 1);
+      shuffleList(all);
+      all = diversifyStart(all, 10);
+      if(!all.length){ say("Couldn't build My Mix. Try again later."); return; }
+      /* seenIds holds only the final queue, so refills never exclude
+         tracks that were filtered out before they were ever queued. */
+      var seenIds = {};
+      all.forEach(function(sv){ seenIds[sv.videoId] = true; });
+      playVideo(all[0], all, 0, true);
+      state.radio = { seedId: seedIds[0], seedIds: seedIds, seedName: "My Mix", genre: null, taste: true, active: true, refilling: false, seenIds: seenIds };
+      say("My Mix started with " + all.length + " songs. It keeps widening as you listen.");
+    })
+    .catch(function(){ say("My Mix failed. Try again later."); });
+}
 function maybeRefillRadio(){
   var r = state.radio;
   if(!r || !r.active || r.refilling) return;
@@ -6225,6 +6285,15 @@ function renderHomeChips(){
   var box = $("homeChips");
   if(!box) return;
   box.innerHTML = "";
+  /* v2.2.135: My Mix leads the row — TV launch focus lands on the first
+     chip, so the personal station is the first thing announced. */
+  var mix = document.createElement("button");
+  mix.className = "chip";
+  mix.textContent = "My Mix";
+  mix.setAttribute("aria-pressed", "false");
+  mix.setAttribute("aria-label", "Play My Mix radio from your taste");
+  mix.addEventListener("click", function(){ startTasteStation(); });
+  box.appendChild(mix);
   var genres = ["Metal","Rock","Grunge","Alternative","Hip-Hop","Pop","Country","Jazz","Classical","Electronic","R&B","Punk"];
   genres.forEach(function(g){
     var b = document.createElement("button");
@@ -7876,7 +7945,10 @@ function sbEnsureSession(force){
       _sbRefreshPromise = null;
       if(data && data.access_token){
         var cur = sbGetTokens() || tokens;
-        sbSaveTokens(data.access_token, data.refresh_token || cur.refresh, cur.provider,
+        /* v2.2.135: take a refreshed YouTube token when Supabase returns
+           one — keeping the old provider token silently kills the YouTube
+           import about an hour after sign-in. */
+        sbSaveTokens(data.access_token, data.refresh_token || cur.refresh, data.provider_token || cur.provider,
           data.expires_at ? data.expires_at * 1000 : (data.expires_in ? Date.now() + data.expires_in * 1000 : 0));
         if(data.user && data.user.id){
           try { localStorage.setItem("lm_sb_user", JSON.stringify(data.user)); } catch(e){}
@@ -8100,8 +8172,10 @@ function importFromYouTubeMusic(){
       throw new Error("bridge missing");
     }
     var imported = 0;
+    var likedErr = "", histErr = "";
     var liked = JSON.parse(LynxosYTM.getYtmLiked(token, 100));
-    if(liked && !liked.error && liked.length){
+    if(liked && liked.error) likedErr = String(liked.error);
+    else if(liked && liked.length){
       liked.forEach(function(t){
         var track = { videoId: t.videoId || "", title: t.title || "", channel: t.channel || "",
           thumb: t.thumb || t.art || "", art: t.art || t.thumb || "" };
@@ -8109,14 +8183,28 @@ function importFromYouTubeMusic(){
       });
     }
     var hist = JSON.parse(LynxosYTM.getYtmHistory(token));
-    if(hist && !hist.error && hist.length){
+    if(hist && hist.error) histErr = String(hist.error);
+    else if(hist && hist.length){
       hist.slice(0, 50).forEach(function(t){
         logHistory({ videoId: t.videoId || "", title: t.title || "", channel: t.channel || "",
           thumb: t.thumb || t.art || "", art: t.art || t.thumb || "" });
       });
     }
-    if(status) status.innerHTML = "<p style='color:#8f8'>Imported " + imported + " liked songs and recent history.</p>";
-    say("Imported " + imported + " liked songs from YouTube Music.");
+    /* v2.2.135: say what actually happened — an expired or refused token
+       used to look exactly like "no liked songs". */
+    function importErrText(err){
+      if(/401|unauthorized/i.test(err)) return "Your YouTube sign-in expired. Sign out and back in, then try again.";
+      if(/403|forbidden/i.test(err)) return "YouTube refused access. Sign out and back in and make sure YouTube access is granted.";
+      return "YouTube import failed. Check your connection and try again.";
+    }
+    if(likedErr || histErr){
+      var msg = importErrText(likedErr || histErr);
+      if(status) status.innerHTML = "<p style='color:#f66'>" + msg + "</p>";
+      say(msg);
+    } else {
+      if(status) status.innerHTML = "<p style='color:#8f8'>Imported " + imported + " liked songs and recent history.</p>";
+      say("Imported " + imported + " liked songs from YouTube Music.");
+    }
     renderHome();
   } catch(e){
     if(status) status.innerHTML = "<p style='color:#f66'>Import failed. Check your connection.</p>";
