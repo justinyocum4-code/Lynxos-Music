@@ -606,7 +606,7 @@
 <!-- v2.2.89: TV-visible toast (say() shows it on TV; phones never see it). -->
 <div id="tvToast" hidden></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.135</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.136</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -807,7 +807,7 @@
     </div>
     <div class="card" id="settingsAboutCard" tabindex="0" aria-label="About">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.135. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.136. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -5802,10 +5802,10 @@ function capPerArtist(videos, maxPer){
    same YTM search pool (shuffle only reorders it) and reset seenIds empty,
    so repeats across taps were guaranteed. Now each tap of a genre is
    remembered (track ids + the session's artists, capped) and the next tap
-   excludes them. v2.2.134: the primary source is now the search pool
-   MERGED with rotating seed radios every tap, and only tracks actually
-   played are recorded (see filterGenreFresh / lmNativeTrack) — tapping
-   in and out no longer burns the pool. */
+   excludes them. v2.2.136: the primary is the search pool only; seed
+   radios stream in after playback starts (window batch + appends), and
+   only tracks actually played are recorded (see filterGenreFresh /
+   lmNativeTrack) — tapping in and out no longer burns the pool. */
 function genrePlayedStore(){
   try { return JSON.parse(localStorage.getItem("lm_genre_played") || "{}"); }
   catch(e){ return {}; }
@@ -5821,38 +5821,20 @@ function genreTapNext(genreName){
   store[key] = entry; genrePlayedSave(store);
   return entry.taps;
 }
-function genreSeedRadioTracks(hardSeeds, tap){
-  var n = hardSeeds.length;
-  var picked = [];
-  for(var k = 0; k < Math.min(3, n); k++) picked.push(hardSeeds[(tap + k) % n]);
-  return Promise.all(picked.map(function(id){ return fetchYouTubeRadio(id).catch(function(){ return []; }); }))
-    .then(function(results){
-      var seenIds = {}, all = [];
-      results.forEach(function(videos){
-        (videos || []).forEach(function(sv){
-          if(sv.videoId && !seenIds[sv.videoId]){ seenIds[sv.videoId] = true; all.push(sv); }
-        });
-      });
-      return all;
-    });
-}
 function genrePrimaryTracks(genreName, hardSeeds){
   var tap = genreTapNext(genreName);
-  /* v2.2.134: variety — every tap merges the search pool AND rotating
-     seed radios (3 seeds, rotated by tap) instead of alternating one
-     source or the other, so the candidate pool is wider on every tap.
-     The tap count now only drives seed rotation. The caller's all-seeds
-     fallback still covers a totally empty primary. */
-  var searchP = ytmGenreTracks(genreName, 100);
-  var seedP = (hardSeeds && hardSeeds.length) ? genreSeedRadioTracks(hardSeeds, tap) : Promise.resolve([]);
-  return Promise.all([searchP, seedP]).then(function(parts){
-    var seenIds = {}, all = [];
-    parts.forEach(function(list){
-      (list || []).forEach(function(sv){
-        if(sv.videoId && !seenIds[sv.videoId]){ seenIds[sv.videoId] = true; all.push(sv); }
-      });
-    });
-    return all;
+  /* v2.2.136: streaming build — the primary is the search pool ONLY.
+     Seed radios no longer block the start: the first picked seed loads
+     in the window while track 0's head banks (see the genre chain),
+     and the rest append after playback starts. picked rotates by tap
+     exactly as the old merge did, so rotation behavior is unchanged.
+     The caller's all-seeds fallback still covers a totally empty
+     primary. */
+  var n = hardSeeds ? hardSeeds.length : 0;
+  var picked = [];
+  for(var k = 0; k < Math.min(3, n); k++) picked.push(hardSeeds[(tap + k) % n]);
+  return ytmGenreTracks(genreName, 100).then(function(tracks){
+    return { tracks: tracks || [], picked: picked };
   });
 }
 /* v2.2.134: variety — the build step records NOTHING. What a tap excludes
@@ -6006,6 +5988,55 @@ function genrePure(genre, ownerChannel){
   }
   return false;
 }
+/* v2.2.136: streaming appends — background batches for stations that
+   started fast. appendStationVideos mirrors refillRadioNow's append
+   block (queue dedupe + artist caps via filterRefillVideos, native
+   queue kept in step) but never advances playback. */
+function appendStationVideos(r, videos){
+  if(!r || state.radio !== r || !videos || !videos.length) return;
+  var qCounts = {};
+  state.queue.forEach(function(sv){
+    var a = normArtist(sv.ownerChannel || sv.channel || "");
+    qCounts[a] = (qCounts[a] || 0) + 1;
+  });
+  var fresh = filterRefillVideos(videos, r, qCounts);
+  if(!fresh.length) return;
+  fresh.forEach(function(sv){ state.queue.push(sv); });
+  renderQueue();
+  if(NATIVE_AUDIO){ try { LynxosPlayer.appendTracks(nativeAppendJson(fresh)); } catch(e){} }
+}
+/* Pre-play window batches: the same station rules as the initial load
+   (video/live/English, genre when given, 1 per artist vs the base
+   queue, played-history excluded for genre stations), but without
+   touching state.queue, which still holds the previous station. */
+function filterWindowBatch(videos, base, genreName){
+  var baseIds = {}, baseArtists = {};
+  base.forEach(function(sv){
+    if(sv.videoId) baseIds[sv.videoId] = true;
+    var a = normArtist(sv.ownerChannel || sv.channel || "");
+    if(a) baseArtists[a] = true;
+  });
+  var playedIds = null;
+  if(genreName){
+    try {
+      var ent = genrePlayedStore()[String(genreName).toLowerCase()];
+      if(ent && ent.ids){ playedIds = {}; ent.ids.forEach(function(id){ playedIds[id] = true; }); }
+    } catch(e){}
+  }
+  var out = [];
+  (videos || []).forEach(function(sv){
+    if(!sv.videoId || baseIds[sv.videoId]) return;
+    var a = normArtist(sv.ownerChannel || sv.channel || "");
+    if(a && baseArtists[a]) return;
+    if(playedIds && playedIds[sv.videoId]) return;
+    if(genreName && !genrePure(genreName, sv.ownerChannel || sv.channel)) return;
+    if(isMusicVideoOnly(sv.title) || isLiveVersion(sv.title) || isNonEnglish(sv.title, sv.ownerChannel || sv.channel)) return;
+    baseIds[sv.videoId] = true;
+    if(a) baseArtists[a] = true;
+    out.push(sv);
+  });
+  return out;
+}
 function startRadio(artist){
   var v = currentVideo();
   var seedName = artist || "";
@@ -6024,9 +6055,10 @@ function startRadio(artist){
       say("Loading " + seedName + " station.");
       /* v2.2.30: Pure YouTube Music — genre tracks from InnerTube only.
          No Deezer, no fallbacks. */
-      getSeed = genrePrimaryTracks(seedName, hardSeeds).then(function(ytmTracks){
+      getSeed = genrePrimaryTracks(seedName, hardSeeds).then(function(primary){
+        var ytmTracks = primary.tracks;
         if(ytmTracks && ytmTracks.length){
-          return { videos: ytmTracks, seedIds: null, name: seedName, fromYTM: true };
+          return { videos: ytmTracks, seedIds: null, name: seedName, fromYTM: true, _picked: primary.picked };
         }
         /* If genre browse fails, use YouTube Music radio from seed tracks. */
         return Promise.all(hardSeeds.map(function(id){ return fetchYouTubeRadio(id).catch(function(){ return []; }); }))
@@ -6069,7 +6101,35 @@ function startRadio(artist){
              session's artists, then all but the last 30 played) so a new
              tap plays someone different, not the same pool reshuffled. */
           all = filterGenreFresh(all, stationGenre);
-          return { videos: all, seedIds: hardSeeds, name: seedName, genre: stationGenre };
+          /* v2.2.136: fast start — bank track 0's head NOW, then spend
+             the next seed fetch as the head-bank window. The bridge
+             call below is synchronous, so the JS thread blocks while
+             native banks concurrently; if the head lands, song one
+             starts from disk, and if not, playback starts progressively
+             exactly as before. The window costs nothing extra — it is
+             time already spent gathering seeds. The window batch
+             appends at the end so track 0 never changes under the
+             bank call. */
+          if(all.length && NATIVE_AUDIO && LynxosPlayer.bankBrowse){
+            try {
+              LynxosPlayer.bankBrowse(JSON.stringify([{ videoId: all[0].videoId || "", title: all[0].title || "", channel: all[0].ownerChannel || all[0].channel || "", thumb: all[0].thumb || "" }]));
+            } catch(e){}
+          }
+          var picked = seedResult._picked || [];
+          if(all.length && picked.length){
+            var winP = null;
+            try { winP = fetchYouTubeRadio(picked[0]); } catch(e){ winP = null; }
+            if(winP && winP.then){
+              return winP.then(function(wv){
+                var wb = filterWindowBatch(wv, all, stationGenre);
+                wb.forEach(function(sv){ all.push(sv); });
+                return { videos: all, seedIds: hardSeeds, name: seedName, genre: stationGenre, picked: picked };
+              }).catch(function(){
+                return { videos: all, seedIds: hardSeeds, name: seedName, genre: stationGenre, picked: picked };
+              });
+            }
+          }
+          return { videos: all, seedIds: hardSeeds, name: seedName, genre: stationGenre, picked: picked };
         });    } else {
     /* Cache the genre/artist seed video: repeat taps skip the search call
        entirely (search is the rate-limited endpoint), so the radio starts
@@ -6119,6 +6179,25 @@ function startRadio(artist){
     state.radio = { seedId: res.seed.id || null, seedIds: res.seed.seedIds || null, seedName: res.seed.name, genre: res.seed.genre || null, active: true, refilling: false, seenIds: seenIds };
     addRecentRadioArtists([res.seed.name]);
     say("Radio started with " + all.length + " songs. It keeps widening as you listen.");
+    /* v2.2.136: stream the rest — remaining picked seeds append after
+       playback starts (fire-and-forget; a station change stops it, and
+       a failure here never reports "Radio failed" for a station that
+       already started). */
+    (function(){
+      var r = state.radio;
+      var rest = (res.seed && res.seed.picked) ? res.seed.picked.slice(1) : [];
+      if(!rest.length) return;
+      var chain = Promise.resolve();
+      rest.forEach(function(id){
+        chain = chain.then(function(){
+          if(state.radio !== r) return;
+          var p = null;
+          try { p = fetchYouTubeRadio(id); } catch(e){ p = null; }
+          if(p && p.then) return p.then(function(vv){ appendStationVideos(r, vv); }).catch(function(){});
+        });
+      });
+      chain.catch(function(){});
+    })();
   }).catch(function(err){ say("Radio failed: " + (err && err.message ? err.message : "unknown error")); });
 }
 /* Start radio from an already-found video (e.g. top search result) — skips
@@ -6171,30 +6250,72 @@ function startTasteStation(){
   }
   say("Starting My Mix from your taste.");
   var seedIds = seeds.map(function(t){ return t.videoId; });
-  Promise.all(seedIds.map(function(id){ return fetchYouTubeRadio(id).catch(function(){ return []; }); }))
-    .then(function(results){
-      var all = [], seen = {};
-      results.forEach(function(videos){
-        (videos || []).forEach(function(sv){
-          if(sv.videoId && !seen[sv.videoId]){ seen[sv.videoId] = true; all.push(sv); }
+  /* v2.2.136: stream the build — try seeds in order until one yields a
+     playable batch, bank track 0's head during the next seed's fetch,
+     play, then append the rest after playback starts. */
+  function tasteBatch(videos){
+    var all = [];
+    (videos || []).forEach(function(sv){ if(sv.videoId) all.push(sv); });
+    all = all.filter(function(sv){
+      return !isMusicVideoOnly(sv.title) && !isLiveVersion(sv.title) && !isNonEnglish(sv.title, sv.ownerChannel || sv.channel);
+    });
+    all = capPerArtist(all, 1);
+    shuffleList(all);
+    all = diversifyStart(all, 10);
+    return all;
+  }
+  function trySeed(i){
+    if(i >= seedIds.length){ say("Couldn't build My Mix. Try again later."); return; }
+    var p = null;
+    try { p = fetchYouTubeRadio(seedIds[i]); } catch(e){ p = null; }
+    if(!p || !p.then){ trySeed(i + 1); return; }
+    p.then(function(videos){
+      var all = tasteBatch(videos);
+      if(!all.length){ trySeed(i + 1); return; }
+      /* Bank track 0's head while the next seed loads (same window
+         trick as genre stations; best-effort, never blocks play). */
+      if(NATIVE_AUDIO && LynxosPlayer.bankBrowse){
+        try {
+          LynxosPlayer.bankBrowse(JSON.stringify([{ videoId: all[0].videoId || "", title: all[0].title || "", channel: all[0].ownerChannel || all[0].channel || "", thumb: all[0].thumb || "" }]));
+        } catch(e){}
+      }
+      var next = i + 1;
+      function startWith(extra){
+        if(extra && extra.length){
+          var wb = filterWindowBatch(extra, all, null);
+          wb.forEach(function(sv){ all.push(sv); });
+        }
+        /* seenIds holds only the final queue, so refills never exclude
+           tracks that were filtered out before they were ever queued. */
+        var seenIds = {};
+        all.forEach(function(sv){ seenIds[sv.videoId] = true; });
+        playVideo(all[0], all, 0, true);
+        state.radio = { seedId: seedIds[0], seedIds: seedIds, seedName: "My Mix", genre: null, taste: true, active: true, refilling: false, seenIds: seenIds };
+        say("My Mix started with " + all.length + " songs. It keeps widening as you listen.");
+        /* Append the remaining seeds after playback starts. */
+        var r = state.radio;
+        var rest = seedIds.slice(next + 1);
+        var chain = Promise.resolve();
+        rest.forEach(function(id){
+          chain = chain.then(function(){
+            if(state.radio !== r) return;
+            var q = null;
+            try { q = fetchYouTubeRadio(id); } catch(e){ q = null; }
+            if(q && q.then) return q.then(function(vv){ appendStationVideos(r, vv); }).catch(function(){});
+          });
         });
-      });
-      all = all.filter(function(sv){
-        return !isMusicVideoOnly(sv.title) && !isLiveVersion(sv.title) && !isNonEnglish(sv.title, sv.ownerChannel || sv.channel);
-      });
-      all = capPerArtist(all, 1);
-      shuffleList(all);
-      all = diversifyStart(all, 10);
-      if(!all.length){ say("Couldn't build My Mix. Try again later."); return; }
-      /* seenIds holds only the final queue, so refills never exclude
-         tracks that were filtered out before they were ever queued. */
-      var seenIds = {};
-      all.forEach(function(sv){ seenIds[sv.videoId] = true; });
-      playVideo(all[0], all, 0, true);
-      state.radio = { seedId: seedIds[0], seedIds: seedIds, seedName: "My Mix", genre: null, taste: true, active: true, refilling: false, seenIds: seenIds };
-      say("My Mix started with " + all.length + " songs. It keeps widening as you listen.");
-    })
-    .catch(function(){ say("My Mix failed. Try again later."); });
+        chain.catch(function(){});
+      }
+      if(next < seedIds.length){
+        var wp = null;
+        try { wp = fetchYouTubeRadio(seedIds[next]); } catch(e){ wp = null; }
+        if(wp && wp.then){
+          wp.then(function(wv){ startWith(wv); }).catch(function(){ startWith(null); });
+        } else { startWith(null); }
+      } else { startWith(null); }
+    }).catch(function(){ trySeed(i + 1); });
+  }
+  trySeed(0);
 }
 function maybeRefillRadio(){
   var r = state.radio;
