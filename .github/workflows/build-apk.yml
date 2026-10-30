@@ -4114,7 +4114,26 @@ jobs:
                          into the play branch — "pause" that plays. Either way
                          this is a user action, so it clears the focus-pause
                          flag: focus regain must never undo the user's choice. */
-                      if (player.getPlayWhenReady()) {
+                      /* v2.2.132: dead-play recovery — after a terminal error
+                         the player sits IDLE, and at queue end it sits ENDED
+                         with playWhenReady still true, so the branches below
+                         either pause a dead player or play() without a fresh
+                         prepare — both silent no-ops, exactly the "press play
+                         does nothing" report. In either state, re-prepare
+                         the current track with a fresh resolve instead. */
+                      if ((player.getPlaybackState() == Player.STATE_IDLE || player.getPlaybackState() == Player.STATE_ENDED)
+                              && currentIndex >= 0 && currentIndex < queue.size()) {
+                          focusPaused = false;
+                          /* A manual recovery bumps the play generation,
+                             standing any pending native floor down (same
+                             rule as the resume branch below). */
+                          currentPlayGen = playGen.incrementAndGet();
+                          requestAudioFocus();
+                          acquirePlayLocks();
+                          try { Track rt = queue.get(currentIndex); if (rt != null && rt.videoId != null && !rt.videoId.isEmpty()) clearCachedUrl(rt.videoId); } catch (Exception ignored) {}
+                          diag("toggle recover idx=" + currentIndex);
+                          playAtInternal(currentIndex);
+                      } else if (player.getPlayWhenReady()) {
                           focusPaused = false;
                           /* v2.2.101: session-scoped locks — a toggle-pause
                              does NOT release the play locks (see
