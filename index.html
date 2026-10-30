@@ -517,7 +517,9 @@
   body.tv .catGrid { grid-template-columns: repeat(3, 1fr); gap: 16px; }
   body.tv .catCard { min-height: 170px; padding: 24px; font-size: 26px; }
   body.tv .chipRow { gap: 12px; padding: 12px 0 8px; }
-  body.tv .chipRow .chip { font-size: 24px; padding: 14px 26px; }
+  /* v2.2.132: high-contrast TV chips — the dark-gray-on-black pills were
+     effectively invisible at TV distance; gold border + brighter fill. */
+  body.tv .chipRow .chip { font-size: 24px; padding: 14px 26px; background: #3d3d3d; border: 2px solid var(--gold); }
   body.tv .apHero { min-height: 320px; }
   body.tv .ap-actions { gap: 24px; margin: 20px 0 10px; }
   body.tv .ap-actions .ap-btn { min-width: 96px; min-height: 96px; font-size: 36px; }
@@ -545,11 +547,11 @@
   body.tv .trank img { width: 96px; height: 96px; }
   body.tv .trank .rt { font-size: 26px; }
   body.tv .trank .rs { font-size: 22px; }
-  body.tv .genrePill { min-width: 230px; font-size: 22px; padding: 24px 20px 24px 30px; }
+  body.tv .genrePill { min-width: 230px; font-size: 22px; padding: 24px 20px 24px 30px; border: 2px solid var(--gold); }
   /* v2.2.114: focused cards fill with a gold tint alongside the outline -
      an outline alone is easy to miss at 10 feet. Paint only: no transform,
      the D-pad controller measures getBoundingClientRect. */
-  body.tv .albumCard:focus, body.tv .mixCard:focus, body.tv .recentCard:focus, body.tv .catCard:focus, body.tv .trank:focus { background: rgba(212,175,55,.18); }
+  body.tv .albumCard:focus, body.tv .mixCard:focus, body.tv .recentCard:focus, body.tv .catCard:focus, body.tv .trank:focus, body.tv .chip:focus, body.tv .genrePill:focus { background: rgba(212,175,55,.18); }
   /* v2.2.114: the create sheet is a centered dialog on TV, not a bottom
      sheet; its options meet the 22px floor; the FAB is a full 76px target
      and its base bottom offset (150px) clears the mini player. */
@@ -604,7 +606,7 @@
 <!-- v2.2.89: TV-visible toast (say() shows it on TV; phones never see it). -->
 <div id="tvToast" hidden></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.131</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.132</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -805,7 +807,7 @@
     </div>
     <div class="card" id="settingsAboutCard" tabindex="0" aria-label="About">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.131. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.132. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -5743,31 +5745,134 @@ function capPerArtist(videos, maxPer){
 /* Refill helper: filter by purity with fallback, respect per-artist cap,
    dedupe by song (not just videoId) so the same song doesn't repeat as
    both audio and music video versions. */
+/* v2.2.132: genre-station freshness — every tap used to rebuild from the
+   same YTM search pool (shuffle only reorders it) and reset seenIds empty,
+   so repeats across taps were guaranteed. Now each tap of a genre is
+   remembered (track ids + the session's artists, capped) and the next tap
+   excludes them, and the primary source alternates between the search pool
+   and rotating seed-artist radios, so the pool itself changes too. */
+function genrePlayedStore(){
+  try { return JSON.parse(localStorage.getItem("lm_genre_played") || "{}"); }
+  catch(e){ return {}; }
+}
+function genrePlayedSave(store){
+  try { localStorage.setItem("lm_genre_played", JSON.stringify(store)); } catch(e){}
+}
+function genreTapNext(genreName){
+  var store = genrePlayedStore();
+  var key = String(genreName || "").toLowerCase();
+  var entry = store[key] || { taps: 0, ids: [], artists: [] };
+  entry.taps = (entry.taps || 0) + 1;
+  store[key] = entry; genrePlayedSave(store);
+  return entry.taps;
+}
+function genreSeedRadioTracks(hardSeeds, tap){
+  var n = hardSeeds.length;
+  var picked = [];
+  for(var k = 0; k < Math.min(3, n); k++) picked.push(hardSeeds[(tap + k) % n]);
+  return Promise.all(picked.map(function(id){ return fetchYouTubeRadio(id).catch(function(){ return []; }); }))
+    .then(function(results){
+      var seenIds = {}, all = [];
+      results.forEach(function(videos){
+        (videos || []).forEach(function(sv){
+          if(sv.videoId && !seenIds[sv.videoId]){ seenIds[sv.videoId] = true; all.push(sv); }
+        });
+      });
+      return all;
+    });
+}
+function genrePrimaryTracks(genreName, hardSeeds){
+  var tap = genreTapNext(genreName);
+  /* Odd taps keep the search pool (today's behavior); even taps rotate
+     through the station's seed radios. A thin seed-radio batch falls back
+     to the search pool, and the caller's all-seeds fallback still covers
+     a totally empty primary. */
+  if(tap % 2 === 0 && hardSeeds && hardSeeds.length >= 2){
+    return genreSeedRadioTracks(hardSeeds, tap).then(function(seedTracks){
+      if(seedTracks && seedTracks.length >= 10) return seedTracks;
+      return ytmGenreTracks(genreName, 100);
+    });
+  }
+  return ytmGenreTracks(genreName, 100);
+}
+function filterGenreFresh(all, genreName){
+  var store = genrePlayedStore();
+  var key = String(genreName || "").toLowerCase();
+  var entry = store[key] || { taps: 0, ids: [], artists: [] };
+  var playedIds = {};
+  (entry.ids || []).forEach(function(id){ playedIds[id] = true; });
+  var prevArtists = {};
+  (entry.artists || []).forEach(function(a){ prevArtists[a] = true; });
+  var fresh = all.filter(function(sv){ return sv.videoId && !playedIds[sv.videoId]; });
+  /* Pool floor: never gut the station — if exclusions leave too little,
+     keep the full pool (a fresh shuffle still varies the order). */
+  if(fresh.length < 10) fresh = all.slice();
+  else {
+    var noPrevArtists = fresh.filter(function(sv){
+      return !prevArtists[normArtist(sv.ownerChannel || sv.channel || "")];
+    });
+    if(noPrevArtists.length >= 10) fresh = noPrevArtists;
+  }
+  var ids = entry.ids || [];
+  var artists = [];
+  var seenA = {};
+  fresh.forEach(function(sv){
+    if(sv.videoId) ids.push(sv.videoId);
+    var a = normArtist(sv.ownerChannel || sv.channel || "");
+    if(a && !seenA[a]){ seenA[a] = true; artists.push(a); }
+  });
+  entry.ids = ids.slice(-300);
+  entry.artists = artists;
+  store[key] = entry; genrePlayedSave(store);
+  return fresh;
+}
 function filterRefillVideos(videos, r, qCounts){
-  var fresh = [];
   /* Build song keys for videos already in queue to avoid song repeats. */
   var queueSongs = {};
   state.queue.forEach(function(sv){
     var k = normArtist(sv.ownerChannel || sv.channel) + "|" + normSong(sv.title, sv.ownerChannel || sv.channel);
     queueSongs[k] = true;
   });
-  videos.forEach(function(sv){
-    var a = normArtist(sv.ownerChannel || sv.channel || "");
-    var songKey = normArtist(sv.ownerChannel || sv.channel) + "|" + normSong(sv.title, sv.ownerChannel || sv.channel);
-    /* v2.2.64: Deep fix - APPLY genre filter on refills too.
-       This stops YouTube radio drift (e.g., 80s Metal drifting into 90s rock). */
-    /* v2.2.119: filter by the STORED genre, never by re-parsing seedName.
-       Artist stations carry genre null and stay unfiltered by design. */
-    var genreOk = true;
-    if(r.genre){
-      genreOk = genrePure(r.genre, sv.ownerChannel || sv.channel);
-    }
-    /* Skip music-video-only versions, live versions, non-English, off-genre,
-       and songs already in queue. Max 1 per artist on refills (was 2). */
-    if(!r.seenIds[sv.videoId] && !queueSongs[songKey] && genreOk && !isMusicVideoOnly(sv.title) && !isLiveVersion(sv.title) && !isNonEnglish(sv.title, sv.ownerChannel || sv.channel) && (qCounts[a] || 0) < 1){
-      r.seenIds[sv.videoId] = true; qCounts[a] = (qCounts[a] || 0) + 1; fresh.push(sv);
-    }
-  });
+  /* v2.2.132: genre stations also skip tracks played on earlier taps
+     (the same store the build step records). Two passes: the history
+     exclusion is a preference, never a cause of an empty refill — if it
+     empties the batch, the second pass takes the batch without it. A
+     zero-accept first pass mutates nothing, so the second pass is clean. */
+  var histIds = null;
+  if(r.genre){
+    try {
+      var st = genrePlayedStore();
+      var ent = st[String(r.genre).toLowerCase()];
+      if(ent && ent.ids && ent.ids.length){
+        histIds = {};
+        ent.ids.forEach(function(id){ histIds[id] = true; });
+      }
+    } catch(e){}
+  }
+  function pass(excludeHist){
+    var out = [];
+    videos.forEach(function(sv){
+      var a = normArtist(sv.ownerChannel || sv.channel || "");
+      var songKey = normArtist(sv.ownerChannel || sv.channel) + "|" + normSong(sv.title, sv.ownerChannel || sv.channel);
+      /* v2.2.64: Deep fix - APPLY genre filter on refills too.
+         This stops YouTube radio drift (e.g., 80s Metal drifting into 90s rock). */
+      /* v2.2.119: filter by the STORED genre, never by re-parsing seedName.
+         Artist stations carry genre null and stay unfiltered by design. */
+      var genreOk = true;
+      if(r.genre){
+        genreOk = genrePure(r.genre, sv.ownerChannel || sv.channel);
+      }
+      var histOk = !excludeHist || !histIds || !histIds[sv.videoId];
+      /* Skip music-video-only versions, live versions, non-English, off-genre,
+         and songs already in queue. Max 1 per artist on refills (was 2). */
+      if(histOk && !r.seenIds[sv.videoId] && !queueSongs[songKey] && genreOk && !isMusicVideoOnly(sv.title) && !isLiveVersion(sv.title) && !isNonEnglish(sv.title, sv.ownerChannel || sv.channel) && (qCounts[a] || 0) < 1){
+        r.seenIds[sv.videoId] = true; qCounts[a] = (qCounts[a] || 0) + 1; out.push(sv);
+      }
+    });
+    return out;
+  }
+  var fresh = pass(true);
+  if(!fresh.length) fresh = pass(false);
   return fresh;
 }
 /* v2.2.119: genre-station reseed — fresh radio from the station's own hard
@@ -5842,7 +5947,7 @@ function startRadio(artist){
       say("Loading " + seedName + " station.");
       /* v2.2.30: Pure YouTube Music — genre tracks from InnerTube only.
          No Deezer, no fallbacks. */
-      getSeed = ytmGenreTracks(seedName, 100).then(function(ytmTracks){
+      getSeed = genrePrimaryTracks(seedName, hardSeeds).then(function(ytmTracks){
         if(ytmTracks && ytmTracks.length){
           return { videos: ytmTracks, seedIds: null, name: seedName, fromYTM: true };
         }
@@ -5882,6 +5987,11 @@ function startRadio(artist){
           shuffleList(all);
           /* v2.2.28: ensure no two consecutive songs from same artist. */
           all = diversifyStart(all, 10);
+          /* v2.2.132: fresh-rotation — drop tracks played on earlier taps
+             of this genre (and the previous session's artists when the
+             pool stays healthy), so a new tap plays someone different,
+             not the same search pool reshuffled. */
+          all = filterGenreFresh(all, stationGenre);
           return { videos: all, seedIds: hardSeeds, name: seedName, genre: stationGenre };
         });    } else {
     /* Cache the genre/artist seed video: repeat taps skip the search call
@@ -5956,7 +6066,9 @@ function maybeRefillRadio(){
   var r = state.radio;
   if(!r || !r.active || r.refilling) return;
   var remaining = state.queue.length - 1 - state.qi;
-  if(remaining > 5) return;
+  /* v2.2.132: refill earlier (was 5) — more chances to widen before the
+     queue end, so a slow or empty refill can't strand playback. */
+  if(remaining > 8) return;
   r.refilling = true;
   /* Branch from a random song near the end of the queue — each hop reaches
      further out through YouTube's recommendations, so it never repeats. */
@@ -7961,8 +8073,11 @@ try {
   if(IS_TV){
     setTimeout(function(){
       try {
-        var first = document.querySelector("#homeView .homeBlock button");
-        if(first) first.focus();
+        /* v2.2.132: TV Home starts on the first genre chip (was the first
+           mixes card) — the chip row sits above it and was easy to scroll
+           past and never land on. */
+        var first = document.querySelector("#homeView #homeChips .chip") || document.querySelector("#homeView .homeBlock button");
+        if(first){ first.focus(); try { first.scrollIntoView({ block: "nearest", inline: "nearest" }); } catch(e){} }
       } catch(e){}
     }, 800);
   }
