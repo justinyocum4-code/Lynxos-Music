@@ -606,7 +606,7 @@
 <!-- v2.2.89: TV-visible toast (say() shows it on TV; phones never see it). -->
 <div id="tvToast" hidden></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.132</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.133</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -807,7 +807,7 @@
     </div>
     <div class="card" id="settingsAboutCard" tabindex="0" aria-label="About">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.132. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.133. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -1656,6 +1656,28 @@ window.lmNativeError = function(msg){
 window.lmNativeEnded = function(){
   /* v2.2.9: native service advances the queue itself now (reliable with
      screen off). JS just syncs its index when onTrackChanged fires. */
+  /* v2.2.133: endless stations — native also fires this at true queue end
+     (STATE_ENDED), where advanceAfterEnded does nothing. An auto-advance
+     fires this too, but its onTrackChanged follows immediately and bumps
+     _startGen (lmNativeTrack), so a deferred check tells them apart: if
+     the generation moved, a new track started and there is nothing to do.
+     If it did not move and the station sits at its last track, widen now
+     (restarting fresh if widening yields nothing) instead of dead-ending. */
+  try {
+    var r = state.radio;
+    if(!r || !r.active || r.refilling) return;
+    if(state.qi < state.queue.length - 1) return;
+    var gen = state._startGen || 0;
+    setTimeout(function(){
+      try {
+        var r2 = state.radio;
+        if(!r2 || !r2.active || r2.refilling) return;
+        if((state._startGen || 0) !== gen) return;
+        if(state.qi < state.queue.length - 1) return;
+        refillRadioNow(true);
+      } catch(e){}
+    }, 1200);
+  } catch(e){}
 };
 /* ================= tabs ================= */
 var TABS = [["tab-home","homeView","Home"],["tab-explore","exploreView","Explore"],["tab-library","libraryView","Library"]];
@@ -4032,9 +4054,20 @@ function playNext(auto, focusId){
 }
 /* Forward pressed at the end of a radio station: widen the station right now
    and keep going instead of dead-ending on "End of queue". */
-function refillRadioNow(){
+function refillRadioNow(restartOnEmpty){
   var r = state.radio;
   if(!r || !r.active) return;
+  /* v2.2.133: endless stations — when the auto-continue path (lmNativeEnded)
+     calls with restartOnEmpty, a widen that yields nothing rebuilds the
+     station fresh instead of announcing the end. Manual calls pass nothing
+     and keep the old "End of queue." behavior. */
+  function endEmpty(){
+    if(restartOnEmpty){
+      var nm = r.genre || r.seedName;
+      if(nm){ startRadio(nm); return; }
+    }
+    say("End of queue.");
+  }
   r.refilling = true;
   say("Widening your radio.");
   /* Multi-artist stations widen from a random seed so the mix stays varied. */
@@ -4071,11 +4104,11 @@ function refillRadioNow(){
         renderQueue();
         if(NATIVE_AUDIO && fresh2.length){ try { LynxosPlayer.appendTracks(nativeAppendJson(fresh2)); } catch(e){} }
         if(fresh2.length){ playQueueIndex(state.qi + 1); }
-        else { say("End of queue."); }
-      }).catch(function(){ r.refilling = false; say("End of queue."); });
+        else { endEmpty(); }
+      }).catch(function(){ r.refilling = false; endEmpty(); });
     }
-    else { say("End of queue."); }
-  }).catch(function(){ r.refilling = false; say("End of queue."); });
+    else { endEmpty(); }
+  }).catch(function(){ r.refilling = false; endEmpty(); });
 }
 function playPrev(focusId){
   if(!state.queue.length) return;
@@ -5849,7 +5882,7 @@ function filterRefillVideos(videos, r, qCounts){
       }
     } catch(e){}
   }
-  function pass(excludeHist){
+  function pass(excludeHist, maxPer){
     var out = [];
     videos.forEach(function(sv){
       var a = normArtist(sv.ownerChannel || sv.channel || "");
@@ -5864,15 +5897,23 @@ function filterRefillVideos(videos, r, qCounts){
       }
       var histOk = !excludeHist || !histIds || !histIds[sv.videoId];
       /* Skip music-video-only versions, live versions, non-English, off-genre,
-         and songs already in queue. Max 1 per artist on refills (was 2). */
-      if(histOk && !r.seenIds[sv.videoId] && !queueSongs[songKey] && genreOk && !isMusicVideoOnly(sv.title) && !isLiveVersion(sv.title) && !isNonEnglish(sv.title, sv.ownerChannel || sv.channel) && (qCounts[a] || 0) < 1){
+         and songs already in queue. The artist cap is the relaxed dimension
+         (see below); everything else never relaxes. */
+      if(histOk && !r.seenIds[sv.videoId] && !queueSongs[songKey] && genreOk && !isMusicVideoOnly(sv.title) && !isLiveVersion(sv.title) && !isNonEnglish(sv.title, sv.ownerChannel || sv.channel) && (qCounts[a] || 0) < maxPer){
         r.seenIds[sv.videoId] = true; qCounts[a] = (qCounts[a] || 0) + 1; out.push(sv);
       }
     });
     return out;
   }
-  var fresh = pass(true);
-  if(!fresh.length) fresh = pass(false);
+  /* v2.2.133: progressive relaxation — endless stations need refills that
+     succeed after the fresh artists run out. Strict variety first (1 per
+     artist, history excluded), then the same pass without history
+     exclusion, then up to 3 per artist. Genre, video/live/English,
+     seenIds and song dedupe never relax — only the artist cap does, so
+     repeats appear only when they are what keeps the music playing. */
+  var fresh = pass(true, 1);
+  if(!fresh.length) fresh = pass(false, 1);
+  if(!fresh.length) fresh = pass(false, 3);
   return fresh;
 }
 /* v2.2.119: genre-station reseed — fresh radio from the station's own hard
