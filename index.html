@@ -606,7 +606,7 @@
 <!-- v2.2.89: TV-visible toast (say() shows it on TV; phones never see it). -->
 <div id="tvToast" hidden></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.138</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.139</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -807,7 +807,7 @@
     </div>
     <div class="card" id="settingsAboutCard" tabindex="0" aria-label="About">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.138. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.139. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -4093,6 +4093,26 @@ function playNext(auto, focusId){
 }
 /* Forward pressed at the end of a radio station: widen the station right now
    and keep going instead of dead-ending on "End of queue". */
+/* v2.2.139: variety — a genre widen draws from up to 3 distinct seeds
+   instead of 1, so each refill samples three neighborhoods. Non-genre
+   stations keep the single pick. */
+function pickRefillSeeds(r, count){
+  var seeds = (r.seedIds && r.seedIds.length) ? r.seedIds : [r.seedId];
+  var pool = seeds.slice();
+  var out = [];
+  while(pool.length && out.length < count){
+    out.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+  }
+  return out;
+}
+/* v2.2.139: radio fetch that never rejects and never throws — a dead
+   seed yields an empty batch, never a broken widen. */
+function radioSafe(sid){
+  try {
+    var p = fetchYouTubeRadio(sid);
+    return (p && p.then) ? p.catch(function(){ return []; }) : Promise.resolve(p || []);
+  } catch(e){ return Promise.resolve([]); }
+}
 function refillRadioNow(restartOnEmpty){
   var r = state.radio;
   if(!r || !r.active) return;
@@ -4113,9 +4133,12 @@ function refillRadioNow(restartOnEmpty){
   r.refilling = true;
   say("Widening your radio.");
   /* Multi-artist stations widen from a random seed so the mix stays varied. */
-  var seeds = (r.seedIds && r.seedIds.length) ? r.seedIds : [r.seedId];
-  var sid = seeds[Math.floor(Math.random() * seeds.length)];
-  fetchYouTubeRadio(sid).then(function(videos){
+  /* v2.2.139: genre widens merge 3 distinct seed radios into one batch,
+     so the artist-cap filter judges three neighborhoods at once. */
+  var sids = pickRefillSeeds(r, r.genre ? 3 : 1);
+  Promise.all(sids.map(radioSafe)).then(function(results){
+    var videos = [];
+    results.forEach(function(vs){ (vs || []).forEach(function(sv){ videos.push(sv); }); });
     if(state.radio !== r){ r.refilling = false; return; }
     var qCounts = {};
     state.queue.forEach(function(sv){
@@ -5706,7 +5729,7 @@ var GENRE_SEEDS = {
   "pop": ["Zi_XLOBDo_Y", "TUVcZfQe-Kw", "LjhCEhWiKXk", "8ELbX5CMomE", "v1t4MTqdfyI", "KWoTyfPsqbE", "gsZauX8gwxo", "sOnqjkJTMaA", "N9U__iHdrR0", "0KSOMA3QBU0", "C-u5WLJ9Yk4", "ehcVomMexkY", "79fzeNUqQbQ", "G7KNmW9a75Y", "SF52D9c-zJw", "kffacxfA7G4", "VuNIsY6JdUw", "lp-EO5I60KA", "hLQl3WQQoQ0", "Mv5f9Q2LJYM", "lY2yjAdbvdQ", "ZAfAud_M_mg"],
   "alternative": ["XFkzRNyygfk", "we5_bia7ON8", "6Ejga4kJUts", "vAoOJLpYKJ0", "eVTXPUF4Oz4", "1V_xRb0x9aw", "u5CVsCnxyXg", "KvknOXGPzCQ", "Pw-0pbY9JeU", "BpJikRTDqdk", "cIGd8gm_pYE", "vc6vs-l5dkc", "G6Kspj3OO0s", "N3oCS85HvpY", "aCyGvGEtOwc", "SiJie3Z7DG8", "vaxwbJK5MFQ", "bpOSxM0rNPM", "ewOPQZZn4SY", "5Euj9f3gdyM", "gGdGFtwCNBE", "n3nPiBai66M"],
   "punk": ["7iNbnineUCI", "Ajxn0PKbv7I", "K7l5ZeVVoCA", "bJ9r8LMU9bQ", "Soa3gO7tL-c", "lgSLz5FeXUg", "AO-Gw66edD8", "yOfvPNaNEMA", "-fWw7FE9tTo", "s1tAYmMjLdY", "QEG2ChDQ_Lo", "g-38GX2YQig", "1Yzu-4kJg6g", "NoyJgR_09Vw", "GeFr4_CADp4", "GTWg_DVdLnE", "emGri7i8Y2Y", "oh8zcbC_Dcw", "HJWFsZ_YUc4", "12kcpP-8jfM"],
-  "hip-hop": ["xFYQQPAOz7Y", "E58qLXBfLrs", "SD4yRDY9mek", "jnFVwpvlq4E", "VYOjWnS4cMY", "SsKT0s5J8ko", "JiyXAm3yoLc", "6ONRf7h3Mdk", "f6ZDmAhaH_Q", "4m48GqaOz90", "VrDfSZ_6f4U", "PWgvGjAhvIw", "wXhTHyIgQ_U", "5WPF5pnWUN8", "_CL6n0FJZpk", "h4UqMyldS7Q", "5D3crqpClPY", "1Vf4mMCpNY0", "4JipHEz53sU", "JQbjS0_ZfJ0", "mlp-IIG9ApU"],
+  "hip-hop": ["xFYQQPAOz7Y", "E58qLXBfLrs", "SD4yRDY9mek", "jnFVwpvlq4E", "VYOjWnS4cMY", "SsKT0s5J8ko", "JiyXAm3yoLc", "6ONRf7h3Mdk", "f6ZDmAhaH_Q", "4m48GqaOz90", "VrDfSZ_6f4U", "PWgvGjAhvIw", "wXhTHyIgQ_U", "5WPF5pnWUN8", "_CL6n0FJZpk", "h4UqMyldS7Q", "5D3crqpClPY", "1Vf4mMCpNY0", "4JipHEz53sU", "JQbjS0_ZfJ0", "mlp-IIG9ApU", "77nB_9uIcN4", "_JZom_gVfuw", "PBwAxmrE194", "cE-bnWqLqxE", "cjIvu7e6Wq8", "GSoQDaXh144", "OjHX7jf-znA", "8Ir-zFC9nFE", "UVtpXvzzXiA", "l-O5IHVhWj0", "qORYO0atB6g", "udEN8EdJT9k", "2TN-kDEKxF0", "mcg4z1gGbEw", "DVkkYlQNmbc", "TGgcC5xg9YI", "WHRnvjCkTsw", "qfjbe4RKbwQ", "a35rNEBNiO4", "mb6Jc4juSF8", "5vBh6Hc1_q4"],
   "electronic": ["gCYcHz2k5x0", "a5uQMwRMHcs", "J9NQFACZYEU", "papuvlVeZg8", "Rl1nsQkuM5c", "O1OTWCd40bc", "1V_xRb0x9aw", "dGghkjpNCQ8", "qRAJowgHqxA", "Pw-0pbY9JeU", "6e6Hj7MwWaI", "B9dSYgd5Elk", "aGSKrC7dGcY", "hN5X4kGhAtU", "BAp4q27hTOc", "m-M1AtrxztU", "9Zj0JOHJR-s", "JtH68PJIQLE", "RjoO6wPAaVI", "0BD4hTLurDE", "DDGBTXWm2s0", "UtF6Jej8yb4"],
   "country": ["8AHCfZTRGiI", "Ixrje2rXLMA", "e-ORhEE9VVg", "UbxUSsFXYo4", "5aXZ0fjAiho", "1WaV2x8GXj0", "uXyxFMbqKYA", "zHlzvcv3oyk", "D8kkykvWT5g", "2MTSBcvI9DI", "eM213aMKTHg", "jiRThaytN9o", "4zAThXFOy2c", "ETkzK9pXMio", "ldQrapQ4d0Y", "nUsrYVxrDwI", "R7f189Z0v0Y", "oEC9ExYp4io", "ZJL4UGSbeFg", "V7TolEcnKbs", "WaSy8yy-mr8", "rB7ONnfIjaI", "K0aRuR_bA4k"],
   "jazz": ["ZEcqHA7dbwM", "OZHFFPziwa0", "_WcWHZc8s2I", "zqNTltOGh5c", "TJAfLE39ZZ8", "OyfRNIVm0TA", "hi5DO9iMRDI", "oHRNrgDIJfo", "fIYRoO9QgWY", "VeHY13F0LqI", "u2bigf337aU", "A4cgsTlc75Y", "cb2w2m1JmCY", "CaCSuzR4DwM", "Uqi1t4279So", "iOyf4R3lLKU", "tT9Eh8wNMkw", "GHhD4PD75zY", "8OqSnuwaiyQ", "2uLpjp7xkyI"],
@@ -5981,10 +6004,17 @@ function filterRefillVideos(videos, r, qCounts){
      artist, history excluded), then the same pass without history
      exclusion, then up to 3 per artist. Genre, video/live/English,
      seenIds and song dedupe never relax — only the artist cap does, so
-     repeats appear only when they are what keeps the music playing. */
+     repeats appear only when they are what keeps the music playing.
+     v2.2.139: the third pass is now skipped for genre stations (see
+     below) — the loop it caused outweighed the endlessness it bought. */
   var fresh = pass(true, 1);
   if(!fresh.length) fresh = pass(false, 1);
-  if(!fresh.length) fresh = pass(false, 3);
+  /* v2.2.139: genre stations NEVER take the third pass — re-admitting a
+     queued artist is exactly the 6-7 artist loop. A genre widen with no
+     fresh artist yields nothing, and the caller restarts the station
+     fresh (endEmpty) instead of looping. Artist/taste stations keep the
+     third pass, which is what keeps them playing. */
+  if(!fresh.length && !r.genre) fresh = pass(false, 3);
   return fresh;
 }
 /* v2.2.119: genre-station reseed — fresh radio from the station's own hard
@@ -6395,9 +6425,21 @@ function maybeRefillRadio(){
   var tailStart = Math.max(0, state.queue.length - 10);
   var candidates = state.queue.slice(tailStart).filter(function(sv){ return sv.videoId; });
   if(!candidates.length){ r.refilling = false; return; }
-  var branchFrom = candidates[Math.floor(Math.random() * candidates.length)];
+  /* v2.2.139: genre widens branch from 3 distinct tail tracks instead of
+     1, merged into one batch so the artist-cap filter judges all three. */
+  var branchIds = [];
+  if(r.genre){
+    var bc = candidates.slice();
+    while(bc.length && branchIds.length < 3){
+      branchIds.push(bc.splice(Math.floor(Math.random() * bc.length), 1)[0].videoId);
+    }
+  } else {
+    branchIds = [candidates[Math.floor(Math.random() * candidates.length)].videoId];
+  }
   say("Widening your radio.");
-  fetchYouTubeRadio(branchFrom.videoId).then(function(videos){
+  Promise.all(branchIds.map(radioSafe)).then(function(results){
+    var videos = [];
+    results.forEach(function(vs){ (vs || []).forEach(function(sv){ videos.push(sv); }); });
     if(state.radio !== r) return;
     /* Count artists already queued so the refill maintains balance. */
     var qCounts = {};
