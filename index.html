@@ -606,7 +606,7 @@
 <!-- v2.2.89: TV-visible toast (say() shows it on TV; phones never see it). -->
 <div id="tvToast" hidden></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.137</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.138</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -807,7 +807,7 @@
     </div>
     <div class="card" id="settingsAboutCard" tabindex="0" aria-label="About">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.137. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.138. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -1642,6 +1642,24 @@ window.lmNativeProgress = function(pos, dur, playing){
   nativeState.playing = !!playing;
   /* v2.2.118: karaoke clock — the sync timer interpolates from here. */
   try { window._karaokeClock = { pos: pos || 0, at: performance.now(), playing: !!playing }; } catch(e){}
+  /* v2.2.138: learning seeds — a genre-station track listened 30s+ (or
+     past half its length) becomes a refill seed for that genre, live in
+     this station's pool and saved for future taps. Quick skips never
+     seed; one learn per track-play, keyed by the start generation. */
+  try {
+    var lrr = state.radio;
+    if(lrr && lrr.active && lrr.genre && playing){
+      var lcur = state.queue[state.qi];
+      if(lcur && lcur.videoId){
+        var lkey = lcur.videoId + "|" + (state._startGen || 0);
+        if(state._learnedKey !== lkey && (pos >= 30 || (dur > 0 && pos >= dur / 2))){
+          state._learnedKey = lkey;
+          learnSeed(lrr.genre, lcur.videoId);
+          if(lrr.seedIds && lrr.seedIds.indexOf(lcur.videoId) === -1) lrr.seedIds.push(lcur.videoId);
+        }
+      }
+    }
+  } catch(e){}
   if(!state.seeking){
     try {
       if(nativeState.dur > 0){
@@ -5665,7 +5683,7 @@ var GENRE_ARTISTS = {
   "pop": ["Ariana Grande", "Sabrina Carpenter", "Olivia Rodrigo", "ADÉLA", "Michael Jackson", "Lady Gaga", "Katy Perry", "Britney Spears", "Rihanna", "Madonna", "Miley Cyrus", "Dua Lipa", "Bruno Mars", "Justin Bieber", "KATSEYE"],
   "alternative": ["Gorillaz", "Radiohead", "Deftones", "Twenty One Pilots", "My Chemical Romance", "Coldplay", "Panic! at the Disco", "The Cranberries", "bôa", "Pixies", "Paramore", "sombr", "Weezer", "Linkin Park", "Beck"],
   "punk": ["The Clash", "The Offspring", "Ramones", "Green Day", "Misfits", "Dead Kennedys", "Fugazi", "Descendents", "Iggy Pop", "Bad Religion", "blink-182", "Joyce Manor", "Sex Pistols", "AFI", "Mindless Self Indulgence"],
-  "hip-hop": ["Kanye West", "Kendrick Lamar", "Tyler, The Creator", "Drake", "A$AP Rocky", "Childish Gambino", "Mac Miller", "J. Cole", "Travi$ Scott", "Future", "Eminem", "Black Eyed Peas", "Kid Cudi", "OutKast", "Post Malone"],
+  "hip-hop": ["Kanye West", "Kendrick Lamar", "Tyler, The Creator", "Drake", "A$AP Rocky", "Childish Gambino", "Mac Miller", "J. Cole", "Travi$ Scott", "Future", "Eminem", "Black Eyed Peas", "Kid Cudi", "OutKast", "Post Malone", "Nas", "Jay-Z", "Snoop Dogg", "Dr. Dre", "Ice Cube", "50 Cent", "Lil Wayne", "Nicki Minaj"],
   "electronic": ["The Weeknd", "Daft Punk", "Gorillaz", "Calvin Harris", "PinkPantheress", "Twenty One Pilots", "Crystal Castles", "MGMT", "Depeche Mode", "Empire of the Sun", "Charli xcx", "Clean Bandit", "LCD Soundsystem", "The Living Tombstone", "Grimes"],
   "country": ["Taylor Swift", "Dolly Parton", "Kacey Musgraves", "Johnny Cash", "Luke Combs", "Luke Bryan", "Jon Pardi", "Rascal Flatts", "Lady Antebellum", "Zach Bryan", "George Strait", "Chris Stapleton", "Glen Campbell", "Toby Keith", "Ella Langley"],
   "jazz": ["Steve Lacy", "Frank Sinatra", "Laufey", "Sade", "Miles Davis", "Amy Winehouse", "Leon Thomas", "Chet Baker", "Ezra Collective", "Nina Simone", "John Coltrane", "Michael Bublé", "Stan Getz", "Ella Fitzgerald", "Nat King Cole"],
@@ -5682,18 +5700,18 @@ var DECADE_ARTISTS = {
 };
 
 var GENRE_SEEDS = {
-  "metal": ["6fVE8kSM43I", "L-iepu3EtyE", "jRGrNDV2mKc", "CD-E-LDc384", "09LTT0xwdfw", "AkFqg5wAuFk"],
-  "rock": ["XFkzRNyygfk", "eVTXPUF4Oz4", "we5_bia7ON8", "YlUKcNNmywk", "6Ejga4kJUts", "vAoOJLpYKJ0", "A_MjCqQoLLA", "a_4-VUVIw1A"],
-  "grunge": ["hTWKbfoikeg", "__biilMpnmw", "ySzrJ4GRF7s", "8-r-V0uK4u0", "OQUccWqG9f8", "a_4-VUVIw1A", "5WPbqYoz9HA", "8KHwuOtcALQ"],
-  "pop": ["Zi_XLOBDo_Y", "TUVcZfQe-Kw", "LjhCEhWiKXk", "8ELbX5CMomE"],
-  "alternative": ["XFkzRNyygfk", "we5_bia7ON8", "6Ejga4kJUts", "vAoOJLpYKJ0", "eVTXPUF4Oz4"],
-  "punk": ["7iNbnineUCI", "Ajxn0PKbv7I", "K7l5ZeVVoCA"],
-  "hip-hop": ["xFYQQPAOz7Y"],
-  "electronic": ["gCYcHz2k5x0", "a5uQMwRMHcs", "J9NQFACZYEU", "papuvlVeZg8", "Rl1nsQkuM5c"],
-  "country": ["8AHCfZTRGiI", "Ixrje2rXLMA"],
-  "jazz": ["ZEcqHA7dbwM"],
-  "classical": ["fOk8Tm815lE", "TlzjdaI5wzw"],
-  "r&b": ["bnVUHWCynig", "CvBfHwUxHIk"],
+  "metal": ["6fVE8kSM43I", "L-iepu3EtyE", "jRGrNDV2mKc", "CD-E-LDc384", "09LTT0xwdfw", "AkFqg5wAuFk", "iywaBOMvYLI", "KvknOXGPzCQ", "B_HSa1dEL9s", "WIKqgE4BwAY", "EqQuihD0hoI", "DelhLppPSxY", "9sTQ0QdkN3Q", "X4bgXH3sJ2Q", "yev3JqH6TpY", "DECp8LKurKs", "XJMgveYdO-M", "0qanF-91aJo", "vfpgpf6QVnI", "StZcUAPRRac"],
+  "rock": ["XFkzRNyygfk", "eVTXPUF4Oz4", "we5_bia7ON8", "YlUKcNNmywk", "6Ejga4kJUts", "vAoOJLpYKJ0", "A_MjCqQoLLA", "a_4-VUVIw1A", "u5CVsCnxyXg", "aCyGvGEtOwc", "BpJikRTDqdk", "cIGd8gm_pYE", "Yam5uK6e-bQ", "ENXvZ9YRjbo", "uSo2dagQ8EE", "WBKcBR8-dPg", "eBG7P-K-r1Y", "vc6vs-l5dkc", "fJ9rUzIMcZQ", "_LEXW0N3YB8", "HQmmM_qwG4k"],
+  "grunge": ["hTWKbfoikeg", "__biilMpnmw", "ySzrJ4GRF7s", "8-r-V0uK4u0", "OQUccWqG9f8", "a_4-VUVIw1A", "5WPbqYoz9HA", "8KHwuOtcALQ", "fregObNcHC8", "Nco_kh8xJDs", "CxKWTzr-k6s", "O3dWBLoU--E", "4aeETEoNfOg", "VMk6i7Q0k54", "yjJL9DGU7Gg", "VUb450Alpps", "eBG7P-K-r1Y", "hOllF3TgAsM", "Osb9eF2RfFE", "E2Oe5YKhzCE", "PjsMnvqL7eY", "JXkN3nJyWEA"],
+  "pop": ["Zi_XLOBDo_Y", "TUVcZfQe-Kw", "LjhCEhWiKXk", "8ELbX5CMomE", "v1t4MTqdfyI", "KWoTyfPsqbE", "gsZauX8gwxo", "sOnqjkJTMaA", "N9U__iHdrR0", "0KSOMA3QBU0", "C-u5WLJ9Yk4", "ehcVomMexkY", "79fzeNUqQbQ", "G7KNmW9a75Y", "SF52D9c-zJw", "kffacxfA7G4", "VuNIsY6JdUw", "lp-EO5I60KA", "hLQl3WQQoQ0", "Mv5f9Q2LJYM", "lY2yjAdbvdQ", "ZAfAud_M_mg"],
+  "alternative": ["XFkzRNyygfk", "we5_bia7ON8", "6Ejga4kJUts", "vAoOJLpYKJ0", "eVTXPUF4Oz4", "1V_xRb0x9aw", "u5CVsCnxyXg", "KvknOXGPzCQ", "Pw-0pbY9JeU", "BpJikRTDqdk", "cIGd8gm_pYE", "vc6vs-l5dkc", "G6Kspj3OO0s", "N3oCS85HvpY", "aCyGvGEtOwc", "SiJie3Z7DG8", "vaxwbJK5MFQ", "bpOSxM0rNPM", "ewOPQZZn4SY", "5Euj9f3gdyM", "gGdGFtwCNBE", "n3nPiBai66M"],
+  "punk": ["7iNbnineUCI", "Ajxn0PKbv7I", "K7l5ZeVVoCA", "bJ9r8LMU9bQ", "Soa3gO7tL-c", "lgSLz5FeXUg", "AO-Gw66edD8", "yOfvPNaNEMA", "-fWw7FE9tTo", "s1tAYmMjLdY", "QEG2ChDQ_Lo", "g-38GX2YQig", "1Yzu-4kJg6g", "NoyJgR_09Vw", "GeFr4_CADp4", "GTWg_DVdLnE", "emGri7i8Y2Y", "oh8zcbC_Dcw", "HJWFsZ_YUc4", "12kcpP-8jfM"],
+  "hip-hop": ["xFYQQPAOz7Y", "E58qLXBfLrs", "SD4yRDY9mek", "jnFVwpvlq4E", "VYOjWnS4cMY", "SsKT0s5J8ko", "JiyXAm3yoLc", "6ONRf7h3Mdk", "f6ZDmAhaH_Q", "4m48GqaOz90", "VrDfSZ_6f4U", "PWgvGjAhvIw", "wXhTHyIgQ_U", "5WPF5pnWUN8", "_CL6n0FJZpk", "h4UqMyldS7Q", "5D3crqpClPY", "1Vf4mMCpNY0", "4JipHEz53sU", "JQbjS0_ZfJ0", "mlp-IIG9ApU"],
+  "electronic": ["gCYcHz2k5x0", "a5uQMwRMHcs", "J9NQFACZYEU", "papuvlVeZg8", "Rl1nsQkuM5c", "O1OTWCd40bc", "1V_xRb0x9aw", "dGghkjpNCQ8", "qRAJowgHqxA", "Pw-0pbY9JeU", "6e6Hj7MwWaI", "B9dSYgd5Elk", "aGSKrC7dGcY", "hN5X4kGhAtU", "BAp4q27hTOc", "m-M1AtrxztU", "9Zj0JOHJR-s", "JtH68PJIQLE", "RjoO6wPAaVI", "0BD4hTLurDE", "DDGBTXWm2s0", "UtF6Jej8yb4"],
+  "country": ["8AHCfZTRGiI", "Ixrje2rXLMA", "e-ORhEE9VVg", "UbxUSsFXYo4", "5aXZ0fjAiho", "1WaV2x8GXj0", "uXyxFMbqKYA", "zHlzvcv3oyk", "D8kkykvWT5g", "2MTSBcvI9DI", "eM213aMKTHg", "jiRThaytN9o", "4zAThXFOy2c", "ETkzK9pXMio", "ldQrapQ4d0Y", "nUsrYVxrDwI", "R7f189Z0v0Y", "oEC9ExYp4io", "ZJL4UGSbeFg", "V7TolEcnKbs", "WaSy8yy-mr8", "rB7ONnfIjaI", "K0aRuR_bA4k"],
+  "jazz": ["ZEcqHA7dbwM", "OZHFFPziwa0", "_WcWHZc8s2I", "zqNTltOGh5c", "TJAfLE39ZZ8", "OyfRNIVm0TA", "hi5DO9iMRDI", "oHRNrgDIJfo", "fIYRoO9QgWY", "VeHY13F0LqI", "u2bigf337aU", "A4cgsTlc75Y", "cb2w2m1JmCY", "CaCSuzR4DwM", "Uqi1t4279So", "iOyf4R3lLKU", "tT9Eh8wNMkw", "GHhD4PD75zY", "8OqSnuwaiyQ", "2uLpjp7xkyI"],
+  "classical": ["fOk8Tm815lE", "TlzjdaI5wzw", "r_oK8dKIBYc", "4Tr0otuiQuU", "HTm2kEAfo8o", "mFWQgxXM_b8", "IVpuTD-2SEo", "-Bxpm0EmOMU", "9cNQFB0TDfY", "Nzo3atXtm54", "2H5rusicEnc", "KpOtuoHL45Y", "wnacdOIoTBQ", "7SjagpXeNhM", "5HgqPpjIH5c", "yJpJ8REjvqo", "mmCnQDUSO4I", "2-QV_I-xseA", "NlprozGcs80", "pgRrY1d-O7A", "DygE8vlcU4Y", "awFoZIO0g1Q", "_CTYymbbEL4", "HP5xhyPn58U"],
+  "r&b": ["bnVUHWCynig", "CvBfHwUxHIk", "O1OTWCd40bc", "pa14VNsdSYM", "r4l9bFqgMaQ", "eEonDmJyI5w", "BsToKs4nHFY", "rScwLoES2bM", "w24EE2ns2UM", "i2OJUQZuUWI", "q4GJVOMjCC4", "obBXhTwFsKQ", "o3IWTfcks4k", "46p-IxAVJ74", "JQbjS0_ZfJ0", "yxW5yuzVi8w", "K3Qzzggn--s", "rywUS-ohqeE", "jSUSFow70no", "FrLequ6dUdM"]
 };
 /* Genre purity via allowlist: a video is kept only if its owner's channel
    fuzzy-matches one of the genre's core artists from Last.fm. This guarantees
@@ -5816,6 +5834,37 @@ function genrePlayedStore(){
 }
 function genrePlayedSave(store){
   try { localStorage.setItem("lm_genre_played", JSON.stringify(store)); } catch(e){}
+}
+/* v2.2.138: learning seeds — genre stations grow their own refill pool
+   from songs actually listened to. Stored per genre, most recent 100,
+   hard seeds always first so the reseed slice(0, 6) stays hard-anchored. */
+function learnedSeedsStore(){
+  try { return JSON.parse(localStorage.getItem("lm_learned_seeds") || "{}"); }
+  catch(e){ return {}; }
+}
+function learnedSeedsSave(store){
+  try { localStorage.setItem("lm_learned_seeds", JSON.stringify(store)); } catch(e){}
+}
+function mergedGenreSeeds(genre, hardSeeds){
+  var out = (hardSeeds || []).slice();
+  var seen = {};
+  out.forEach(function(id){ seen[id] = true; });
+  var store = learnedSeedsStore();
+  (store[String(genre || "").toLowerCase()] || []).forEach(function(id){
+    if(id && !seen[id]){ seen[id] = true; out.push(id); }
+  });
+  return out;
+}
+function learnSeed(genre, videoId){
+  if(!videoId) return;
+  var key = String(genre || "").toLowerCase();
+  var store = learnedSeedsStore();
+  var list = store[key] || [];
+  if(list.indexOf(videoId) === -1){
+    list.push(videoId);
+    store[key] = list.slice(-100);
+    learnedSeedsSave(store);
+  }
 }
 function genreTapNext(genreName){
   var store = genrePlayedStore();
@@ -5943,7 +5992,11 @@ function filterRefillVideos(videos, r, qCounts){
 function fetchGenreReseed(r){
   var seeds = (r.seedIds && r.seedIds.length) ? r.seedIds : [];
   if(!seeds.length) return Promise.resolve([]);
-  return Promise.all(seeds.map(function(id){ return fetchYouTubeRadio(id).catch(function(){ return []; }); }))
+  /* v2.2.138: seed lists now hold 20+ tracks, but a reseed must stay
+     fast — six radios is plenty for a widen batch, and the rest keep
+     feeding rotation and refills. Without this cap a reseed would fetch
+     every seed before the widen landed. */
+  return Promise.all(seeds.slice(0, 6).map(function(id){ return fetchYouTubeRadio(id).catch(function(){ return []; }); }))
     .then(function(results){
       var seen = {}, all = [];
       results.forEach(function(videos){
@@ -6053,19 +6106,24 @@ function startRadio(artist){
          later filter — refills never re-parse seedName again. Pill names
          are base words (Metal/Rock/...) so this IS the base genre word. */
       var stationGenre = seedName;
+      /* v2.2.138: learning seeds join the pool — hard seeds first, then
+         everything this genre has taught itself from listened songs. */
+      var allSeeds = mergedGenreSeeds(stationGenre, hardSeeds);
       /* v2.2.29: YouTube Music genre pages pick the songs (curated by
          YouTube Music itself — accurate genres, clean metadata, audio only).
          Falls back to Deezer, then YouTube seeds. */
       say("Loading " + seedName + " station.");
       /* v2.2.30: Pure YouTube Music — genre tracks from InnerTube only.
          No Deezer, no fallbacks. */
-      getSeed = genrePrimaryTracks(seedName, hardSeeds).then(function(primary){
+      getSeed = genrePrimaryTracks(seedName, allSeeds).then(function(primary){
         var ytmTracks = primary.tracks;
         if(ytmTracks && ytmTracks.length){
           return { videos: ytmTracks, seedIds: null, name: seedName, fromYTM: true, _picked: primary.picked };
         }
         /* If genre browse fails, use YouTube Music radio from seed tracks. */
-        return Promise.all(hardSeeds.map(function(id){ return fetchYouTubeRadio(id).catch(function(){ return []; }); }))
+        /* v2.2.138: same six-seed bound as reseed — the empty-search
+           fallback must not fetch all 20+ seeds before the first song. */
+        return Promise.all(hardSeeds.slice(0, 6).map(function(id){ return fetchYouTubeRadio(id).catch(function(){ return []; }); }))
           .then(function(results){
             var seenIds = {}, all = [];
             results.forEach(function(videos){
@@ -6127,13 +6185,13 @@ function startRadio(artist){
               return winP.then(function(wv){
                 var wb = filterWindowBatch(wv, all, stationGenre);
                 wb.forEach(function(sv){ all.push(sv); });
-                return { videos: all, seedIds: hardSeeds, name: seedName, genre: stationGenre, picked: picked };
+                return { videos: all, seedIds: allSeeds, name: seedName, genre: stationGenre, picked: picked };
               }).catch(function(){
-                return { videos: all, seedIds: hardSeeds, name: seedName, genre: stationGenre, picked: picked };
+                return { videos: all, seedIds: allSeeds, name: seedName, genre: stationGenre, picked: picked };
               });
             }
           }
-          return { videos: all, seedIds: hardSeeds, name: seedName, genre: stationGenre, picked: picked };
+          return { videos: all, seedIds: allSeeds, name: seedName, genre: stationGenre, picked: picked };
         });    } else {
     /* Cache the genre/artist seed video: repeat taps skip the search call
        entirely (search is the rate-limited endpoint), so the radio starts
@@ -6244,7 +6302,10 @@ function tasteSeedVideos(){
   }
   pushFrom(getLiked());
   pushFrom(getHistory());
-  return seeds.slice(0, 8);
+  /* v2.2.138: My Mix gets the same 20+ seed treatment as genre stations
+     (was 8) — more of his own artists feeding the mix. Streaming build
+     means extra seeds join after playback starts, not before. */
+  return seeds.slice(0, 24);
 }
 function startTasteStation(){
   var seeds = tasteSeedVideos();
