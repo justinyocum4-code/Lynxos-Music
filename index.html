@@ -606,7 +606,7 @@
 <!-- v2.2.89: TV-visible toast (say() shows it on TV; phones never see it). -->
 <div id="tvToast" hidden></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.139</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.140</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -807,7 +807,7 @@
     </div>
     <div class="card" id="settingsAboutCard" tabindex="0" aria-label="About">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.139. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.140. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -5849,7 +5849,7 @@ function capPerArtist(videos, maxPer){
    remembered (track ids + the session's artists, capped) and the next tap
    excludes them. v2.2.136: the primary is the search pool only; seed
    radios stream in after playback starts (window batch + appends), and
-   only tracks actually played are recorded (see filterGenreFresh /
+   only tracks actually played are recorded (see orderGenrePoolByRecency /
    lmNativeTrack) — tapping in and out no longer burns the pool. */
 function genrePlayedStore(){
   try { return JSON.parse(localStorage.getItem("lm_genre_played") || "{}"); }
@@ -5913,45 +5913,38 @@ function genrePrimaryTracks(genreName, hardSeeds){
     return { tracks: tracks || [], picked: picked };
   });
 }
-/* v2.2.134: variety — the build step records NOTHING. What a tap excludes
-   is what was actually PLAYED (recorded in lmNativeTrack), so tapping in
-   and out burns nothing. The old <10 wholesale floor is gone: passes
-   relax one dimension at a time, and the largest non-empty result wins —
-   the full pool returns only when every pool track was recently played,
-   i.e. the pool genuinely cycles. Filtering after diversifyStart is
-   safe: removing tracks from a no-two-consecutive-artist list keeps that
-   property. */
-function filterGenreFresh(all, genreName){
+/* v2.2.140: station-start fix — replaces the v2.2.134 graduated
+   fresh-filter, which ran AFTER the per-artist cap had already thrown
+   away each artist's 2nd/3rd tracks and fell back to the full pool once
+   everything was played, so every tap reopened the same songs. The new
+   step runs BEFORE the cap and orders the pool by played recency:
+   unplayed tracks first, then least-recently-played, stable (search
+   order breaks ties, so old engines without a stable sort still behave).
+   The cap then keeps each artist's least-recently-played (or unplayed)
+   track instead of the same first track every tap, and there is no
+   full-pool fallback left to revert to. The build step still records
+   NOTHING; what a tap orders by is what was actually PLAYED (recorded
+   in lmNativeTrack), so tapping in and out burns nothing. */
+function orderGenrePoolByRecency(all, genreName){
   var store = genrePlayedStore();
   var key = String(genreName || "").toLowerCase();
   var entry = store[key] || { taps: 0, ids: [], artists: [] };
-  var playedIds = {};
-  (entry.ids || []).forEach(function(id){ playedIds[id] = true; });
-  var prevArtists = {};
-  (entry.artists || []).forEach(function(a){ prevArtists[a] = true; });
-  /* This build starts a new session: last session's artists become the
-     previous-session exclusion, and the new session's artist list starts
-     empty for lmNativeTrack to fill as songs actually play. */
+  var rank = {};
+  (entry.ids || []).forEach(function(id, idx){ rank[id] = idx; });
+  /* New session: reset the artist list exactly as the old fresh-filter
+     did, so the played store does not grow unboundedly. Artist
+     exclusion itself is gone — recency ordering replaces it. */
   entry.artists = [];
   store[key] = entry; genrePlayedSave(store);
-  function artistOf(sv){ return normArtist(sv.ownerChannel || sv.channel || ""); }
-  var p1 = all.filter(function(sv){ return sv.videoId && !playedIds[sv.videoId] && !prevArtists[artistOf(sv)]; });
-  var p2 = all.filter(function(sv){ return sv.videoId && !playedIds[sv.videoId]; });
-  var recentIds = {};
-  (entry.ids || []).slice(-30).forEach(function(id){ recentIds[id] = true; });
-  var p3 = all.filter(function(sv){ return sv.videoId && !recentIds[sv.videoId]; });
-  var passes = [p1, p2, p3];
-  var fresh = null;
-  for(var pi = 0; pi < passes.length; pi++){
-    if(passes[pi].length >= 10){ fresh = passes[pi]; break; }
-  }
-  if(!fresh){
-    fresh = p1;
-    if(p2.length > fresh.length) fresh = p2;
-    if(p3.length > fresh.length) fresh = p3;
-    if(!fresh.length) fresh = all.slice();
-  }
-  return fresh;
+  var decorated = all.map(function(sv, idx){
+    var r = (sv.videoId && rank.hasOwnProperty(sv.videoId)) ? rank[sv.videoId] : -1;
+    return { sv: sv, idx: idx, rank: r };
+  });
+  decorated.sort(function(a, b){
+    if(a.rank !== b.rank) return a.rank - b.rank;
+    return a.idx - b.idx;
+  });
+  return decorated.map(function(d){ return d.sv; });
 }
 function filterRefillVideos(videos, r, qCounts){
   /* Build song keys for videos already in queue to avoid song repeats. */
@@ -6183,16 +6176,18 @@ function startRadio(artist){
           all = all.filter(function(sv){
             return !isNonEnglish(sv.title, sv.ownerChannel || sv.channel);
           });
+          /* v2.2.140: station-start fix — order by played recency BEFORE
+             the per-artist cap, so the cap keeps each artist's
+             least-recently-played (or unplayed) track. The old post-cap
+             fresh-filter is gone: it removed played tracks after the
+             cap had already discarded the alternatives, and fell back
+             to the full pool once everything was played. */
+          all = orderGenrePoolByRecency(all, stationGenre);
           /* v2.2.28: max 1 per artist on initial load — no repeats, no clustering. */
           all = capPerArtist(all, 1);
           shuffleList(all);
           /* v2.2.28: ensure no two consecutive songs from same artist. */
           all = diversifyStart(all, 10);
-          /* v2.2.132/134: fresh-rotation — drop tracks actually played on
-             earlier taps of this genre, relaxing step by step (previous
-             session's artists, then all but the last 30 played) so a new
-             tap plays someone different, not the same pool reshuffled. */
-          all = filterGenreFresh(all, stationGenre);
           /* v2.2.136: fast start — bank track 0's head NOW, then spend
              the next seed fetch as the head-bank window. The bridge
              call below is synchronous, so the JS thread blocks while
