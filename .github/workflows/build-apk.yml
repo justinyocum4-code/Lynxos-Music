@@ -194,6 +194,17 @@ jobs:
               <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
               <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
               <uses-feature android:name="android.software.leanback" android:required="false" />
+              <!-- v2.2.141: package visibility for the TV Google-login gate —
+                   on API 30+ (targetSdk 34) queryIntentActivities only sees
+                   a browser when the manifest declares the intent. Without
+                   this the gate false-negatives on the Onn box and the
+                   Google button stays hidden even though a browser exists. -->
+              <queries>
+                  <intent>
+                      <action android:name="android.intent.action.VIEW" />
+                      <data android:scheme="https" />
+                  </intent>
+              </queries>
               <application
                   android:label="Lynxos Music"
                   android:banner="@drawable/tv_banner"
@@ -1124,15 +1135,36 @@ jobs:
                           @Override public void run() { musicService.setRepeatMode(mode); }
                       });
                   }
-                  @JavascriptInterface public void openUrl(final String url) {
+                  /* v2.2.141: now reports whether the browser actually opened —
+                     the TV sign-in path checks the return and says so instead
+                     of failing silently when the TV has no browser. */
+                  @JavascriptInterface public boolean openUrl(final String url) {
                       /* v2.2.75: Open URL in system browser (for OAuth) - explicit Activity ref */
                       try {
                           Intent i = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url));
                           i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                           MainActivity.this.startActivity(i);
+                          return true;
                       } catch (Exception e) {
                           android.util.Log.e("LynxosYTM", "openUrl failed: " + url, e);
+                          return false;
                       }
+                  }
+                  /* v2.2.141: TV Google-login gate — true only when this device can
+                     actually finish a browser sign-in: Google Play Services
+                     present (absent on Fire TV) AND some activity handles an
+                     https sign-in URL. No new dependencies — both checks are
+                     plain PackageManager calls. The page shows the Google
+                     button on TV only then; otherwise the QR code is the
+                     only door, as before. */
+                  @JavascriptInterface public boolean isGoogleSignInAvailable() {
+                      try {
+                          getPackageManager().getPackageInfo("com.google.android.gms", 0);
+                          Intent i = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://accounts.google.com/"));
+                          java.util.List<android.content.pm.ResolveInfo> handlers =
+                              getPackageManager().queryIntentActivities(i, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY);
+                          return handlers != null && !handlers.isEmpty();
+                      } catch (Exception e) { return false; }
                   }
               }
 
@@ -1839,12 +1871,15 @@ jobs:
                  (Justin's call — tired of buffering while a station
                  loads; the lower tier fills its first buffer faster
                  and stalls less on a thin link, at the cost of the
-                 windier sound on loud passages). The downgrade is
-                 DORMANT at this default: its guard needs cap > 70, so
-                 no session can drop below 70. Volatile: written on
+                 windier sound on loud passages). v2.2.141: back to 140
+                 (Justin's call — good quality that starts fast). It ships
+                 WITH the skip-speed fixes (persisted URL cache, Python
+                 warmup, +1-head protection), not alone, and the downgrade
+                 below is RE-ARMED at this default: two stalls still drop
+                 a thin-pipe session to 70. Volatile: written on
                  the main thread by the downgrade trigger, read by
                  the resolve threads and the bank thread. */
-              private static volatile int sessionCapKbps = 70;
+              private static volatile int sessionCapKbps = 140;
               private static final int DOWNGRADE_CAP_KBPS = 70;
               private static final int DOWNGRADE_STALLS = 2;
               private static final long STALL_DOWNGRADE_MIN_MS = 5000;
@@ -1890,6 +1925,7 @@ jobs:
                                   /* Expired - remove */
                                   urlCache.remove(key);
                                   urlCacheTime.remove(key);
+                                  unpersistCachedUrl(key);
                               }
                           }
                       }
@@ -1905,10 +1941,12 @@ jobs:
               private void putCachedUrlForCap(String videoId, String url, int capKbps) {
                   try {
                       String key = urlCacheKey(videoId, capKbps);
+                      long now = System.currentTimeMillis();
                       synchronized (urlCache) {
                           urlCache.put(key, url);
-                          urlCacheTime.put(key, System.currentTimeMillis());
+                          urlCacheTime.put(key, now);
                       }
+                      persistCachedUrl(key, url, now);
                       /* v2.2.110: record the reverse mapping too — the
                          player's cache key factory reads it to give every
                          playback of this track one stable disk-cache key. */
@@ -1959,6 +1997,79 @@ jobs:
                           urlCache.remove(key);
                           urlCacheTime.remove(key);
                       }
+                      unpersistCachedUrl(key);
+                  } catch (Exception ignored) {}
+              }
+              /* v2.2.141: persist the URL cache to disk (SharedPreferences
+                 "lm_url_cache") so a restart doesn't re-pay a 5-7 s Python
+                 resolve per track on first skip. Entries are keyed
+                 videoId|cap exactly like the in-memory cache, values are
+                 "url\ntimestampMs"; the 4 h TTL still applies, and a stale
+                 URL that fails playback is re-resolved fresh by the
+                 existing error path. Load keeps the 100 most recent and
+                 prunes the rest. The reverse map (url -> videoId) is
+                 rebuilt from the keys so the disk-cache key factory keeps
+                 working for persisted URLs. */
+              private static final String URL_CACHE_PREFS = "lm_url_cache";
+              private void loadPersistedUrlCache() {
+                  try {
+                      android.content.SharedPreferences prefs = getSharedPreferences(URL_CACHE_PREFS, android.content.Context.MODE_PRIVATE);
+                      java.util.Map<String, ?> all = prefs.getAll();
+                      java.util.List<java.util.Map.Entry<String, ?>> entries = new java.util.ArrayList<java.util.Map.Entry<String, ?>>(all.entrySet());
+                      java.util.Collections.sort(entries, new java.util.Comparator<java.util.Map.Entry<String, ?>>() {
+                          @Override public int compare(java.util.Map.Entry<String, ?> a, java.util.Map.Entry<String, ?> b) {
+                              return Long.compare(persistedUrlTime(b.getValue()), persistedUrlTime(a.getValue()));
+                          }
+                      });
+                      android.content.SharedPreferences.Editor ed = prefs.edit();
+                      boolean pruned = false;
+                      int kept = 0;
+                      long now = System.currentTimeMillis();
+                      synchronized (urlCache) {
+                          for (java.util.Map.Entry<String, ?> e : entries) {
+                              String key = e.getKey();
+                              String raw = (e.getValue() instanceof String) ? (String) e.getValue() : null;
+                              long t = persistedUrlTime(e.getValue());
+                              String url = persistedUrl(raw);
+                              if (url == null || url.isEmpty() || now - t >= URL_CACHE_TTL_MS || kept >= 100) {
+                                  ed.remove(key);
+                                  pruned = true;
+                                  continue;
+                              }
+                              urlCache.put(key, url);
+                              urlCacheTime.put(key, t);
+                              String vid = key.contains("|") ? key.substring(0, key.indexOf('|')) : null;
+                              if (vid != null && !vid.isEmpty()) { synchronized (urlVideoId) { urlVideoId.put(url, vid); } }
+                              kept++;
+                          }
+                      }
+                      if (pruned) { try { ed.apply(); } catch (Exception ignored) {} }
+                  } catch (Exception ignored) {}
+              }
+              private static long persistedUrlTime(Object raw) {
+                  try {
+                      String s = (String) raw;
+                      int nl = s.lastIndexOf('\n');
+                      return Long.parseLong(s.substring(nl + 1));
+                  } catch (Exception e) { return 0; }
+              }
+              private static String persistedUrl(String raw) {
+                  try {
+                      if (raw == null) return null;
+                      int nl = raw.lastIndexOf('\n');
+                      return nl > 0 ? raw.substring(0, nl) : null;
+                  } catch (Exception e) { return null; }
+              }
+              private void persistCachedUrl(String key, String url, long timeMs) {
+                  try {
+                      getSharedPreferences(URL_CACHE_PREFS, android.content.Context.MODE_PRIVATE)
+                          .edit().putString(key, url + "\n" + timeMs).apply();
+                  } catch (Exception ignored) {}
+              }
+              private void unpersistCachedUrl(String key) {
+                  try {
+                      getSharedPreferences(URL_CACHE_PREFS, android.content.Context.MODE_PRIVATE)
+                          .edit().remove(key).apply();
                   } catch (Exception ignored) {}
               }
               /* v2.2.106: stream-URL inspection. A googlevideo URL declares
@@ -2732,11 +2843,27 @@ jobs:
                   return false;
               }
 
-              private boolean bankYieldNow() {
+              private boolean bankYieldNow() { return bankYieldNowFor(null); }
+              /* v2.2.141: +1-head protection — the next track's head is the
+                 one a skip needs most, so while the player already holds
+                 >= 10 s of buffered-ahead, the +1 head download may run
+                 instead of yielding. Below 10 s the player owns the pipe
+                 exactly as before, and a play resolve in flight always
+                 yields (the shared resolve pool is the contended resource
+                 there). The progress listener re-checks on every callback,
+                 so if the buffer falls under 10 s mid-download the yield
+                 re-engages and the writer cancels — spans persist, so
+                 nothing is lost. */
+              private boolean bankYieldNowFor(final BankTarget t) {
                   /* v2.2.114: a play resolve in flight yields regardless
                      of the buffer state — the shared resolveExec pool is
                      the contended resource there, not the pipe. */
                   if (playResolveInFlight.get() > 0) return true;
+                  if (t != null && t.head && !t.browse) {
+                      try {
+                          if (t.idx == effectiveNextIndex(currentIndex) && bankPlayerWants && bankBufferedAheadMs >= 10000) return false;
+                      } catch (Exception ignored) {}
+                  }
                   /* The player gets the pipe to itself while it is trying
                      to play and holds less than 25 s of buffered-ahead.
                      Paused / idle: the writer may run freely (that is the
@@ -2854,7 +2981,7 @@ jobs:
                           : new DataSpec.Builder().setUri(rr.url).setKey(key).build();
                   while (true) {
                       if (!stillWanted(t)) { bankYielding = false; return; }
-                      if (bankYieldNow()) {
+                      if (bankYieldNowFor(t)) {
                           setBankYield(true);
                           try { Thread.sleep(1200); } catch (Exception ignored) {}
                           continue;
@@ -2868,7 +2995,7 @@ jobs:
                                  spans already written stay in the cache, so
                                  a later writer for the same key resumes
                                  where this one stopped. */
-                              if (holder[0] != null && (!stillWanted(t) || bankYieldNow())) {
+                              if (holder[0] != null && (!stillWanted(t) || bankYieldNowFor(t))) {
                                   try { holder[0].cancel(); } catch (Exception ignored) {}
                               }
                           }
@@ -2951,6 +3078,25 @@ jobs:
                      to disk ahead of their boundary), not from deeper
                      starting gates. The 50s/90s targets stay. */
                   initMediaCache();
+                  /* v2.2.141: restore the persisted URL cache (see
+                     loadPersistedUrlCache) and warm the Python interpreter
+                     on a background thread, so the first resolve of the
+                     session doesn't pay interpreter + module-import time
+                     on a skip. MainActivity already warms Python at app
+                     start, but the service can be created on its own
+                     (notification / media button with the activity dead);
+                     the isStarted guard makes the second warm a no-op. */
+                  loadPersistedUrlCache();
+                  new Thread(new Runnable() {
+                      @Override public void run() {
+                          try {
+                              if (!com.chaquo.python.Python.isStarted()) {
+                                  com.chaquo.python.Python.start(new com.chaquo.python.android.AndroidPlatform(MusicService.this));
+                              }
+                              com.chaquo.python.Python.getInstance().getModule("ytm_bridge");
+                          } catch (Exception ignored) {}
+                      }
+                  }).start();
                   ExoPlayer.Builder playerBuilder = new ExoPlayer.Builder(this)
                           .setLoadControl(new androidx.media3.exoplayer.DefaultLoadControl.Builder()
                                   .setBufferDurationsMs(50000, 90000, 2500, 5000)
