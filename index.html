@@ -587,6 +587,11 @@
      did not fit next to the bigger QR; the Hear-the-code button
      speaks the address instead. */
   body.tv #accountView.tvlink-open #accountTitle { display: none; }
+  /* v2.2.142: while the QR sign-in screen is up, hide the fixed bottom
+     chrome (mini player, tab bar, new button) — it used to cover the
+     QR's lower half — and the page can't scroll (JS locks overflow).
+     Released by tvLinkScreenOff on every exit path. */
+  body.tv.tvlink-open nav.tabs, body.tv.tvlink-open #miniPlayer, body.tv.tvlink-open #newFab { display: none !important; }
   body.tv .tvlink { display: flex; gap: 3vw; align-items: flex-start; }
   body.tv .tvlink-main { flex: 1 1 auto; min-width: 0; }
   body.tv .tvlink-h { color: var(--gold); font-size: 30px; margin: 0 0 8px; }
@@ -606,7 +611,7 @@
 <!-- v2.2.89: TV-visible toast (say() shows it on TV; phones never see it). -->
 <div id="tvToast" hidden></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.141</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.142</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -807,7 +812,7 @@
     </div>
     <div class="card" id="settingsAboutCard" tabindex="0" aria-label="About">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.141. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.142. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -1287,6 +1292,17 @@ function startTvLink(){
   }).then(function(){ showTvLinkScreen(code); pollTvLink(); })
    .catch(function(){ say("Couldn't reach the sign-in service. Check your connection."); });
 }
+/* v2.2.142: QR-screen chrome lock — while the TV sign-in screen is up,
+   the bottom chrome is hidden and the page can't scroll (see the
+   body.tv.tvlink-open CSS rule and the lock in showTvLinkScreen).
+   Every exit path must release it: renderAccount is the main funnel,
+   closeAccount covers the remote-Back exit from the expired screen.
+   Declared here (block 0); renderAccount/closeAccount live in block 4,
+   but both blocks are plain top-level scripts, so this is global. */
+function tvLinkScreenOff(){
+  try { document.body.classList.remove("tvlink-open"); } catch(e){}
+  try { document.body.style.overflow = ""; document.documentElement.style.overflow = ""; } catch(e){}
+}
 function showTvLinkScreen(code){
   var box = $("accountContent");
   if(!box) return;
@@ -1311,12 +1327,15 @@ function showTvLinkScreen(code){
        stays the hero on the left, the buttons move under it, and the
        visible URL line is dropped (it no longer fits beside the
        full-size QR) — the Hear button speaks the address instead.
-       Everything fits one viewport with no scrolling (body.tv
-       .tvlink CSS), and the QR block is a real focus stop. The
-       .tvlink-open class hides the Account heading so the chrome
-       fits; renderAccount removes it on every exit path. The
-       phone/tablet markup below is unchanged. */
+       v2.2.142: the screen is locked to one viewport — the bottom
+       chrome is hidden and body scrolling is off (released by
+       tvLinkScreenOff), so the QR can't straddle the fold or hide
+       under the player bar. The .tvlink-open class hides the Account
+       heading so the chrome fits; renderAccount removes it on every
+       exit path. The phone/tablet markup below is unchanged. */
     try { $("accountView").classList.add("tvlink-open"); } catch(e){}
+    try { document.body.classList.add("tvlink-open"); } catch(e){}
+    try { document.body.style.overflow = "hidden"; document.documentElement.style.overflow = "hidden"; } catch(e){}
     var spelled = code.split("").join(" ");
     var tvQrSvg = qrSvg, tvQrPx = 0;
     try {
@@ -1326,11 +1345,22 @@ function showTvLinkScreen(code){
       /* Total grid = module count + the quiet zone createSvgTag draws
          on each side (its margin defaults to cellSize * 4 modules). */
       var tvGrid = qrL.getModuleCount() + 8;
-      /* Largest integer pixels-per-module whose box (grid + the
-         wrapper's 20px of padding) fits the height left under the
-         ~137px of chrome (plus slack) and 45% of the width. */
+      /* v2.2.142: size from the space actually left on screen. v2.2.113
+         guessed ~165px of chrome above the QR; the page really carries
+         the top bar + main padding + 150px of body bottom padding, and
+         the fixed player/tab bar covered the QR's lower half — so the
+         screen scrolled and the QR straddled the fold. The bottom
+         chrome is now hidden while this screen is up and scrolling is
+         locked, so the space left is the viewport minus the box's own
+         top offset minus the main bottom padding and a little slack.
+         Integer modules per pixel are kept so it still scans. */
+      /* Fallback 78px = the usual top bar + main top padding, so a
+         failed measurement sizes the QR slightly small, never tall. */
+      var _boxTop = 78;
+      try { _boxTop = box.getBoundingClientRect().top || 78; } catch(e){}
+      var _availH = window.innerHeight - _boxTop - 48;
       var tvK = Math.min(
-        Math.floor((window.innerHeight - 165) / tvGrid),
+        Math.floor((_availH - 20) / tvGrid),
         Math.floor((Math.floor(window.innerWidth * 0.45) - 20) / tvGrid));
       if(tvK < 1) tvK = 1;
       tvQrPx = tvGrid * tvK;
@@ -1721,6 +1751,9 @@ window.lmNativeEnded = function(){
 /* ================= tabs ================= */
 var TABS = [["tab-home","homeView","Home"],["tab-explore","exploreView","Explore"],["tab-library","libraryView","Library"]];
 function showTab(name){
+  /* v2.2.142: the TV side menu can pick a tab from the QR sign-in
+     screen — release the QR-screen chrome lock (no-op otherwise). */
+  try { tvLinkScreenOff(); } catch(e){}
   state.tab = name;
   state.searchOpen = false;
   TABS.forEach(function(t){
@@ -1752,6 +1785,9 @@ function showTab(name){
 /* Settings lives outside the bottom tabs (YouTube Music style): opened from
    the gear button in Library or the TV menu, with its own back button. */
 function openSettings(){
+  /* v2.2.142: reachable from the TV side menu over the QR screen —
+     release the QR-screen chrome lock (no-op otherwise). */
+  try { tvLinkScreenOff(); } catch(e){}
   state.tab = "settings";
   state.searchOpen = false;
   TABS.forEach(function(t){
@@ -2897,6 +2933,9 @@ TABS.forEach(function(t){
   $(t[0]).addEventListener("click", function(){ showTab(t[0].replace("tab-","")); });
 });
 function openSearch(){
+  /* v2.2.142: reachable from the TV side menu over the QR screen —
+     release the QR-screen chrome lock (no-op otherwise). */
+  try { tvLinkScreenOff(); } catch(e){}
   TABS.forEach(function(t){ $(t[1]).hidden = true; $(t[0]).setAttribute("aria-selected","false"); });
   /* v2.2.81: never leave the Account panel visible under search. */
   $("accountView").hidden = true;
@@ -8259,6 +8298,9 @@ function openAccount(){
   say("Account.");
 }
 function closeAccount(){
+  /* v2.2.142: the remote-Back exit from the expired-code screen lands
+     here (not renderAccount), so release the QR-screen chrome lock. */
+  try { tvLinkScreenOff(); } catch(e){}
   $("accountView").hidden = true;
   showTab("home");
 }
@@ -8270,6 +8312,8 @@ function renderAccount(){
      ever added by showTvLinkScreen's IS_TV branch, so this is a no-op
      on phone/tablet. */
   try { $("accountView").classList.remove("tvlink-open"); } catch(e){}
+  /* v2.2.142: release the QR-screen chrome lock (bottom chrome + scroll). */
+  try { tvLinkScreenOff(); } catch(e){}
   /* v2.2.92: remember focus before rebuilding — innerHTML wipes it. */
   var _raFocusId = null;
   try {
