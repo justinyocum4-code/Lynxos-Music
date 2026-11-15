@@ -611,7 +611,7 @@
 <!-- v2.2.89: TV-visible toast (say() shows it on TV; phones never see it). -->
 <div id="tvToast" hidden></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.142</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.143</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -812,7 +812,7 @@
     </div>
     <div class="card" id="settingsAboutCard" tabindex="0" aria-label="About">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.142. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.143. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -961,13 +961,24 @@
    for a left-arrow side menu. Phones are untouched. */
 var IS_TV = /AFT|Fire TV|Android TV|Google TV|Leanback/i.test(navigator.userAgent || "");
 /* v2.2.89: fallback for TVs whose UA carries no TV token (Xiaomi Mi Box,
-   Chromecast with Google TV, TCL/Hisense sets): large screen + no touch = TV. */
+   Chromecast with Google TV, TCL/Hisense sets): large screen + no touch = TV.
+   v2.2.143: bar lowered 720 -> 540 — the Onn 4K Pro reports a 540 CSS px
+   short side. No-touch + >=540 is still TV-only; phones and tablets have touch. */
 try {
   if(!IS_TV){
     var _tvShort = Math.min(window.screen.width || 0, window.screen.height || 0);
     var _tvNoTouch = !("ontouchstart" in window) && (navigator.maxTouchPoints || 0) === 0;
-    if(_tvShort >= 720 && _tvNoTouch) IS_TV = true;
+    if(_tvShort >= 540 && _tvNoTouch) IS_TV = true;
   }
+} catch(e){}
+/* v2.2.143: ask the native side too — it knows from the leanback feature /
+   television UI mode, which no UA string can hide. The Onn 4K Pro's WebView
+   carries no TV token and reports a 540px short side, so the heuristics
+   above miss it and the QR screen falls back to the centered phone layout.
+   Guarded: builds without the bridge method simply stay with the heuristics.
+   (Inline here, not a helper — block 0 runs before later blocks are parsed.) */
+try {
+  if(!IS_TV && typeof LynxosPlayer !== "undefined" && LynxosPlayer && typeof LynxosPlayer.isTvDevice === "function" && LynxosPlayer.isTvDevice()) IS_TV = true;
 } catch(e){}
 try { if(IS_TV) document.body.classList.add("tv"); } catch(e){}
 /* v2.2.112: on TV the lyrics column is read-only — the D-pad controller
@@ -1363,6 +1374,11 @@ function showTvLinkScreen(code){
         Math.floor((_availH - 20) / tvGrid),
         Math.floor((Math.floor(window.innerWidth * 0.45) - 20) / tvGrid));
       if(tvK < 1) tvK = 1;
+      /* v2.2.143: cap the QR at the Fire Stick size (~369px). CSS pixels
+         are density-independent, so the code is the same physical size
+         on any TV — without the cap a 1080p screen grows it to 820px.
+         Justin's call: small, right side, easy to scan, like the Stick. */
+      if(tvK > 9) tvK = 9;
       tvQrPx = tvGrid * tvK;
       tvQrSvg = qrL.createSvgTag({ cellSize: tvK, margin: tvK * 4 });
     } catch(e){ tvQrSvg = qrSvg; tvQrPx = 0; }
