@@ -1166,6 +1166,14 @@ jobs:
                           return handlers != null && !handlers.isEmpty();
                       } catch (Exception e) { return false; }
                   }
+                  /* v2.2.143: expose the native TV check to the page — the
+                     page's UA + screen-size heuristics miss the Onn 4K Pro
+                     (no TV token in its WebView UA, 540 CSS px short side),
+                     so the QR screen fell back to the phone layout. The
+                     native leanback / UI-mode check is ground truth. */
+                  @JavascriptInterface public boolean isTvDevice() {
+                      try { return MainActivity.isTvDevice(MainActivity.this); } catch (Throwable ignored) { return false; }
+                  }
               }
 
               @Override
