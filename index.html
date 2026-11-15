@@ -606,7 +606,7 @@
 <!-- v2.2.89: TV-visible toast (say() shows it on TV; phones never see it). -->
 <div id="tvToast" hidden></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.140</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.141</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -807,7 +807,7 @@
     </div>
     <div class="card" id="settingsAboutCard" tabindex="0" aria-label="About">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.140. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.141. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -3272,11 +3272,15 @@ function doSearch(){
   state.searchFilter = "all";
   $("searchResults").innerHTML = '<div class="empty">Searching…</div>';
   say("Searching for " + q);
+  /* v2.2.141: remember whether each leg FAILED (as opposed to finding
+     nothing), so a total failure reads as a failure, not "No results." */
+  var searchLegFailed = { songs: false, albums: false, artists: false };
   Promise.all([
-    ytmSearchSongs(q, 15).catch(function(){ return []; }),
-    ytmSearchAlbums(q, 10).catch(function(){ return []; }),
-    ytmSearchArtists(q, 8).catch(function(){ return []; })
+    ytmSearchSongs(q, 15).catch(function(){ searchLegFailed.songs = true; return []; }),
+    ytmSearchAlbums(q, 10).catch(function(){ searchLegFailed.albums = true; return []; }),
+    ytmSearchArtists(q, 8).catch(function(){ searchLegFailed.artists = true; return []; })
   ]).then(function(res){
+    state.searchFailed = searchLegFailed.songs && searchLegFailed.albums && searchLegFailed.artists;
     var songs = (res[0] || []).filter(function(v){ return !NON_MUSIC_RE.test(v.title || ""); });
     songs.sort(function(a, b){ return (isOfficialMusic(b) ? 1 : 0) - (isOfficialMusic(a) ? 1 : 0); });
     state.typedResults = { songs: songs, albums: res[1] || [], artists: res[2] || [] };
@@ -3395,7 +3399,8 @@ function renderSearchResults(){
   var R = state.typedResults || { songs: [], albums: [], artists: [] };
   var f = state.searchFilter || "all";
   if(!R.songs.length && !R.albums.length && !R.artists.length){
-    box.innerHTML = '<div class="empty">No results.</div>';
+    /* v2.2.141: a failed search says so instead of looking like zero matches. */
+    box.innerHTML = '<div class="empty">' + (state.searchFailed ? "Search failed. Check your connection." : "No results.") + '</div>';
     return;
   }
   var html = '<div class="srchChips" role="tablist" aria-label="Search filters">';
@@ -4001,16 +4006,21 @@ window.lmNativeResolveFailed = function(i, kind, msg){
    guard (same object still at that index) keeps a replaced queue
    from receiving a stale id. */
 function resolveAheadForNext(){
+  /* v2.2.141: resolve ahead TWO slots (was one), so the second skip in
+     a rapid pair is already resolved for blank-ID album/playlist queues. */
   try {
     if(!NATIVE_AUDIO) return;
-    if(state.qi < 0 || state.qi + 1 >= state.queue.length) return;
-    var ni = state.qi + 1, nv = state.queue[ni];
-    if(!nv || nv.videoId) return;
-    resolveTrack(nv).then(function(rv){
-      try {
-        if(rv && rv.videoId && state.queue[ni] === nv && LynxosPlayer.setTrackVideoId) LynxosPlayer.setTrackVideoId(ni, rv.videoId);
-      } catch(e){}
-    }).catch(function(){});
+    if(state.qi < 0) return;
+    [state.qi + 1, state.qi + 2].forEach(function(ni){
+      if(ni >= state.queue.length) return;
+      var nv = state.queue[ni];
+      if(!nv || nv.videoId) return;
+      resolveTrack(nv).then(function(rv){
+        try {
+          if(rv && rv.videoId && state.queue[ni] === nv && LynxosPlayer.setTrackVideoId) LynxosPlayer.setTrackVideoId(ni, rv.videoId);
+        } catch(e){}
+      }).catch(function(){});
+    });
   } catch(e){}
 }
 function playQueueIndex(i, fresh, user, focusId){
@@ -4086,7 +4096,10 @@ function playNext(auto, focusId){
   } else {
     if(state.qi >= state.queue.length - 1){
       if(state.repeat === 1){ playQueueIndex(0, undefined, user, focusId); }
-      else if(state.radio && state.radio.active && !state.radio.refilling){ refillRadioNow(); }
+      /* v2.2.141: manual Next at a station's end restarts fresh like
+         auto-advance already does (lmNativeEnded passes true) instead
+         of dead-ending on "End of queue." */
+      else if(state.radio && state.radio.active && !state.radio.refilling){ refillRadioNow(true); }
       else { if(!auto) say("End of queue."); return; }
     } else { playQueueIndex(state.qi + 1, undefined, user, focusId); }
   }
@@ -4112,6 +4125,17 @@ function radioSafe(sid){
     var p = fetchYouTubeRadio(sid);
     return (p && p.then) ? p.catch(function(){ return []; }) : Promise.resolve(p || []);
   } catch(e){ return Promise.resolve([]); }
+}
+/* v2.2.141: native-queue appends used to fail silently — the service
+   queue then diverged from the page queue (screen-off advance follows
+   the native queue). Log the failure to the Playback log and retry once. */
+function appendTracksNative(list){
+  if(!NATIVE_AUDIO || !list || !list.length) return;
+  try { LynxosPlayer.appendTracks(nativeAppendJson(list)); return; }
+  catch(e){}
+  try { if(window.LynxosPlayer && LynxosPlayer.diagEvent) LynxosPlayer.diagEvent("appendTracks failed, retrying"); } catch(e2){}
+  try { LynxosPlayer.appendTracks(nativeAppendJson(list)); }
+  catch(e3){ try { if(window.LynxosPlayer && LynxosPlayer.diagEvent) LynxosPlayer.diagEvent("appendTracks failed"); } catch(e4){} }
 }
 function refillRadioNow(restartOnEmpty){
   var r = state.radio;
@@ -4150,7 +4174,7 @@ function refillRadioNow(restartOnEmpty){
     r.refilling = false;
     renderQueue();
     /* v1.9: keep the native service queue in step. */
-    if(NATIVE_AUDIO && fresh.length){ try { LynxosPlayer.appendTracks(nativeAppendJson(fresh)); } catch(e){} }
+    appendTracksNative(fresh);
     if(fresh.length){ playQueueIndex(state.qi + 1); }
     else if(r.genre && r.seedIds && r.seedIds.length){
       /* v2.2.119: refill batch filtered to zero — re-seed from the
@@ -4167,7 +4191,7 @@ function refillRadioNow(restartOnEmpty){
         fresh2.forEach(function(sv){ state.queue.push(sv); });
         r.refilling = false;
         renderQueue();
-        if(NATIVE_AUDIO && fresh2.length){ try { LynxosPlayer.appendTracks(nativeAppendJson(fresh2)); } catch(e){} }
+        appendTracksNative(fresh2);
         if(fresh2.length){ playQueueIndex(state.qi + 1); }
         else { endEmpty(); }
       }).catch(function(){ r.refilling = false; endEmpty(); });
@@ -6083,7 +6107,7 @@ function appendStationVideos(r, videos){
   if(!fresh.length) return;
   fresh.forEach(function(sv){ state.queue.push(sv); });
   renderQueue();
-  if(NATIVE_AUDIO){ try { LynxosPlayer.appendTracks(nativeAppendJson(fresh)); } catch(e){} }
+  appendTracksNative(fresh);
 }
 /* Pre-play window batches: the same station rules as the initial load
    (video/live/English, genre when given, 1 per artist vs the base
@@ -6447,7 +6471,7 @@ function maybeRefillRadio(){
     r.refilling = false;
     renderQueue();
     /* v1.9: keep the native service queue in step. */
-    if(NATIVE_AUDIO && fresh.length){ try { LynxosPlayer.appendTracks(nativeAppendJson(fresh)); } catch(e){} }
+    appendTracksNative(fresh);
     if(fresh.length) say("Radio widened with " + fresh.length + " more songs.");
     else if(r.genre && r.seedIds && r.seedIds.length){
       /* v2.2.119: refill batch filtered to zero — quietly re-seed from the
@@ -6464,7 +6488,7 @@ function maybeRefillRadio(){
         fresh2.forEach(function(sv){ state.queue.push(sv); });
         r.refilling = false;
         renderQueue();
-        if(NATIVE_AUDIO && fresh2.length){ try { LynxosPlayer.appendTracks(nativeAppendJson(fresh2)); } catch(e){} }
+        appendTracksNative(fresh2);
         if(fresh2.length) say("Radio widened with " + fresh2.length + " more songs.");
       }).catch(function(){ r.refilling = false; });
     }
@@ -6517,6 +6541,18 @@ function renderHomeChips(){
   mix.setAttribute("aria-label", "Play My Mix radio from your taste");
   mix.addEventListener("click", function(){ startTasteStation(); });
   box.appendChild(mix);
+  /* v2.2.141: Liked Songs shortcut, second in the row (My Mix keeps
+     launch focus as the first chip). Opens the Liked list itself —
+     unlike the Liked Mix card, which plays a shuffle. */
+  var liked = document.createElement("button");
+  liked.className = "chip";
+  liked.textContent = "👍 Liked";
+  liked.setAttribute("aria-label", "Open your Liked Songs");
+  liked.addEventListener("click", function(){
+    showTab("library");
+    showLibSeg("songs");
+  });
+  box.appendChild(liked);
   var genres = ["Metal","Rock","Grunge","Alternative","Hip-Hop","Pop","Country","Jazz","Classical","Electronic","R&B","Punk"];
   genres.forEach(function(g){
     var b = document.createElement("button");
@@ -7494,15 +7530,6 @@ function saveCurrentAlbum(){
   say("Saved " + name + " to your albums.");
 }
 $("albumSaveBtn").addEventListener("click", saveCurrentAlbum);
-function renderRecentPlayed(){
-  var box = $("recentPlayed");
-  if(!box) return;
-  box.innerHTML = "";
-  var h = getHistory().slice(0, 8);
-  if(!h.length){ box.innerHTML = "<p style='color:#999'>Nothing yet. Tap the search button to find a band.</p>"; return; }
-  box.innerHTML = h.map(function(v, i){ return trackRow(v, i); }).join("");
-  bindTrackButtons(box, h);
-}
 /* ================= artist panel (in player) ================= */
 $("fpArtistBtn").addEventListener("click", openArtistPanel);
 /* ================= lyrics ================= */
@@ -8283,13 +8310,17 @@ function renderAccount(){
       "<div style='font-size:60px'>👤</div>" +
       "<h3 style='color:var(--gold)'>Sign in</h3>" +
       "<p style='color:#999'>Sign in with Google to save your progress and import your YouTube Music library.</p>" +
-      /* v2.2.112: no Google button on TV — Fire TV has no usable browser
+      /* v2.2.112: no Google button on Fire TV — it has no usable browser
          for OAuth (see the tv-link header note); the code sign-in below
-         is the TV door. Phone/tablet markup is unchanged. */
-      (IS_TV ? "" : "<button class='btn' id='googleSignInBtn' style='margin-top:12px'>Sign in with Google</button>") +
+         is the TV door. v2.2.141: a Google TV that CAN finish a browser
+         sign-in (Google Play Services present + a browser handles the
+         sign-in URL, checked natively) gets the button too; otherwise
+         the QR code stays the only door. Phone/tablet markup unchanged. */
+      ((IS_TV && !tvGoogleLoginAvailable()) ? "" : "<button class='btn' id='googleSignInBtn' style='margin-top:12px'>Sign in with Google</button>") +
       "<br><button class='btn' id='qrSignInBtn' style='margin-top:8px'>Sign in with QR code</button>" +
       "</div>";
-    if(!IS_TV) $("googleSignInBtn").addEventListener("click", startGoogleLogin);
+    var _gBtn = $("googleSignInBtn");
+    if(_gBtn) _gBtn.addEventListener("click", startGoogleLogin);
     $("qrSignInBtn").addEventListener("click", startTvLink);
   }
   /* v2.2.92: restore TV focus after the rebuild (old focused node is gone). */
@@ -8345,12 +8376,42 @@ function fetchUserInfo(accessToken){
     doFetch((t && t.access) || accessToken, false);
   });
 }
+/* v2.2.141: TV Google-login gate — true only when the native side
+   says this device can finish a browser sign-in (see
+   LynxosPlayer.isGoogleSignInAvailable). False on Fire TV and on any
+   TV with no browser for the sign-in URL, so the button never appears
+   where it cannot work. */
+function tvGoogleLoginAvailable(){
+  try {
+    if(typeof LynxosPlayer !== "undefined" && LynxosPlayer.isGoogleSignInAvailable){
+      return !!LynxosPlayer.isGoogleSignInAvailable();
+    }
+  } catch(e){}
+  return false;
+}
 function startGoogleLogin(){
   /* v2.2.77: Hardcoded URL - no variable dependency */
   var scopes = encodeURIComponent("https://www.googleapis.com/auth/youtube https://www.googleapis.com/auth/youtubepartner");
   var url = "https://klykzghndlrfwwxwaczm.supabase.co/auth/v1/authorize?provider=google" +
     "&redirect_to=" + encodeURIComponent("com.lynxosmusic.app://auth-callback") +
     "&scopes=" + scopes;
+  if(IS_TV){
+    /* v2.2.141: on TV, open the sign-in through the native bridge and
+       CHECK it worked. The old location.href path fires an intent the
+       TV may have no browser for, and that failure was swallowed
+       silently. A failed launch says so and points at the QR code. */
+    try {
+      if(typeof LynxosPlayer !== "undefined" && LynxosPlayer.openUrl){
+        var _opened = LynxosPlayer.openUrl(url);
+        if(_opened === false){
+          say("Couldn't open a browser for Google sign-in on this TV. Use the QR code instead.");
+          return;
+        }
+        say("Opening Google sign-in in your browser. Come back here when done.");
+        return;
+      }
+    } catch(e){}
+  }
   say("Opening Google sign-in in your browser. Come back here when done.");
   window.location.href = url;
 }
