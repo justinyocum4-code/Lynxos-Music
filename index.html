@@ -616,7 +616,7 @@
 <!-- v2.2.89: TV-visible toast (say() shows it on TV; phones never see it). -->
 <div id="tvToast" hidden></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><button class="iconbtn gold" id="tvMenuBtn" aria-label="Open menu" onclick="openTvMenu()">☰ Menu</button><span class="logo">🎵 Lynxos Music</span><small>v2.2.145</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
+<header class="topbar"><button class="iconbtn gold" id="tvMenuBtn" aria-label="Open menu" onclick="openTvMenu()">☰ Menu</button><span class="logo">🎵 Lynxos Music</span><small>v2.2.146</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -817,7 +817,7 @@
     </div>
     <div class="card" id="settingsAboutCard" tabindex="0" aria-label="About">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.145. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.146. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -998,7 +998,13 @@ try {
 /* ================= helpers ================= */
 function $(id){ return document.getElementById(id); }
 function esc(s){ return String(s == null ? "" : s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
-function say(msg){ var el = $("status"); if(el){ el.textContent = ""; setTimeout(function(){ el.textContent = msg; }, 50); }
+function say(msg, opts){
+  /* v2.2.146: toastOnly — D-pad focus moves are announced by TalkBack
+     itself, so skip the live-region write (it would announce the same
+     label a second time). The visible toast still shows, so TalkBack-off
+     users still see the label. */
+  var toastOnly = !!(opts && opts.toastOnly);
+  if(!toastOnly){ var el = $("status"); if(el){ el.textContent = ""; setTimeout(function(){ el.textContent = msg; }, 50); } }
   /* v2.2.89: TV has no TalkBack — show a visible toast as well. */
   try {
     if(IS_TV){
@@ -2359,6 +2365,11 @@ function openITunesAlbum(collectionId){
         "<div id='itAlbumTracks'>" + albumTracks.map(function(t, i){ return trackRow(t, i); }).join("") + "</div>";
       $("itAlbumBackBtn").addEventListener("click", function(){ $("artistView").hidden = true; showTab("home"); });
       $("itAlbumPlayAllBtn").addEventListener("click", function(){
+        state.radio = null; /* v2.2.146: clear any active station so the
+          bank-then-play hook in playQueueIndex sees a non-station start
+          (same as the album Play/Shuffle and artist Play-all handlers) —
+          otherwise an iTunes album started right after a station would
+          skip the wait and play cold. */
         state.queue = albumTracks.slice();
         playQueueIndex(0, true, true);
         say("Playing album.");
@@ -2633,7 +2644,10 @@ function tvNavFocusEl(el, silent){
   _tvNavMemory[tvNavLayerOf(el)] = { id: el.id || "", label: tvNavLabel(el) };
   if(!silent){
     var lbl = tvNavLabel(el);
-    if(lbl) say(lbl);
+    /* v2.2.146: toastOnly — TalkBack announces the focused control
+       itself; the live-region write would announce the same label
+       a second time. The toast still shows for TalkBack-off users. */
+    if(lbl) say(lbl, { toastOnly: true });
   }
 }
 function tvNavSetOpener(el){
@@ -2754,6 +2768,10 @@ document.addEventListener("focusin", function(e){
   var el = e.target;
   if(!el || el === document.body || !el.getBoundingClientRect) return;
   _tvNavMemory[tvNavLayerOf(el)] = { id: el.id || "", label: tvNavLabel(el) };
+  /* v2.2.146: TalkBack moves focus without going through tvNavMove, so
+     scroll the newly focused control into view here. Scroll only —
+     focus is never moved. (Same pattern as Lynxos Store v1.3.2.) */
+  try { el.scrollIntoView({ block: "nearest", inline: "nearest" }); } catch(e2){}
 });
 /* The controller itself: owns all D-pad arrows on TV. Registered
    after the v2.2.89 left-edge menu listener and the v2.2.95 rescue
@@ -2947,11 +2965,13 @@ document.addEventListener("keydown", function(e){
   if(e.key === "ArrowDown"){
     e.preventDefault();
     var next = items[(idx + 1) % items.length];
-    if(next){ next.focus(); say(next.textContent.trim()); }
+    /* v2.2.146: toastOnly — TalkBack announces the focused menu item
+       itself; the live-region write would say it a second time. */
+    if(next){ next.focus(); say(next.textContent.trim(), { toastOnly: true }); }
   } else if(e.key === "ArrowUp"){
     e.preventDefault();
     var prev = items[(idx - 1 + items.length) % items.length];
-    if(prev){ prev.focus(); say(prev.textContent.trim()); }
+    if(prev){ prev.focus(); say(prev.textContent.trim(), { toastOnly: true }); }
   } else if(e.key === "ArrowRight"){
     /* Activate the focused item (same as pressing OK). */
     e.preventDefault();
@@ -4161,7 +4181,21 @@ function playQueueIndex(i, fresh, user, focusId){
        within the queue the service already has. */
     if(NATIVE_AUDIO){
       try {
-        if(fresh) LynxosPlayer.playQueue(nativeQueueJson(), state.qi);
+        /* v2.2.146: bank-then-play — a fresh queue start at index 0 banks
+           the first song's head (bounded ~6 s wait, native side) before
+           playback starts, so a new album/playlist does not start cold.
+           Every Play entry funnels through here (album Play/Shuffle,
+           artist Play-all, iTunes Play-all, playlist Play-all, ⋮ playAll),
+           so this one hook covers them all. The wait only runs when the
+           head is not already banked (lingered on the album screen) —
+           then the native side plays immediately. Stations are EXCLUDED:
+           their first track is banked at build time milliseconds before
+           the play call, so the wait would run out the full ~6 s on every
+           station start and undo fast-start (v2.2.136). */
+        if(fresh && i === 0 && !(state.radio && state.radio.active) && LynxosPlayer.playQueueWithHeadBank){
+          LynxosPlayer.playQueueWithHeadBank(nativeQueueJson(), state.qi);
+        }
+        else if(fresh) LynxosPlayer.playQueue(nativeQueueJson(), state.qi);
         /* v2.1.1: pass the resolved videoId — album tracks resolve on
            demand, so the service's queued copy may still be blank. */
         else if(LynxosPlayer.playTrackAt) LynxosPlayer.playTrackAt(state.qi, v.videoId || "");
