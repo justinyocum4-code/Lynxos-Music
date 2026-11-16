@@ -1020,6 +1020,26 @@ jobs:
                           @Override public void run() { musicService.playQueue(tracksJson, index); }
                       });
                   }
+                  /* v2.2.146: bank-then-play — a fresh queue start at
+                     index 0 banks the first song's head (bounded ~6 s
+                     wait, native side) before playback starts, so a new
+                     album/playlist does not start cold on a thin link.
+                     Fire-and-forget like playQueue; the service posts
+                     the play itself when the wait ends (or immediately
+                     when the head is already banked). */
+                  @JavascriptInterface public void playQueueWithHeadBank(final String tracksJson, final int index) {
+                      withService(new Runnable() {
+                          @Override public void run() { musicService.playQueueWithHeadBank(tracksJson, index); }
+                      });
+                  }
+                  /* v2.2.146: synchronous head-bank query for the page's
+                     bank-then-play announcement — true when the first
+                     song's head is already on disk, so the page only says
+                     "Downloading the first song…" when there really is a
+                     wait. Static service lookup, no binding needed. */
+                  @JavascriptInterface public boolean isHeadBanked(final String videoId) {
+                      try { return MusicService.isHeadBankedNow(videoId); } catch (Exception ignored) { return false; }
+                  }
                   @JavascriptInterface public void appendTracks(final String tracksJson) {
                       withService(new Runnable() {
                           @Override public void run() { musicService.appendTracks(tracksJson); }
@@ -2193,6 +2213,18 @@ jobs:
                       default: return String.valueOf(reason);
                   }
               }
+              /* v2.2.146: synchronous head-bank query from the page
+                 (isHeadBanked bridge) — the running service publishes
+                 itself here so the bridge can answer without binding.
+                 Set in onCreate, cleared in onDestroy; the lookup is
+                 null-safe, so a query with no service running just
+                 reports "not banked". */
+              private static volatile MusicService sInstance;
+              static boolean isHeadBankedNow(String videoId) {
+                  MusicService s = sInstance;
+                  if (s == null || videoId == null || videoId.isEmpty()) return false;
+                  try { return s.isHeadBanked(videoId); } catch (Exception ignored) { return false; }
+              }
               /* v2.2.101: diagnostics write — see the DIAG_PREFS field
                  comment. Static storage helpers so MainActivity can read
                  the same prefs file for the Settings bridge without needing
@@ -2607,6 +2639,20 @@ jobs:
                       new java.util.concurrent.atomic.AtomicBoolean(false);
               private final java.util.concurrent.atomic.AtomicLong bankEpoch =
                       new java.util.concurrent.atomic.AtomicLong(0);
+              /* v2.2.146: bank-then-play generations. headBankGen is bumped
+                 by every play command (playAtInternal) and by every new
+                 bank-then-play wait — a wait whose generation no longer
+                 matches is stale and must never land its play. headBankOwner
+                 holds the generation of the wait currently owning the pipe
+                 (-1 when none): while it is set, the regular banking worker
+                 stands down (see nextBankWork) so the head-bank gets the
+                 whole pipe for its bounded wait. Cleared by compareAndSet,
+                 so a newer wait can never have its ownership stolen by an
+                 older wait's completion. */
+              private final java.util.concurrent.atomic.AtomicLong headBankGen =
+                      new java.util.concurrent.atomic.AtomicLong(0);
+              private final java.util.concurrent.atomic.AtomicLong headBankOwner =
+                      new java.util.concurrent.atomic.AtomicLong(-1);
               private volatile CacheWriter bankWriter;
               private volatile long bankBufferedAheadMs = 0;
               private volatile boolean bankPlayerWants = false;
@@ -2630,6 +2676,13 @@ jobs:
                  it starts from disk instantly and gets that much runway
                  while the remainder streams in behind it. */
               private static final long BANK_HEAD_BYTES = 512000L;
+
+              /* v2.2.146: bank-then-play wait bound — the first song of a
+                 fresh album/playlist is banked before playback starts,
+                 but the wait never exceeds this; on expiry playback starts
+                 from whatever is cached and streams the rest live, exactly
+                 as before. The ONLY new constant in this version. */
+              private static final long HEAD_BANK_WAIT_MS = 6000;
 
               private static class BankTarget {
                   final int idx;
@@ -2795,6 +2848,12 @@ jobs:
                  always wins. */
               private BankTarget nextBankWork(java.util.Set<String> failedHeads,
                                               java.util.Set<String> failedFills) {
+                  /* v2.2.146: while a bank-then-play wait owns the pipe,
+                     the regular worker stands down — the head-bank gets
+                     the whole pipe for its bounded wait. The wait's
+                     completion releases ownership (compareAndSet), so a
+                     stand-down can never outlive its wait. */
+                  if (headBankOwner.get() >= 0) return null;
                   long ep = bankEpoch.get();
                   try {
                       java.util.List<Integer> walk = bankWalk();
@@ -3057,6 +3116,7 @@ jobs:
               @Override
               public void onCreate() {
                   super.onCreate();
+                  sInstance = this; /* v2.2.146: publish for isHeadBankedNow */
                   try { NewPipe.init(new ExtractorDownloader()); } catch (Exception ignored) {}
                   /* v2.2.101: every service (re)start leaves a marker with
                      the device facts and the battery-exemption state, so the
@@ -3870,6 +3930,7 @@ jobs:
                   try { if (mediaCache != null) mediaCache.release(); } catch (Exception ignored) {}
                   mediaCache = null;
                   cacheDsFactory = null;
+                  if (sInstance == this) sInstance = null; /* v2.2.146 */
                   super.onDestroy();
               }
 
@@ -3916,6 +3977,171 @@ jobs:
                      banking kick itself fires from the play completion.) */
                   browseBank = null;
                   playAtInternal(index);
+              }
+
+              /* v2.2.146: bank-then-play — a fresh queue start at index 0
+                 banks the first song's head (bounded wait) before playback
+                 starts, so a new album/playlist does not start cold on a
+                 thin link. Runs on the main thread (bridge via
+                 withService); the wait itself runs on bankExec and the play
+                 is posted back to main, so the main thread is never
+                 blocked. Any path that cannot wait (blank id, no cache,
+                 head already banked, a play resolve already in flight)
+                 falls through to an immediate playAtInternal — exactly
+                 playQueue's behavior. */
+              public void playQueueWithHeadBank(String tracksJson, int index) {
+                  List<Track> t = parseTracks(tracksJson);
+                  if (t == null || t.isEmpty() || index < 0 || index >= t.size()) { playQueue(tracksJson, index); return; }
+                  queue.clear();
+                  queue.addAll(t);
+                  /* v2.2.110: a fresh play replaces the browse context —
+                     the playing queue owns the banking worker now. */
+                  browseBank = null;
+                  /* A new wait invalidates any older pending one. */
+                  final long myGen = headBankGen.incrementAndGet();
+                  final Track first = queue.get(index);
+                  if (first == null || first.videoId == null || first.videoId.isEmpty()) { playAtInternal(index); return; }
+                  /* Already banked (lingered on the album screen) or no
+                     cache: no wait — play immediately. */
+                  if (mediaCache == null || isHeadBanked(first.videoId)) { playAtInternal(index); return; }
+                  /* A play resolve already in flight (double-tap /
+                     boundary race): do not pile a bank resolve onto the
+                     shared pool — play now; the play's own resolve joins
+                     or follows the in-flight one. */
+                  if (playResolveInFlight.get() > 0) { playAtInternal(index); return; }
+                  diag("headbank start idx=" + index + " id=" + first.videoId);
+                  /* Own the pipe, then cancel any in-flight browse banking
+                     (it targets the old context) — bankContextChanged bumps
+                     the epoch and cancels the current writer, and the pass
+                     it kicks no-ops on the ownership guard in nextBankWork. */
+                  headBankOwner.set(myGen);
+                  bankContextChanged();
+                  final String vid = first.videoId;
+                  final String ttl = first.title;
+                  final String art = first.channel;
+                  /* v2.2.146: the deadline is measured from THIS tap, not
+                     from when the bank task starts running — if a stale
+                     wait is still resolving ahead of this task on bankExec,
+                     this wait's budget is already partly spent, so the
+                     tap-to-play delay stays bounded at ~6 s even when the
+                     user retaps mid-wait. */
+                  final long waitDeadline = android.os.SystemClock.uptimeMillis() + HEAD_BANK_WAIT_MS;
+                  bankExec.execute(new Runnable() {
+                      @Override public void run() {
+                          try { bankHeadForPlay(vid, ttl, art, index, myGen, waitDeadline); }
+                          catch (Throwable ignored) {}
+                          /* Release the pipe — only if this wait still owns
+                             it. A newer wait keeps ownership (CAS fails);
+                             an invalidated wait with no successor releases
+                             it so the regular worker resumes. */
+                          headBankOwner.compareAndSet(myGen, -1);
+                          /* Only the current generation lands its play. */
+                          if (myGen == headBankGen.get()) {
+                              final int idx = index;
+                              main.post(new Runnable() {
+                                  @Override public void run() {
+                                      if (myGen == headBankGen.get()) playAtInternal(idx);
+                                  }
+                              });
+                          }
+                      }
+                  });
+              }
+
+              /* v2.2.146: bounded head-bank for bank-then-play. Resolves
+                 track 0 (URL-cache hit when browse banking already
+                 resolved it), then downloads the 512 KB head with a hard
+                 deadline. Runs on bankExec. The caller plays anyway from
+                 whatever is cached on any failure or timeout. The deadline
+                 is measured from the tap (passed in), so a wait queued
+                 behind a stale task still ends within ~6 s of the tap, and
+                 the resolve itself is deadline-bounded (its single-flight
+                 task keeps running in the background on timeout and files
+                 the URL, so the play's own resolve joins it instead of
+                 starting over). The writer is cancelled at the deadline,
+                 on supersede (stale generation), or by a context change —
+                 spans persist, so a later writer resumes where this one
+                 stopped. */
+              private boolean bankHeadForPlay(String videoId, String title, String artist, int index, long gen, long deadline) {
+                  long t0 = android.os.SystemClock.uptimeMillis();
+                  try {
+                      if (gen != headBankGen.get()) return false;
+                      if (mediaCache == null || videoId == null || videoId.isEmpty()) return false;
+                      if (isHeadBanked(videoId)) return true;
+                      /* Resolve with the REMAINING budget as the deadline. */
+                      long remain = deadline - android.os.SystemClock.uptimeMillis();
+                      if (remain <= 0) return false;
+                      ResolveResult rr = resolveShared(videoId, title, artist, remain);
+                      if (gen != headBankGen.get()) return false;
+                      if (rr == null || rr.kind != KIND_OK || rr.url == null || rr.url.isEmpty()) {
+                          diag("headbank failed idx=" + index + " reason=resolve");
+                          return false;
+                      }
+                      final String vid = (rr.resolvedVideoId != null && !rr.resolvedVideoId.isEmpty())
+                              ? rr.resolvedVideoId : videoId;
+                      if (isHeadBanked(vid)) return true;
+                      if (rr.url.contains(".m3u8") || rr.url.contains("/api/manifest/")) {
+                          diag("headbank failed idx=" + index + " reason=hls");
+                          return false;
+                      }
+                      /* No budget left for the download — the resolve ate
+                         it. Play from whatever is cached (the play's own
+                         resolve joins the in-flight task if it is still
+                         running). */
+                      if (android.os.SystemClock.uptimeMillis() >= deadline) return isHeadBanked(vid);
+                      final String key = cacheKeyFor(vid);
+                      final DataSpec spec = new DataSpec.Builder().setUri(rr.url).setKey(key)
+                              .setPosition(0).setLength(BANK_HEAD_BYTES).build();
+                      final CacheWriter[] holder = new CacheWriter[1];
+                      CacheWriter.ProgressListener pl = new CacheWriter.ProgressListener() {
+                          @Override public void onProgress(long requestLength, long bytesCached, long newBytesCached) {
+                              if (holder[0] != null && (gen != headBankGen.get()
+                                      || android.os.SystemClock.uptimeMillis() >= deadline)) {
+                                  try { holder[0].cancel(); } catch (Exception ignored) {}
+                              }
+                          }
+                      };
+                      CacheWriter w;
+                      try {
+                          w = new CacheWriter(cacheDsFactory.createDataSource(), spec, null, pl);
+                      } catch (Exception e) {
+                          diag("headbank failed idx=" + index + " reason=writer");
+                          return false;
+                      }
+                      holder[0] = w;
+                      bankWriter = w;
+                      /* Watchdog for a stalled download with no progress
+                         callbacks: the listener above only fires on
+                         progress, so a dead pipe would otherwise block
+                         past the deadline. */
+                      main.postDelayed(new Runnable() {
+                          @Override public void run() {
+                              CacheWriter cw = holder[0];
+                              if (cw != null && (gen != headBankGen.get()
+                                      || android.os.SystemClock.uptimeMillis() >= deadline)) {
+                                  try { cw.cancel(); } catch (Exception ignored) {}
+                              }
+                          }
+                      }, Math.max(0, deadline - android.os.SystemClock.uptimeMillis()));
+                      try {
+                          w.cache();
+                      } catch (java.io.InterruptedIOException e) {
+                          bankWriter = null;
+                          return isHeadBanked(vid);
+                      } catch (Exception e) {
+                          bankWriter = null;
+                          diag("headbank failed idx=" + index + " reason=io");
+                          return false;
+                      }
+                      bankWriter = null;
+                      boolean ok = isHeadBanked(vid);
+                      diag("headbank " + (ok ? "head" : "short") + " idx=" + index
+                              + " ms=" + (android.os.SystemClock.uptimeMillis() - t0));
+                      return ok;
+                  } catch (Exception e) {
+                      try { bankWriter = null; } catch (Exception ignored) {}
+                      return false;
+                  }
               }
 
               public void appendTracks(String tracksJson) {
@@ -3996,6 +4222,11 @@ jobs:
                      boundary therefore never depends on re-acquiring a lock
                      the OS may be slow to grant with the screen off. */
                   try { if (player != null && player.getPlayWhenReady()) player.pause(); } catch (Exception ignored) {}
+                  /* v2.2.146: a user pause invalidates any pending
+                     head-bank wait (same rule as toggleInternal's pause
+                     branch) — the wait must not start a new track after
+                     the user just paused. */
+                  headBankGen.incrementAndGet();
                   pushProgress();
                   updateNotification();
               }
@@ -4291,6 +4522,11 @@ jobs:
                              does NOT release the play locks (see
                              pauseOnlyInternal). */
                           player.pause();
+                          /* v2.2.146: a user pause invalidates any pending
+                             head-bank wait, like any other play command —
+                             otherwise the wait's completion would start the
+                             new track after the user just paused. */
+                          headBankGen.incrementAndGet();
                       } else if (currentIndex >= 0 && currentIndex < queue.size()) {
                           focusPaused = false;
                           /* v2.2.101: a manual resume bumps the play
@@ -4390,6 +4626,9 @@ jobs:
                   stallReadySeen = false;
                   final long myGen = playGen.incrementAndGet();
                   currentPlayGen = myGen;
+                  /* v2.2.146: any play supersedes a pending bank-then-play
+                     wait — its completion must not land a stale play. */
+                  headBankGen.incrementAndGet();
                   /* v2.2.108: this command owns the player window until its
                      setMediaItem lands (or it fails trying). While
                      landingPlayGen is set, an AUTO transition from the
