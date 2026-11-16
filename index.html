@@ -611,7 +611,7 @@
 <!-- v2.2.89: TV-visible toast (say() shows it on TV; phones never see it). -->
 <div id="tvToast" hidden></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.143</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
+<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.144</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -812,7 +812,7 @@
     </div>
     <div class="card" id="settingsAboutCard" tabindex="0" aria-label="About">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.143. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.144. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -2767,7 +2767,31 @@ document.addEventListener("keydown", function(e){
     var inModal = ae.closest && (ae.closest("#lmDialog") || ae.closest("#albumMoreMenu") || ae.closest("#fpMenu") || ae.closest(".srchMenu") || ae.closest("#newSheet") || ae.closest("#fpUpNextBody") || ae.closest("#lyricsPanel"));
     if(!inModal){
       e.preventDefault();
-      window._tvMenuGestureAt = tvNavMove("left") ? 0 : Date.now();
+      if(!tvNavMove("left")){
+        /* v2.2.144: open the menu HERE when the Left move finds
+           nothing, instead of only marking the gesture for the
+           listener below — the two-listener 80ms handoff never fired
+           on the Onn box. Same gates the listener applies: never over
+           the full player, a text field, or an open modal. */
+        var _fp = null; try { _fp = $("fullPlayer"); } catch(e){}
+        var _tag = "";
+        try { _tag = (ae.tagName || "").toLowerCase(); } catch(e){}
+        var _modalOpen = false;
+        try { _modalOpen = !!(($("lmDialog") && !$("lmDialog").hidden) || ($("albumMoreMenu") && !$("albumMoreMenu").hidden) || ($("fpMenu") && !$("fpMenu").hidden) || ($("newSheet") && !$("newSheet").hidden) || document.querySelector(".srchMenu")); } catch(e){}
+        if(!_fp || _fp.hidden){
+          if(_tag !== "input" && _tag !== "textarea" && _tag !== "select" && !_modalOpen){
+            window._tvMenuGestureAt = 0;
+            window._tvMenuOpenedByNav = true;
+            openTvMenu();
+          } else {
+            window._tvMenuGestureAt = 0;
+          }
+        } else {
+          window._tvMenuGestureAt = 0;
+        }
+      } else {
+        window._tvMenuGestureAt = 0;
+      }
       return;
     }
   }
@@ -2804,6 +2828,13 @@ document.addEventListener("keydown", function(e){
   if(!IS_TV || e.key !== "ArrowLeft") return;
   if(!$("fullPlayer").hidden) return;
   if(tvMenuOpen()){
+    if(window._tvMenuOpenedByNav){
+      /* v2.2.144: the navigation controller just opened the menu on
+         this same keypress — don't instantly close it. Clear the flag
+         so the NEXT left press closes the menu normally. */
+      window._tvMenuOpenedByNav = false;
+      return;
+    }
     closeTvMenu();
     e.preventDefault();
     /* v2.2.97: mark the close so the navigation controller ignores
@@ -2930,8 +2961,10 @@ window.lmHandleBack = function(){
     if(tvMenuOpen()){ closeTvMenu(); window._tvMenuClosedAt = Date.now(); tvFocusRescue(); say("Menu closed."); return "handled"; }
     var lp = $("lyricsPanel");
     if(lp && !lp.hidden){ lp.hidden = true; try { $("fpPlayBtn").focus(); } catch(e){} say("Back to player."); return "handled"; }
-    /* Full player next — collapse it before closing panels underneath. */
-    if(!$("fullPlayer").hidden){ collapsePlayer(); return "handled"; }
+    /* Full player next — v2.2.144: Back closes it completely (pause +
+       hide the mini player too, focus back to the list) instead of
+       collapsing to the mini player, where D-pad focus got stranded. */
+    if(!$("fullPlayer").hidden){ closePlayerCompletely(); return "handled"; }
     if(!$("settingsView").hidden){ $("settingsView").hidden = true; showTab(state.tab && state.tab !== "settings" ? state.tab : "home"); say("Back."); return "handled"; }
     if(!$("accountView").hidden){ closeAccount(); return "handled"; }
     var ab = $("albumPanel");
@@ -4386,6 +4419,32 @@ function collapsePlayer(){
   $("fullPlayer").hidden = true;
   say("Player collapsed.");
   if(IS_TV){ try { $("mpExpandBtn").focus(); } catch(e){} }
+}
+/* v2.2.144: Back from the full player closes the player completely —
+   pause the music, hide the mini player as well as the full player, and
+   return D-pad focus to the content list. The queue is kept, so the next
+   tap on a song starts playback normally (the mini player reappears, and
+   on TV the full player expands per the v2.2.119 rule). Nothing else
+   re-shows the mini player: its only unhide sites are the play paths in
+   playQueueIndex, so hiding it here is safe. */
+function closePlayerCompletely(){
+  try {
+    var _playing = false;
+    try {
+      if(NATIVE_AUDIO){ _playing = !!(typeof nativeState !== "undefined" && nativeState.playing) || (state.queue.length > 0 && state.qi >= 0); }
+      else if(state.player){ var _s = state.player.getPlayerState(); _playing = (_s === YT.PlayerState.PLAYING || _s === YT.PlayerState.BUFFERING); }
+    } catch(e){}
+    if(_playing){
+      try {
+        if(NATIVE_AUDIO && typeof LynxosPlayer !== "undefined" && LynxosPlayer && typeof LynxosPlayer.pause === "function") LynxosPlayer.pause();
+        else if(state.player) state.player.pauseVideo();
+      } catch(e){}
+    }
+  } catch(e){}
+  try { $("fullPlayer").hidden = true; } catch(e){}
+  try { $("miniPlayer").hidden = true; } catch(e){}
+  try { if(typeof tvFocusRescue === "function") tvFocusRescue(); } catch(e){}
+  say("Player closed.");
 }
 $("fpYtMusicBtn").addEventListener("click", function(){
   var v = currentVideo();
