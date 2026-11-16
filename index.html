@@ -542,6 +542,11 @@
   body.tv #tv-menu h2 { font-size: 34px; color: var(--gold); margin: 0 0 10px 0; }
   body.tv #tv-menu button { text-align: left; }
   body.tv #tv-menu .tv-menu-hint { color: #999; font-size: 20px; margin: auto 0 0 0; }
+  /* v2.2.145: TV Menu button in the topbar — the only TalkBack-reachable
+     way into the side menu (the Left gesture is unreliable under
+     TalkBack, and the tab bar is hidden on TV). Hidden on phones. */
+  #tvMenuBtn { display: none; }
+  body.tv #tvMenuBtn { display: inline-block; }
   /* v2.2.114: 10-foot sizing for track rows and genre pills. */
   body.tv .trank { padding: 16px 8px; gap: 16px; }
   body.tv .trank img { width: 96px; height: 96px; }
@@ -611,7 +616,7 @@
 <!-- v2.2.89: TV-visible toast (say() shows it on TV; phones never see it). -->
 <div id="tvToast" hidden></div>
 <div id="ytplayer" aria-hidden="true"></div>
-<header class="topbar"><span class="logo">🎵 Lynxos Music</span><small>v2.2.144</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
+<header class="topbar"><button class="iconbtn gold" id="tvMenuBtn" aria-label="Open menu" onclick="openTvMenu()">☰ Menu</button><span class="logo">🎵 Lynxos Music</span><small>v2.2.145</small><button class="iconbtn" id="homeSearchBtn" aria-label="Search music" style="margin-left:auto">🔍</button><button class="iconbtn gold" id="accountBtn" aria-label="Account" onclick="openAccount()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg></button><button class="iconbtn gold" id="topbarSettingsBtn" aria-label="Open settings">⚙️</button></header>
 <main>
   <section id="homeView" role="tabpanel" aria-labelledby="tab-home">
     <!-- v2.2.67: YouTube Music-style home - genre chips -->
@@ -812,7 +817,7 @@
     </div>
     <div class="card" id="settingsAboutCard" tabindex="0" aria-label="About">
       <h3>About</h3>
-      <p class="hint">Lynxos Music v2.2.144. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
+      <p class="hint">Lynxos Music v2.2.145. Plays through the app's built-in player — strictly music, no interviews or talk videos — and keeps playing with the screen off. Home has your mixes and new releases from your favorite artists, Explore has genre stations, and your Library keeps songs, albums, playlists, and artists separate. Any album page has a Save album button, and every Home row has a See all button for a full vertical list. The YouTube Music button sends a song to your YouTube Music app.</p>
     </div>
   </section>
 </main>
@@ -839,7 +844,7 @@
   <button role="tab" id="tab-explore" aria-selected="false" aria-controls="exploreView"><span class="ticon">🧭</span>Explore</button>
   <button role="tab" id="tab-library" aria-selected="false" aria-controls="libraryView"><span class="ticon">📚</span>Library</button>
 </nav>
-<nav id="tv-menu" aria-label="TV menu">
+<nav id="tv-menu" role="dialog" aria-modal="true" aria-label="TV menu">
   <h2>Menu</h2>
   <button type="button" data-tv-tab="home">🏠 Home</button>
   <button type="button" data-tv-search>🔍 Search</button>
@@ -847,7 +852,7 @@
   <button type="button" data-tv-tab="library">📚 Library</button>
   <button type="button" data-tv-tab="settings">⚙️ Settings</button>
   <button type="button" data-tv-account>👤 Account</button>
-  <p class="tv-menu-hint">Tip: press the left arrow at the screen's edge anytime to open this menu.</p>
+  <p class="tv-menu-hint">Tip: press the ☰ Menu button, or the left arrow at the screen's edge, to open this menu.</p>
 </nav>
 <div id="fullPlayer" hidden role="dialog" aria-label="Now playing">
   <div class="fp-top">
@@ -2420,9 +2425,31 @@ function albumTrackMenu(t, anchor){
 /* ================= TV side menu + remote hooks ================= */
 var tvMenu = $("tv-menu");
 function tvMenuOpen(){ return !!(tvMenu && tvMenu.classList.contains("open")); }
+/* v2.2.145: while the TV menu is open, keep TalkBack inside it — inert
+   the rest of the app (topbar, tab views, mini player, tab bar, New
+   button). inert is supported in this WebView (Chrome 102+); the
+   aria-hidden fallback covers anything older. #status (the live
+   region) is deliberately NOT inerted — it carries the announcements. */
+function setTvMenuInert(on){
+  try {
+    var targets = [document.querySelector("header.topbar"), document.querySelector("main"), $("miniPlayer"), document.querySelector("nav.tabs"), $("newFab")];
+    for(var i = 0; i < targets.length; i++){
+      var el = targets[i];
+      if(!el) continue;
+      if("inert" in el) el.inert = on;
+      else if(on) el.setAttribute("aria-hidden", "true");
+      else el.removeAttribute("aria-hidden");
+    }
+  } catch(e){}
+}
 function openTvMenu(){
   if(!tvMenu || !IS_TV) return;
+  /* v2.2.145: remember the opener so closing the menu returns focus
+     to it (the Menu button, or the left-edge control the Left gesture
+     fired from) instead of the first button of the view. */
+  try { if(typeof tvNavSetOpener === "function"){ var _ae = document.activeElement; if(_ae && _ae !== document.body) tvNavSetOpener(_ae); } } catch(e){}
   tvMenu.classList.add("open");
+  setTvMenuInert(true);
   try {
     var items = tvMenu.querySelectorAll("button");
     var target = items[0];
@@ -2433,7 +2460,7 @@ function openTvMenu(){
   } catch(e){}
   say("Menu open. Choose a section.");
 }
-function closeTvMenu(){ if(tvMenu) tvMenu.classList.remove("open"); }
+function closeTvMenu(){ if(tvMenu) tvMenu.classList.remove("open"); try { setTvMenuInert(false); } catch(e){} }
 /* v2.2.92: TV focus rescue — hiding a view while it holds D-pad focus drops
    focus to <body>, stranding the remote (nothing responds until the app
    restarts). After every view change, if focus is lost or sits on something
@@ -2586,6 +2613,10 @@ function tvNavCandidates(layer){
     var el = nodes[i];
     if(el.disabled) continue;
     if(el.getAttribute("tabindex") === "-1") continue;
+    /* The TV Menu button is reached by TalkBack and by opening the menu,
+       not by D-pad geometry: it must never absorb a Left press that
+       should open the menu (v2.2.145 review blocker). */
+    if(el.id === "tvMenuBtn") continue;
     /* Up Next drawer layer: only the handle + the drawer's controls. */
     if(layer && layer.key === "upNext" && !el.closest("#fpUpNextBody") && el.id !== "fpUpNextHandle") continue;
     /* Player layer: the open drawer belongs to its own layer. */
@@ -2840,8 +2871,10 @@ document.addEventListener("keydown", function(e){
     /* v2.2.97: mark the close so the navigation controller ignores
        this same keypress instead of also moving in the content. */
     window._tvMenuClosedAt = Date.now();
-    /* v2.2.96: return D-pad focus to the content when the menu closes. */
-    tvFocusRescue();
+    /* v2.2.145: return focus to the opener (the Menu button or the
+       control the Left gesture fired from); falls back to the first
+       visible control when no opener is known. */
+    tvNavAfterLayerClose();
     say("Menu closed.");
     return;
   }
@@ -2958,7 +2991,7 @@ window.lmHandleBack = function(){
     if(typeof _tvLinkCode !== "undefined" && _tvLinkCode && !$("accountView").hidden){ cancelTvLink(); return "handled"; }
     /* TV Up Next overlay drawer closes before the player collapses. */
     if(IS_TV && !$("fullPlayer").hidden && !$("fpUpNextBody").hidden){ toggleUpNext(false); try { $("fpUpNextHandle").focus(); } catch(e){} return "handled"; }
-    if(tvMenuOpen()){ closeTvMenu(); window._tvMenuClosedAt = Date.now(); tvFocusRescue(); say("Menu closed."); return "handled"; }
+    if(tvMenuOpen()){ closeTvMenu(); window._tvMenuClosedAt = Date.now(); tvNavAfterLayerClose(); say("Menu closed."); return "handled"; }
     var lp = $("lyricsPanel");
     if(lp && !lp.hidden){ lp.hidden = true; try { $("fpPlayBtn").focus(); } catch(e){} say("Back to player."); return "handled"; }
     /* Full player next — v2.2.144: Back closes it completely (pause +
